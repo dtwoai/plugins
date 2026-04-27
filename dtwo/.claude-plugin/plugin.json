@@ -1,0 +1,19 @@
+{
+  "name": "dtwo",
+  "version": "0.1.0",
+  "description": "Manage DTwo gateways, policies, and Rego with the DTwo MCP server.",
+  "author": {
+    "name": "DTwo",
+    "email": "support@dtwo.ai"
+  },
+  "homepage": "https://dtwo.ai",
+  "repository": "https://github.com/dtwoai/dtwo-plugin",
+  "keywords": [
+    "dtwo",
+    "mcp",
+    "gateway",
+    "rego",
+    "opa",
+    "policy"
+  ]
+}
