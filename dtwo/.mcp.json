@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "dtwo": {
+      "url": "${DTWO_MCP_URL:-https://mcp.dev.dtwo.ai/mcp}",
+      "type": "http",
+      "oauth": {
+        "clientId": "0YRNsoZmTABT2onqysJEFiOQlXaugy2s",
+        "callbackPort": 33418
+      }
+    }
+  }
+}
