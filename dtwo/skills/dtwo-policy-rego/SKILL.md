@@ -158,6 +158,13 @@ Policies still produce a singular `transform` object; the aggregator is what tur
 
 When writing redaction policies, use both mechanisms together: `redact_fields` for structured data and `redact_patterns` for unstructured text.
 
+### `redact_patterns` caveats
+
+A few non-obvious behaviors to know about regex-based redaction:
+
+- **Patterns are applied byte-level, not JSON-aware.** `redact_patterns` operates on the serialized response payload and the post-redaction bytes are re-emitted without re-encoding. A pattern that matches across a JSON string boundary (e.g., a regex that eats one or more `"` quote characters) can leave the response slightly malformed — e.g., `"text": "[REDACTED]` with no closing quote. Most lenient JSON parsers tolerate this, but strict validators may reject it. Anchor patterns inside the expected content shape (e.g., `\b...\b` word boundaries) and avoid greedy `.*`-style matches.
+- **Patterns can over-match into structural identifiers.** A credit-card-style pattern `\d{4}[- ]?\d{4}[- ]?\d{4}[- ]?\d{4}` will also match the four hyphenated digit groups in the middle of a UUID; an email-style pattern `[\w.-]+@[\w.-]+\.[\w.-]+` will match embedded `user:password@host` substrings inside connection strings. These are the cost of general-purpose regex over arbitrary tool output — not policy bugs, just real-world false positives. Test against representative sample data before publishing.
+
 ### Transform Precedence
 
 1. **`transformed_payload`** — If set, bypasses all other transforms.
@@ -195,26 +202,143 @@ Egress policies evaluate **responses before they are returned to the caller**. T
 
 Every OPA policy receives an `input` document with this structure. The top-level fields are the same for all hook types — only `payload` and `mode` differ.
 
+Policy input is shaped around the four **PARC** dimensions:
+
+- **P**rincipal — *who* is making the request: `input.subject` (with `subject.sub` and `subject.claims`), plus the legacy `input.user` string.
+- **A**ction — *what* they're trying to do: `input.action` (an alias of `input.kind`, e.g. `tool_pre_invoke`).
+- **R**esource — *what* they're acting on: `input.resource` (with `resource.type` ∈ `"tool"` / `"prompt"` / `"resource"`, plus `resource.name` and `resource.uri`).
+- **C**ontext — *ambient request metadata*: `input.context` carries `payload`, `headers`, `request_ip`, `mode`, `correlation_id`, `tool_metadata`, and `gateway_metadata` alongside any policy-specific context. PARC keys take precedence on collision.
+
+Identity claims (the user's JWT-asserted attributes) live under the Principal dimension as `input.subject.claims` — see Identity (Subject and Claims) below.
+
+Older fields (`input.user`, `input.kind`, `input.payload.name`) are **deprecated** but remain populated for backwards compatibility. They may be removed in a future release — see Field Aliases below for the mapping. Use the PARC fields for new policies and migrate existing ones when convenient.
+
 ### Top-Level Structure
 
 ```jsonc
 {
   "input": {
     "kind":             "<string>",   // Hook type identifier (see Hook Types below)
-    "user":             "<string>",   // Authenticated user email or "anonymous"
+    "action":           "<string>",   // PARC-style alias for kind (same value, e.g. "tool_pre_invoke")
+    "mode":             "<string>",   // "input" (pre-hooks) | "output" (post-hooks)
+    "user":             "<string>",   // Authenticated user identifier (legacy — typically equals subject.sub)
+    "subject": {                      // Authenticated principal, derived from the user's IdP JWT
+      "sub":            "<string>",   //   JWT `sub` claim — stable user identifier
+      "claims":         {}            //   Selected JWT claims (see Identity (Subject and Claims) below)
+    },
+    "resource": {                     // What is being acted on
+      "type":           "<string>",   //   e.g., "tool"
+      "name":           "<string>",   //   e.g., the tool name (matches input.payload.name for tool hooks)
+      "uri":            "<string>" | null
+    },
+    "payload":          {},           // Hook-specific data (see Payload by Hook Type)
+    "tool_metadata":    {} | null,    // Tool definition (name, url, auth_type, gateway_id, input_schema, ...)
+    "context":          {},           // Mirror of top-level fields (correlation_id, payload, tool_metadata, ...)
+    "correlation_id":   "<string>",   // Request trace ID
     "request_ip":       "<string>",   // Client IP address or "unknown"
     "headers":          {},           // Filtered HTTP headers (dict<string, string>)
-    "payload":          {},           // Hook-specific data (see Payload by Hook Type)
-    "context":          {},           // Policy context from gateway state
-    "mode":             "<string>",   // "input" (pre-hooks) | "output" (post-hooks)
-    "correlation_id":   "<string>",   // Request trace ID
-    "tool_metadata":    {} | null,    // Optional tool metadata (name, version, server_id)
     "gateway_metadata": {} | null     // Optional gateway metadata (gateway_id, region)
   }
 }
 ```
 
-> **Note on current field population:** As of this writing, the gateway only reliably populates `kind`, `mode`, `user` (when an IdP is configured), `correlation_id`, and `payload`. The fields `context`, `tool_metadata`, and `gateway_metadata` are currently empty or `null`, and `request_ip` is typically `"unknown"`. Do not design policies that depend on these fields until the gateway begins populating them. In particular, IdP-enriched claims like groups, roles, or tenant IDs are **not** currently exposed — the only identity signal available is `input.user` (an email address).
+> **Note on current field population:** The gateway reliably populates `kind`, `action`, `mode`, `user`, `subject` (when an IdP is configured), `resource`, `correlation_id`, `payload`, `tool_metadata`, and `context`. `request_ip` is typically `"unknown"`, `headers` is typically `{}`. `gateway_metadata` is populated when the upstream MCP server has a gateway registration record (carrying its `id`, `name`, `slug`, `url`, `transport`, `capabilities`, etc.) and `null` otherwise — which path you get depends on how the upstream server was registered, so verify with the dump-input technique before relying on `gateway_metadata` fields in production.
+
+### Field Aliases
+
+Several PARC fields exist alongside **deprecated legacy fields** that carry the same value. Both are populated today, but the legacy forms may be removed in a future release. Use the PARC form for new policies; the legacy column is documented here so you can read and migrate older policies.
+
+| PARC field | Legacy/alias | Notes |
+|---|---|---|
+| `input.action` | `input.kind` | Identical value (e.g., `tool_pre_invoke`). `kind` predates PARC; `action` is the PARC name. Use either. |
+| `input.resource.name` | `input.payload.name` (tool hooks only) | Both are populated on `tool_pre_invoke` and `tool_post_invoke` and carry the same value. `payload.name` is tool-hook-specific — other hook types use `payload.prompt_id` (`prompt_*_fetch`) or `payload.uri` (`resource_*_fetch`). `resource.name` is the unified PARC form across all hook types. |
+| `input.resource.type` | (none) | New with PARC. Set to `"tool"` for tool hooks, `"prompt"` for prompt hooks, and `"resource"` for resource hooks. |
+| `input.subject.sub` | `input.user` | `input.user` typically equals `subject.sub` (e.g., `google-apps|paul@dtwo.ai`). Prefer `subject.sub` when working with claims; keep `input.user` for legacy policies that already use it. |
+| `input.subject.claims` | (none) | New with PARC. No legacy equivalent — claims were not exposed to policies before. |
+
+**Egress note:** Tool name discovery on egress was previously only available via `input.tool_metadata.name`. With PARC, `input.resource.name` is also populated on egress and matches `tool_metadata.name`. Either works.
+
+### Identity (Subject and Claims)
+
+When the gateway has an IdP configured, identity is exposed in two forms:
+
+- **`input.user`** — a single string (typically the JWT `sub`), kept for backwards compatibility with older policies.
+- **`input.subject`** — a richer object derived from the user's **IdP-issued JWT**, intended for fine-grained authorization.
+
+```jsonc
+{
+  "subject": {
+    "sub": "google-apps|paul@dtwo.ai",
+    "claims": {
+      "iss":      "https://<tenant>.us.auth0.com/",
+      "sub":      "google-apps|paul@dtwo.ai",
+      "scope":    "openid profile email",
+      "org_id":   "org_g6zdgXkQGLlQPa37",
+      "org_name": "asgind"
+      // ...plus any other IdP-enriched claims (groups, roles, tenant_id, etc.)
+    }
+  }
+}
+```
+
+Key facts:
+
+- **Identity is the Principal dimension of PARC** — `input.subject` is the structured form; `input.user` is a legacy string kept for backwards compatibility.
+- **Claims come from the JWT the user was issued by the IdP**, not from a separate gateway store. Whatever the IdP put in the access token (subject to filtering — see below) is what the policy sees. `subject.claims` is source-agnostic — it is currently populated from JWT but is designed to extend to other identity sources (e.g., SAML) without schema changes.
+- **`subject.sub` is the only normalized top-level identity field.** Everything else lives under `subject.claims`. For tokens issued by ContextForge itself, `subject.sub` is the user's email; for external IdP tokens, it is whatever the IdP put in the `sub` claim (typically an IdP-prefixed string like `google-apps|paul@dtwo.ai`).
+
+#### Filtered claims
+
+Three categories of JWT claim are **stripped** before populating `subject.claims`. Use these as a guide to what *won't* show up, regardless of what the JWT itself contained:
+
+1. **Bearer credentials** — `access_token`, `refresh_token`, `id_token`, `password`, `secret`, `token`, `client_secret`, `code_verifier`. Stripped to prevent credential leakage into decision logs.
+2. **Validation-layer claims** — `aud`, `exp`, `iat`, `nbf`, `jti` (validator-enforced), plus `authorization`, `azp`, `nonce`, `auth_time`, `at_hash`, `c_hash`, `s_hash` (OIDC artifacts inspected but not enforced). Stripped so Rego doesn't become a parallel JWT validator that silently disagrees with the real one. **Exception**: `iss` is intentionally retained — it's also a validation-layer claim, but the gateway uses it as a per-issuer scope key for claim-schema discovery.
+3. **ContextForge-internal claims** — `is_admin`, `teams`, and the nested `user` dict. These are minted by ContextForge's own JWT issuer for **its own internal RBAC**, *not* upstream IdP assertions.
+
+> **Critical: do not use `is_admin`, `teams`, or `user` for authorization in policies.** They are stripped from `subject.claims` and will silently never match. A policy that does `input.subject.claims.is_admin == true` is always false, regardless of who is calling. For role-based authorization, use IdP-supplied claims like `groups`, `roles`, or namespaced custom claims (e.g., `https://acme.com/roles`) — those pass through.
+
+Anything else the IdP put in the JWT — `iss`, `sub`, `scope`/`scp`, `email`, `org_id`, `groups`, `roles`, custom-namespaced claims — passes through to `subject.claims`. The exact set varies by IdP, by the scopes the client requested, and by the gateway's `jwt_audience` configuration. **Do not assume a claim is present** — use `object.get(input.subject.claims, "<claim>", "<default>")` and confirm the actual shape before relying on a specific claim in production. To enumerate the claim *names* a gateway has observed, call `dtwo-list-claims(gatewayUid)` (see `dtwo-gateway-policy` Tool Discovery → Finding Identity Claims). For actual claim *values* on a specific caller, use the dump-input technique (see Debugging Policies).
+
+If `input.subject` is empty or `input.subject.claims == {}`, the gateway's `jwt_audience` likely does not match the JWS `aud` claim, or the gateway has not yet observed any traffic from this caller's audience. Cross-check by calling `dtwo-list-claims(gatewayUid)`: if it returns an empty `claims` array the gateway has never discovered claims for any caller (a systemic misconfig affecting everyone); if it returns claims but the caller's `input.subject.claims` is still empty, the audience mismatch is specific to that caller's token. The policy should fail closed in either case rather than silently allow.
+
+#### Notes on common claims
+
+A few claims that frequently show up and have policy-relevant quirks:
+
+- **`scope`** — a single space-separated string (e.g., `"openid profile email"`), **not** an array. Use `contains(input.subject.claims.scope, "write:tickets")` for membership, not `==`. Represents what the token is permitted to do (client-asserted at consent time), not who the user is — don't use it as a role substitute.
+- **`iss`** — the JWT issuer URL. Retained despite being a validation-layer claim because the gateway uses it as a scope key for claim-schema discovery. Useful in policies for distinguishing tokens from different IdPs (e.g., a CF-issued internal token vs an external Auth0 token).
+- **`email`** — when present, is the user's email address. Optional in OIDC: only emitted when the client requests the `email` scope *and* the IdP is configured to issue it. Always use `object.get(input.subject.claims, "email", "")`; fall back to `subject.sub` only when you've confirmed the IdP issues email-shaped subs.
+- **`permissions`** *(Auth0-specific)* — an array of permission strings (e.g., `["read:tickets", "write:tickets"]`) emitted when Auth0 RBAC is enabled and "Add Permissions in the Access Token" is configured on the API. The closest built-in surface to roles/permissions on Auth0 tenants. For other IdPs, the equivalent typically lives under a custom-namespaced claim like `https://acme.com/roles`. **Auth0 does not include role names in the JWT by default** — without explicit configuration (RBAC + permissions, or a Post-Login Action), no role information reaches the policy regardless of what's assigned in the Auth0 dashboard.
+
+Example — gate by an IdP-enriched claim:
+
+```rego
+package jira.ingress.org_scoped
+
+default allow := false
+
+allow if {
+    object.get(input.subject.claims, "org_id", "") == "org_g6zdgXkQGLlQPa37"
+}
+
+reason := "This tool is restricted to the asgind org." if not allow
+```
+
+Example — fail closed when claims are not populated:
+
+```rego
+package jira.ingress.require_claims
+
+default allow := false
+
+allow if {
+    count(object.keys(input.subject.claims)) > 0
+    object.get(input.subject.claims, "scope", "") != ""
+    # ...further checks
+}
+
+reason := "Identity claims are not available for this caller. Verify the gateway's jwt_audience matches the token's aud." if not allow
+```
 
 ### Hook Types (`kind` values)
 
@@ -229,14 +353,14 @@ Every OPA policy receives an `input` document with this structure. The top-level
 
 ### Quick Reference: Key Fields by Direction
 
-| Direction | Tool name | Tool arguments | Tool output | User |
-|-----------|-----------|----------------|-------------|------|
-| Ingress | `input.payload.name` | `input.payload.args` | N/A | `input.user` |
-| Egress | `input.tool_metadata.name` | N/A | `input.payload.text` | `input.user` |
+| Direction | Tool name | Tool arguments | Tool output | Identity |
+|-----------|-----------|----------------|-------------|----------|
+| Ingress | `input.resource.name` (PARC) or `input.payload.name` (legacy) | `input.payload.args` | N/A | `input.subject.sub`, `input.subject.claims`, `input.user` (legacy) |
+| Egress | `input.resource.name` (PARC) or `input.tool_metadata.name` (legacy) | N/A | `input.payload.text` | `input.subject.sub`, `input.subject.claims`, `input.user` (legacy) |
 
 `input.request_ip`, `input.headers`, and `input.correlation_id` are available in both directions.
 
-> **Note:** `input.user` may contain the authenticated user's email or `"anonymous"` depending on the gateway's identity provider (IdP) configuration. User identity is not part of the MCP specification — it is injected by the gateway when an IdP is configured. Do not rely on `input.user` for access control unless the gateway is known to have authentication enabled.
+> **Note on identity:** Identity is injected by the gateway when an IdP is configured — it is not part of the MCP specification. Prefer `input.subject` (rich JWT-derived claims; see Identity (Subject and Claims) above) over the legacy `input.user` string. `input.user` may equal `"anonymous"` when no IdP is configured. Do not rely on either for access control unless the gateway is known to have authentication enabled.
 
 ### Payload by Hook Type
 
@@ -257,7 +381,8 @@ Every OPA policy receives an `input` document with this structure. The top-level
 
 ```jsonc
 {
-  "text": ["result line 1", "result line 2"]   // Tool output content blocks
+  "name": "tool-name",                          // Name of the tool that was invoked (matches the ingress payload.name)
+  "text": ["result line 1", "result line 2"]    // Tool output content blocks
 }
 ```
 
@@ -299,9 +424,9 @@ Every OPA policy receives an `input` document with this structure. The top-level
 
 ## Examples
 
-The following examples demonstrate common policy patterns. All examples use Jira tool names but the patterns apply to any MCP server.
+The following examples demonstrate common policy patterns. They use **PARC field names** (`input.resource.name`, `input.action`, `input.subject.*`); the legacy aliases (`input.payload.name`, `input.kind`, `input.user`) are **deprecated** but still populated for backwards compatibility — see Field Aliases for the mapping. All examples use Jira tool names but the patterns apply to any MCP server.
 
-> **Tool names are illustrative.** Examples use short tool names like `atlassian-getjiraissue` for readability. In practice, tool names in `input.payload.name` are prefixed with the MCP server name as configured on the gateway (e.g., `atlassian-jira-mcp-getjiraissue` if the server is named `atlassian-jira-mcp`). Always use the debug technique (see Debugging Policies) to confirm exact tool names before writing policies.
+> **Tool names are illustrative.** Examples use short tool names like `atlassian-getjiraissue` for readability. In practice, tool names in `input.resource.name` (or the legacy `input.payload.name`) are prefixed with the MCP server name as configured on the gateway (e.g., `atlassian-jira-mcp-getjiraissue` if the server is named `atlassian-jira-mcp`). Always use the debug technique (see Debugging Policies) to confirm exact tool names before writing policies.
 
 > **One policy, one job:** Each example below is a standalone policy that handles a single concern. To build comprehensive access control, compose multiple policies on the gateway — e.g., one policy to block direct HR issue access + a separate policy to rewrite JQL searches to exclude HR. This makes each policy independently testable and easier to reason about.
 
@@ -317,15 +442,15 @@ package jira.ingress.readonly
 default allow := false
 
 allow if {
-    lower(input.payload.name) == "atlassian-getjiraissue"
+    lower(input.resource.name) == "atlassian-getjiraissue"
 }
 
 allow if {
-    lower(input.payload.name) == "atlassian-searchjiraissuesusingjql"
+    lower(input.resource.name) == "atlassian-searchjiraissuesusingjql"
 }
 
 allow if {
-    lower(input.payload.name) == "atlassian-getvisiblejiraprojects"
+    lower(input.resource.name) == "atlassian-getvisiblejiraprojects"
 }
 
 reason := "You are not allowed to modify JIRA issues. Ask your InfoSec team for access." if not allow
@@ -347,7 +472,7 @@ allow if {
 
 # Block adding comments to DEV-1
 is_blocked_comment if {
-    lower(input.payload.name) == "atlassian-addcommenttojiraissue"
+    lower(input.resource.name) == "atlassian-addcommenttojiraissue"
     object.get(input.payload.args, "issueIdOrKey", "") == "DEV-1"
 }
 
@@ -376,13 +501,13 @@ forbidden_projects := {"HR"}
 
 # Allow tool calls that don't target forbidden projects
 allow if {
-    lower(input.payload.name) == "atlassian-getjiraissue"
+    lower(input.resource.name) == "atlassian-getjiraissue"
     not issue_belongs_to_forbidden_project(issue_key)
 }
 
 # Allow all other tools
 allow if {
-    lower(input.payload.name) != "atlassian-getjiraissue"
+    lower(input.resource.name) != "atlassian-getjiraissue"
 }
 
 # Helpers
@@ -394,7 +519,7 @@ issue_belongs_to_forbidden_project(key) if {
 }
 
 reasons contains "You are not allowed to view issues in the HR project. Ask your InfoSec team for access." if {
-    lower(input.payload.name) == "atlassian-getjiraissue"
+    lower(input.resource.name) == "atlassian-getjiraissue"
     issue_belongs_to_forbidden_project(issue_key)
 }
 
@@ -427,13 +552,13 @@ allowed_fields := {
 
 # Allow non-edit tools
 allow if {
-    lower(input.payload.name) != "atlassian-editjiraissue"
+    lower(input.resource.name) != "atlassian-editjiraissue"
 }
 
 # Allow edits that only touch permitted fields
 allow if {
-    input.kind == "tool_pre_invoke"
-    lower(input.payload.name) == "atlassian-editjiraissue"
+    input.action == "tool_pre_invoke"
+    lower(input.resource.name) == "atlassian-editjiraissue"
     not disallowed_field
 }
 
@@ -450,8 +575,8 @@ disallowed_field := f if {
 }
 
 reasons contains msg if {
-    input.kind == "tool_pre_invoke"
-    lower(input.payload.name) == "atlassian-editjiraissue"
+    input.action == "tool_pre_invoke"
+    lower(input.resource.name) == "atlassian-editjiraissue"
     f := disallowed_field
     msg := sprintf("Editing the field '%s' is not allowed. Only description, labels, priority, environment, and comment may be edited.", [f])
 }
@@ -565,8 +690,8 @@ transform := {
         {"jql": new_jql}
     )
 } if {
-    input.kind == "tool_pre_invoke"
-    lower(input.payload.name) == "atlassian-searchjiraissuesusingjql"
+    input.action == "tool_pre_invoke"
+    lower(input.resource.name) == "atlassian-searchjiraissuesusingjql"
     original_jql := object.get(input.payload.args, "jql", "")
     new_jql := build_jql(original_jql)
 }
@@ -616,6 +741,48 @@ build_jql(original_jql) := "project != HR" if {
     trim_space(original_jql) == ""
 }
 ```
+
+### Example 9: Tenant-Scoped Access by JWT Claim (Ingress)
+
+Allow a specific tool only when the caller's IdP-issued `org_id` claim is in an allowlist. Demonstrates reading `input.subject.claims` for authorization while leaving other tools unaffected.
+
+```rego
+package jira.ingress.org_scoped
+
+default allow := false
+
+# Orgs allowed to call atlassian-getjiraissue — typically populated from IdP claims
+# like Auth0's `org_id` or a custom-namespaced claim such as `https://acme.com/tenant_id`.
+allowed_orgs := {
+    "org_g6zdgXkQGLlQPa37",
+    "org_h7ahxYrLHMmRPbQR",
+}
+
+# Pass through any tool other than the one we're gating
+allow if {
+    lower(input.resource.name) != "atlassian-getjiraissue"
+}
+
+# Allow the gated tool only when the caller's org_id is on the list
+allow if {
+    lower(input.resource.name) == "atlassian-getjiraissue"
+    allowed_orgs[object.get(input.subject.claims, "org_id", "")]
+}
+
+reason := sprintf(
+    "atlassian-getjiraissue is restricted to specific orgs. Your org_id is %v.",
+    [object.get(input.subject.claims, "org_id", "<not set>")],
+) if {
+    lower(input.resource.name) == "atlassian-getjiraissue"
+    not allowed_orgs[object.get(input.subject.claims, "org_id", "")]
+}
+```
+
+Notes:
+
+- Use `object.get(input.subject.claims, "<claim>", "<default>")` for claim access. Direct access (`input.subject.claims.org_id`) silently fails if the claim isn't present, which makes the entire rule body fail to match — easy to mistake for a different bug.
+- The default value matters. `object.get(..., "")` ensures the membership check `allowed_orgs[""]` is false (the empty string is not in the set), so a missing claim deterministically denies. If you used a default like `null` or omitted the default entirely, you'd get a "rule body failed to match" silently rather than a clean deny + reason.
+- The exact claim names available depend on the IdP — Auth0 uses `org_id`, Okta might use `tenant`, custom IdPs might emit namespaced claims like `https://acme.com/tenant_id`. See Identity (Subject and Claims) for guidance on discovering the actual claim shape for your gateway.
 
 ## Policy Composition
 
@@ -770,6 +937,20 @@ reasons contains sprintf("Debug - name: %s, args: %v", [input.payload.name, inpu
 
 This blocks all tool calls and returns the tool name and arguments in the denial message.
 
+To inspect **identity** (the `subject` block and the JWT-derived claims), add:
+
+```rego
+reasons contains sprintf("Debug - user: %s, subject.sub: %s, claims: %v", [
+    object.get(input, "user", "<not set>"),
+    object.get(object.get(input, "subject", {}), "sub", "<not set>"),
+    object.get(object.get(input, "subject", {}), "claims", "<not set>"),
+]) if { true }
+```
+
+Use this to confirm what specific claim *values* are present in `input.subject.claims` for the current caller. To enumerate just the *names* a gateway has observed (across all callers, without attaching a policy), prefer `dtwo-list-claims(gatewayUid)` from the DTwo MCP server.
+
+> **Self-lock warning.** An always-deny dump policy attached to a gateway will block **every** tool call on that gateway, including any DTwo MCP tools your client routes through it. If you manage policies via an MCP client that goes through the same gateway, you will lock yourself out and have to detach the policy from the DTwo web UI (or another client/gateway) to recover. Attach to a gateway you are **not** using for policy management, or be prepared to detach via the UI.
+
 To scope the debug to a specific tool pattern (e.g., only Atlassian tools):
 
 ```rego
@@ -848,12 +1029,28 @@ Policies often contain hardcoded values like transition IDs, project keys, or to
 
 ## Common Pitfalls
 
-- **Using `payload.name` in egress policies:** Egress payloads (`tool_post_invoke`) do not contain `payload.name`. Use `input.tool_metadata.name` to identify the tool in egress policies.
+- **Identifying the tool in egress policies:** For `tool_post_invoke`, the tool name is available in three places — `input.tool_metadata.name`, `input.resource.name` (with PARC), and `input.payload.name`. All three carry the same value. Prefer `input.tool_metadata.name` or `input.resource.name` for direction-agnostic policies; treat `input.payload.name` as ingress-canonical and verify with the dump-input technique before relying on it for non-tool egress hooks (`prompt_post_fetch`, `resource_post_fetch`).
 - **Assuming fields are always present:** External APIs don't always return the same fields. For example, Jira may expose `emailAddress` for some users but not others depending on privacy settings. Always use `object.get(obj, key, default)` and consider fallback checks (e.g., matching on `displayName` when `emailAddress` is missing).
 - **Forgetting the `default allow` declaration:** Without a default, `allow` is `undefined` when no rule matches, which OPA treats differently than `false`. Always include `default allow := false` (for deny policies) or `default allow := true` (for transform-only policies).
 - **Direct key access on optional fields:** `input.payload.args.someField` will cause the rule to silently fail if `someField` doesn't exist. Use `object.get(input.payload.args, "someField", "")` instead.
 - **Guessing tool names:** Tool names in `input.payload.name` are prefixed with the MCP server name as configured on the gateway (e.g., `atlassian-jira-mcp-getjiraissue`, not just `atlassian-getjiraissue`). Examples in this skill use shortened names for readability, but real policies must match the exact name the gateway sends. Use the debug policy technique to confirm.
 - **Case-sensitive tool name comparisons:** By default, compare tool names case-insensitively using `lower(input.payload.name) == "..."` (or `lower(input.tool_metadata.name)` for egress). Tool names are strings configured on the gateway, and a case mismatch will silently cause the policy to not match — which is a hard bug to debug. Use case-sensitive comparisons only when the user has an explicit reason to do so.
+- **Direct access on `subject.claims`:** `input.subject.claims.org_id` silently fails if the claim isn't present, making the entire rule body fail to match — easy to mistake for a different bug. Always use `object.get(input.subject.claims, "<claim>", "<default>")`. Choose the default carefully so a missing claim produces a clean deny (e.g., `""` for string compares, `[]` for `some x in ...`).
+- **Assuming standard JWT claims are in `subject.claims`:** `aud`, `exp`, `iat`, `nbf`, `jti`, `azp`, `nonce`, and other validation-layer/OIDC claims are stripped before they reach the policy — Rego is not meant to be a parallel JWT validator. `iss` is the documented exception. See Identity (Subject and Claims) for the full strip set.
+- **Using `is_admin`, `teams`, or `user` from `subject.claims` for authorization:** These claims are stripped because they are ContextForge-internal RBAC plumbing minted by CF's own JWT issuer, not upstream IdP assertions. A policy that does `input.subject.claims.is_admin == true` is *always* false. For role-based authorization, use IdP-supplied claims like `groups`, `roles`, or namespaced custom claims.
+- **Treating `input.subject.sub` as an email address:** For tokens issued by ContextForge itself, `sub` is the user's email. For external IdP tokens, `sub` is whatever the IdP put in the `sub` claim — typically an IdP-prefixed identifier like `google-apps|paul@dtwo.ai`, not a clean email. If you need a stable user identifier, compare against the full `sub` value; if you need an email, prefer `input.subject.claims.email` (when the IdP emits it) and fall back to `sub` only when you've confirmed the IdP issues email-shaped subs.
+- **Self-locking with an always-deny ingress policy:** Attaching a `default allow := false` policy (or one that denies broadly during debugging, like a dump-input policy) to a gateway will block *every* tool call on that gateway — including any DTwo MCP management tools your client routes through it. **This only applies when the DTwo MCP server itself is configured behind that gateway** (a common but not universal setup); if your DTwo MCP server runs outside the gateway, calls to it bypass the gateway's policies and self-locking does not happen. When in doubt, check the gateway config: if `mcp_servers` includes a Dtwo entry that your client connects through, you are at risk.
+
+  **Mitigation: management-tool passthrough.** Add a single `allow if` rule that exempts `dtwo-*` tools from the deny:
+
+  ```rego
+  # Management bypass — keep DTwo MCP management tools usable while this policy is attached
+  allow if {
+      startswith(lower(input.resource.name), "dtwo-")
+  }
+  ```
+
+  Place this near the top of your policy, before the deny conditions. If your gateway also fronts a different management surface, add similar passthroughs for that prefix. Recovery if you skip the bypass and lock yourself out: detach the policy via the DTwo web UI, or via an MCP client that goes through a different gateway.
 
 ## Limitations
 

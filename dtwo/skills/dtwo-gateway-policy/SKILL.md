@@ -62,6 +62,7 @@ The tools listed below reflect the initial set. The DTwo MCP server may add new 
 | `dtwo-update-policy` | Update an existing policy's draft — any field (policy, packageName, name, description, direction, tags). Validates Rego when both policy and packageName are provided |
 | `dtwo-publish-policy` | Publish the current draft as a new version |
 | `dtwo-revert-policy` | Restore a published version back into the draft |
+| `dtwo-list-claims` | Return the union of JWT claim names that have been observed for a gateway, plus the issuers seen — use when authoring claim-based policies (`input.subject.claims.<x>`) to discover what claim names will actually match at runtime |
 
 ### Pipeline & Gateway Tools
 
@@ -92,19 +93,32 @@ Users typically refer to gateways by name. Use `dtwo-list-gateways` with the `na
 
 ## Tool Discovery
 
-When writing policies, you need exact tool names and argument schemas. Use the DTwo MCP server to discover these instead of guessing.
+When writing policies, you need exact tool names, argument schemas, and (for identity-aware policies) the shape of `input.subject.claims`. Use the DTwo MCP server's discovery tools (`dtwo-get-gateway-config` for tool names, `dtwo-list-claims` for claim names) — falling back to the dump-input debug technique when you need actual claim *values* rather than just names — instead of guessing.
 
 ### Finding Tool Names
 
 1. Use `dtwo-get-gateway-config` to retrieve the gateway's YAML configuration — the `mcp_servers[].name` values are the server name prefixes used in tool names.
-2. Tool names in `input.payload.name` are constructed as `<server-name>-<tool-name>`. The tool names visible when listing tools from the MCP server match what the gateway passes to OPA — no prefix stripping is needed.
+2. The tool name appears in policies as `input.resource.name` (PARC) or `input.payload.name` (legacy alias) — both carry the same value, constructed as `<server-name>-<tool-name>`. The names visible when listing tools from the MCP server match what the gateway passes to OPA — no prefix stripping is needed.
 3. Tool schemas include the full argument definitions (parameter names, types, required fields). Use these to write policies that check specific argument keys in `input.payload.args` — no guessing required.
+
+### Finding Identity Claims
+
+For policies that authorize on JWT claims (`input.subject.claims.<x>`), the projected claim set varies by IdP, by the scopes the client requested, and by the gateway's `jwt_audience`. Don't assume — query.
+
+**Primary path: `dtwo-list-claims(gatewayUid)`.** The gateway tracks every JWT claim name it has observed and exposes the cumulative union via this tool, along with the issuers seen. The response gives you the exact set of names that `input.subject.claims.<x>` references will match at runtime — no policy attach/deploy/detach cycle required.
+
+**Fallback: dump-input policy.** Use the dump-input technique (described in `dtwo-policy-rego` — see Debugging Policies + Identity (Subject and Claims)) when:
+
+- The gateway has not yet seen any caller traffic, so `dtwo-list-claims` returns an empty set — making one real call populates the discovery store.
+- You need to see actual claim *values* (e.g., the specific `org_id` for a particular caller), not just claim names.
+
+Detach the dump policy when done — the `dtwo-policy-rego` Common Pitfalls section warns about leaving an always-deny policy attached.
 
 ### Example
 
 If `dtwo-get-gateway-config` shows an MCP server named `atlassian-jira-mcp`, and that server exposes a tool `atlassian-jira-mcp-getjiraissue` with parameters `{cloudId, issueIdOrKey, ...}`:
 
-- Policy tool name: `atlassian-jira-mcp-getjiraissue`
+- Policy tool name: `atlassian-jira-mcp-getjiraissue` (matched against `input.resource.name` or `input.payload.name`)
 - Available argument keys: `cloudId`, `issueIdOrKey`, etc.
 
 ## Policy Workflow
@@ -160,6 +174,8 @@ Ingress and egress steps are independent arrays. Omitting a direction leaves it 
 `dtwo-deploy-gateway` is the only operation that affects a running gateway — all other changes (policy edits, pipeline attachment, publishing, reverting) modify draft or published state that is not live until a deploy happens. Always confirm with the user before deploying.
 
 After attaching or modifying policies, you **must** deploy the gateway for changes to take effect on the running instance.
+
+> **Self-lock risk before deploy.** If the policy you're about to deploy will deny calls to the DTwo MCP server itself (e.g., a `default allow := false` policy with no management bypass, or a debug policy that denies all requests), and your MCP client routes `dtwo-*` tools through this gateway, the deploy will lock you out — recovery requires the DTwo web UI. Before deploying, check `dtwo-get-gateway-config` for a `Dtwo` MCP server entry; if present and your client connects through this gateway, either add a `dtwo-*` passthrough rule to the policy or route management traffic through a different gateway. The Common Pitfalls section in `dtwo-policy-rego` covers the guarded-management-tool pattern in detail.
 
 **MCP connection drops during deploy:** The gateway restarts during deployment, which briefly disconnects the MCP server (typically 5–10 seconds). `dtwo-deploy-gateway` returns the task UID before the restart, so capture it. Then poll `dtwo-get-deployment` with that UID; transient errors are expected during the restart window. Do not proceed with testing or further changes until the deployment status confirms `status: "completed"`.
 
