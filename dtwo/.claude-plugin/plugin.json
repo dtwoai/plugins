@@ -1,6 +1,6 @@
 {
   "name": "dtwo",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Manage DTwo gateways, policies, and Rego with the DTwo MCP server.",
   "author": {
     "name": "DTwo",
