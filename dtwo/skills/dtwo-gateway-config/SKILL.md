@@ -96,6 +96,7 @@ mcp_servers:   # List of MCP server definitions
 Controls authentication, SSRF protection, logging, CORS, and advanced flags.
 
 - **Authentication** defaults to enabled when omitted. Supports JWKS-based JWT verification, SSO issuer, audience/issuer verification, JTI requirements, token expiration enforcement, and OAuth resource metadata.
+- **Gateway-side `jwks_info` is independent of any `mcp_servers[].authentication` block.** When the prompt supplies an IdP tenant and audience (e.g. Auth0), populate `gateway.authentication.jwks_info` (`jwt_algorithm`, `jwt_jwks_uri`, `jwt_issuer`, `jwt_audience`) — even when the upstream MCP server uses OAuth/DCR, and even when the prompt says the upstream server "only supports OAuth" or "does not accept bearer tokens." Those statements describe the outbound leg to the MCP server, not the inbound leg from clients to the gateway.
 - **SSRF** defaults to strict (block localhost, block private networks, fail-closed DNS) when omitted. Set `allow_private_networks: true` to permit access to `host.docker.internal` and other private addresses.
 
 ### MCP Servers Section
@@ -115,6 +116,8 @@ Supported authentication types:
 | `query_param` | `param_key`, `param_value` |
 | `oauth` | Either `issuer` (for DCR) or `client_id` + `client_secret` + `token_url`. Optional: `grant_type`, `scopes`, `authorization_url`, `redirect_uri`, `pkce_enabled`, `extra_authorize_params`, `scope_param_name`, `scope_separator`, `token_response_path`, `token_lifetime_seconds`, `oauth_quirks` |
 | `cert` | `ca_cert` (PEM) |
+
+**Secret-typed fields** (any field with `secret: true` in the schema — `token`, `password`, `client_secret`, `authheaders.headers[].value`, `query_param.param_value`) must never carry inferred or literal credentials. Emit a self-describing placeholder in one of these shapes: `REPLACE_WITH_<FIELD>`, `PLACEHOLDER_<FIELD>`, `YOUR_<FIELD>` / `your-<field>` (matching the OAuth example below), `CHANGE_ME`, or `${ENV_VAR}`. Bare `PLACEHOLDER` (no suffix), `FILL_FROM_ENV`, and descriptive prose like `placeholder-replace-me` do **not** count — the placeholder must be self-describing so the operator can see which value to substitute.
 
 ### MCP Server Example
 
