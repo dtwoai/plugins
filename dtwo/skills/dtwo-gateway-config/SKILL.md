@@ -91,11 +91,23 @@ mcp_servers:   # List of MCP server definitions
   - ...
 ```
 
+### Schema artifact
+
+A filtered `schema-reference.json` ships in your system context. For every gateway-config or MCP-server field, the artifact carries:
+
+- `description` — what the field does.
+- `rationale` — *why* and *when* to set it.
+- `target` / `targetKind` — where the value lands (`envVar` = env file, `sotwPath` = SOTW YAML, `advanced` = appended verbatim).
+- `secret: true` — flag that the value must be emitted as a placeholder, not a literal.
+- `schemaDefault` / `deployDefault` — the safe default if the field is omitted.
+
+Each section also carries `variants[]` (the discriminated-union shape) with per-variant `requiredFields`, and `crossFieldConstraints[]` (e.g. the OAuth "issuer OR client_id+client_secret+token_url" rule). Prefer the artifact's `rationale` text over inventing reasons; do not invent constraints not present in `variants[]` or `crossFieldConstraints[]`.
+
 ### Gateway Section
 
 Controls authentication, SSRF protection, logging, CORS, and advanced flags.
 
-- **Authentication** defaults to enabled when omitted. Supports JWKS-based JWT verification, SSO issuer, audience/issuer verification, JTI requirements, token expiration enforcement, and OAuth resource metadata.
+- **Authentication** is on by default — the schema default for `gateway.authentication.enabled` is `true`. The full set of `gateway.authentication.*` fields (JWKS verification, SSO issuer, audience/issuer, JTI, token expiration, OAuth resource metadata) is documented in `schema-reference.json` with per-field `description` and `rationale` — consult those rather than guessing.
 - **Gateway-side `jwks_info` is independent of any `mcp_servers[].authentication` block.** When the prompt supplies an IdP tenant and audience (e.g. Auth0), populate `gateway.authentication.jwks_info` (`jwt_algorithm`, `jwt_jwks_uri`, `jwt_issuer`, `jwt_audience`) — even when the upstream MCP server uses OAuth/DCR, and even when the prompt says the upstream server "only supports OAuth" or "does not accept bearer tokens." Those statements describe the outbound leg to the MCP server, not the inbound leg from clients to the gateway.
 - **SSRF** defaults to strict (block localhost, block private networks, fail-closed DNS) when omitted. Set `allow_private_networks: true` to permit access to `host.docker.internal` and other private addresses.
 
@@ -106,7 +118,7 @@ Each server requires `name` and `url`. Optional fields: `description`, `transpor
 - `transport_type` — accepted values are `streamablehttp`, `sse`, and `http`. **When generating new configs, always use `streamablehttp`** (one word). The parser also accepts `streamable_http` and normalizes it to `streamablehttp` when writing the file back out, so you may see either form in existing configs.
 - `refresh_interval_seconds` — supported but should not normally be set; rely on the gateway default unless the user has a specific reason to override.
 
-Supported authentication types:
+Supported authentication types — six discriminated variants keyed on `type` (plus a `none` variant for explicitly disabled auth):
 
 | Type | Required Fields |
 |------|----------------|
@@ -114,8 +126,9 @@ Supported authentication types:
 | `basic` | `username`, `password` |
 | `authheaders` | `headers` (array of `{key, value}`) |
 | `query_param` | `param_key`, `param_value` |
-| `oauth` | Either `issuer` (for DCR) or `client_id` + `client_secret` + `token_url`. Optional: `grant_type`, `scopes`, `authorization_url`, `redirect_uri`, `pkce_enabled`, `extra_authorize_params`, `scope_param_name`, `scope_separator`, `token_response_path`, `token_lifetime_seconds`, `oauth_quirks` |
 | `cert` | `ca_cert` (PEM) |
+
+The `oauth` variant is documented in the artifact's `variants[]` at `mcp_servers[].authentication`. Its `crossFieldConstraints[]` carries the load-bearing rule: emit either `issuer` (DCR) OR all three of `client_id` + `client_secret` + `token_url`. Per-field `description`/`rationale` for `grant_type`, `scopes`, `authorization_url`, `redirect_uri`, `pkce_enabled`, `extra_authorize_params`, `scope_param_name`, `scope_separator`, `token_response_path`, `token_lifetime_seconds`, `oauth_quirks` live in the same path.
 
 **Secret-typed fields** (any field with `secret: true` in the schema — `token`, `password`, `client_secret`, `authheaders.headers[].value`, `query_param.param_value`) must never carry inferred or literal credentials. Emit a self-describing placeholder in one of these shapes: `REPLACE_WITH_<FIELD>`, `PLACEHOLDER_<FIELD>`, `YOUR_<FIELD>` / `your-<field>` (matching the OAuth example below), `CHANGE_ME`, or `${ENV_VAR}`. Bare `PLACEHOLDER` (no suffix), `FILL_FROM_ENV`, and descriptive prose like `placeholder-replace-me` do **not** count — the placeholder must be self-describing so the operator can see which value to substitute.
 
