@@ -12,7 +12,7 @@ description: |
   (use dtwo-policy-rego alone); task is editing gateway YAML or MCP server entries (use dtwo-gateway-config).
 ---
 
-<!-- © 2026 DTwo, Inc. PROPRIETARY & CONFIDENTIAL. Not for redistribution, modification, or training of other models without a commercial license from DTwo, Inc. -->
+<!-- © 2026 DTwo, Inc. -->
 
 # DTwo Policy & Pipeline Manager
 

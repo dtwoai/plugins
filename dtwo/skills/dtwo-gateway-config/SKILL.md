@@ -8,7 +8,7 @@ description: |
   on a pipeline or pinning policy versions (use dtwo-gateway-policy).
 ---
 
-<!-- © 2026 DTwo, Inc. PROPRIETARY & CONFIDENTIAL. Not for redistribution, modification, or training of other models without a commercial license from DTwo, Inc. -->
+<!-- © 2026 DTwo, Inc. -->
 
 # DTwo Gateway & MCP Server Configuration
 
