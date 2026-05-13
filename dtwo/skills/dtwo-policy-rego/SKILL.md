@@ -11,7 +11,7 @@ description: |
   alone); task is general OPA usage outside the MCP Gateway; task is editing gateway YAML (use dtwo-gateway-config).
 ---
 
-<!-- © 2026 DTwo, Inc. PROPRIETARY & CONFIDENTIAL. Not for redistribution, modification, or training of other models without a commercial license from DTwo, Inc. -->
+<!-- © 2026 DTwo, Inc. -->
 
 # DTwo Rego Policy Expert
 
