@@ -71,6 +71,28 @@ The `dtwo` plugin uses only `skills/` and `.mcp.json` — everything else is omi
 
 Customers will then install it alongside the existing plugin with `/plugin install dtwo-foo@dtwo`.
 
+## Maintaining the schema digest (dtwo-gateway-config)
+
+The `dtwo-gateway-config` skill's SKILL.md carries a `### Schema Digest` subsection between sentinel markers (`<!-- BEGIN SCHEMA DIGEST -->` / `<!-- END SCHEMA DIGEST -->`) that is **generated from `schema-reference.json`** — do not edit it by hand.
+
+Why inline: production Claude Code does not auto-load a skill's `references/` directory; only `SKILL.md` is in the cached system prompt. To get field-level schema grounding to real users, the digest must live inline in SKILL.md.
+
+To regenerate after a schema bump (or to confirm the digest is in sync):
+
+```bash
+# Refresh the vendored schema from the d2 source of truth, then regenerate
+cp <path>/d2/packages/libs/utils/schema-reference.json dtwo/skills/dtwo-gateway-config/schema-reference.json
+node scripts/generate-schema-digest.mjs
+git diff dtwo/skills/dtwo-gateway-config/SKILL.md
+
+# CI / pre-commit guardrail — exits 1 if SKILL.md is stale relative to the vendored schema
+node scripts/generate-schema-digest.mjs --check
+```
+
+Custom paths work too: `node scripts/generate-schema-digest.mjs --schema=PATH --skill=PATH`.
+
+The generator is dependency-free (Node ESM, single file, ~280 LOC) so it runs anywhere Node 17+ is available.
+
 ## Releases
 
 Keep `version` in sync between the marketplace entry (`.claude-plugin/marketplace.json`) and the plugin manifest (`<plugin>/.claude-plugin/plugin.json`). Tag the release commit (e.g. `dtwo-v0.2.0`) so customers can pin to a specific version when needed.
