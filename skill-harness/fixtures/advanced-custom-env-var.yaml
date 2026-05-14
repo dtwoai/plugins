@@ -1,0 +1,34 @@
+id: advanced-custom-env-var
+tier: required
+tags: [advanced, escape_hatch]
+user_prompt: |
+  Generate a gateway that sets a custom env var
+  CUSTOM_FEATURE_FLAG=on via the gateway.advanced escape hatch
+  (as an entry in the advanced list, not as a hallucinated
+  top-level field). CUSTOM_FEATURE_FLAG is not a reserved key.
+  Include a single MCP server named "my-api" at
+  https://my-api.acme.com/mcp that uses a static bearer token —
+  use the exact placeholder "<REPLACE_WITH_BEARER_TOKEN>"
+  (including the angle brackets) as the token value. My Auth0
+  tenant is acme.us.auth0.com, audience https://api.acme.com.
+  Emit the YAML inline in a fenced code block; do not try to
+  call any tools.
+followups:
+  - match: "(server url|mcp server|url|token|name|endpoint|env|advanced|feature|flag)"
+    reply: |
+      Put CUSTOM_FEATURE_FLAG=on as a string entry in the
+      gateway.advanced list (not under any other key). Server
+      name "my-api", url https://my-api.acme.com/mcp, bearer
+      token "<REPLACE_WITH_BEARER_TOKEN>" (keep the angle
+      brackets). Emit the YAML inline.
+expect:
+  must_validate: true
+  required_paths:
+    - gateway.advanced
+  value_constraints:
+    - path: "gateway.advanced[0]"
+      regex: "CUSTOM_FEATURE_FLAG=on"
+  semantic_rubric:
+    - "Routes the custom env var through gateway.advanced, not a hallucinated top-level field"
+    - "Does not place any RESERVED key in gateway.advanced"
+clarifying_question_expected: false

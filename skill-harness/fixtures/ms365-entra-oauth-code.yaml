@@ -1,0 +1,86 @@
+# Sources (verified 2026-05-12):
+#   - https://learn.microsoft.com/entra/identity-platform/v2-protocols                       (mandatory /v2.0 issuer suffix)
+#   - https://learn.microsoft.com/entra/identity-platform/v2-oauth2-auth-code-flow           (authorization_code grant, redirect_uri)
+#   - https://learn.microsoft.com/entra/identity-platform/scopes-oidc                        (resource.permission dot-syntax, e.g. Calendars.Read.Shared)
+#   - https://learn.microsoft.com/entra/identity-platform/access-tokens                      (v2 endpoints)
+#   - Entra does NOT implement RFC 7591 DCR — client_id + client_secret are static, registered via app registration.
+# Schema ref: packages/libs/utils/schema-reference.json
+#   gateway.ssrf.allow_private_networks (host.docker.internal resolves into a private range)
+#
+# Authored 2026-05-12 from a real-world working M365 / Office 365 config supplied
+# by the user. Credentials redacted to placeholder forms (real secret never
+# materialized in the fixture); tenant GUID matches the existing entra fixture
+# for consistency.
+id: ms365-entra-oauth-code
+tier: aspirational
+tags: [ms365, microsoft_graph, entra, oauth, authorization_code, localhost_redirect, host_docker_internal]
+user_prompt: |
+  Add a Microsoft 365 MCP server to my gateway. The server runs at
+  http://host.docker.internal:3000/mcp (streamable HTTP). I have an
+  Entra app registered in tenant 72f988bf-86f1-41af-91ab-2d7cd011db47
+  using the OAuth authorization code flow, redirect URI
+  http://localhost:4444/oauth/callback. Use placeholders for the
+  client_id and client_secret — I'll fill them in from env later.
+  Scopes I need: openid, profile, offline_access, Calendars.Read.Shared.
+  My Auth0 tenant is acme.us.auth0.com, audience https://api.acme.com
+  (for the inbound gateway leg). Emit the YAML inline in a fenced code
+  block; do not try to call any tools.
+followups:
+  - match: /audience/i
+    reply: "https://api.acme.com"
+expect:
+  must_validate: true
+  required_paths:
+    - gateway.authentication.jwks_info.jwt_algorithm
+    - gateway.authentication.jwks_info.jwt_jwks_uri
+    - gateway.authentication.jwks_info.jwt_issuer
+    - gateway.authentication.jwks_info.jwt_audience
+    - gateway.ssrf.allow_private_networks
+    - mcp_servers[0].name
+    - mcp_servers[0].url
+    - mcp_servers[0].transport_type
+    - mcp_servers[0].authentication.type
+    - mcp_servers[0].authentication.grant_type
+    - mcp_servers[0].authentication.authorization_url
+    - mcp_servers[0].authentication.token_url
+    - mcp_servers[0].authentication.redirect_uri
+    - mcp_servers[0].authentication.client_id
+    - mcp_servers[0].authentication.client_secret
+    - mcp_servers[0].authentication.scopes
+  forbidden_paths:
+    - mcp_servers[0].authentication.pkce_enabled
+  value_constraints:
+    - path: "gateway.ssrf.allow_private_networks"
+      equals: true
+    - path: "mcp_servers[0].authentication.type"
+      equals: oauth
+    - path: "mcp_servers[0].authentication.grant_type"
+      equals: authorization_code
+    - path: "mcp_servers[0].authentication.authorization_url"
+      regex: "^https://login\\.microsoftonline\\.com/.+/oauth2/v2\\.0/authorize$"
+    - path: "mcp_servers[0].authentication.token_url"
+      regex: "^https://login\\.microsoftonline\\.com/.+/oauth2/v2\\.0/token$"
+    - path: "mcp_servers[0].authentication.redirect_uri"
+      regex: "^https?://"
+    - path: "mcp_servers[0].authentication.client_id"
+      regex: "^<?(REPLACE_|PLACEHOLDER_|CHANGE_?ME|YOUR[_-]|your[_-])|^\\$\\{"
+    - path: "mcp_servers[0].authentication.client_secret"
+      regex: "^<?(REPLACE_|PLACEHOLDER_|CHANGE_?ME|YOUR[_-]|your[_-])|^\\$\\{"
+    - path: "mcp_servers[0].authentication.scopes"
+      min_length: 4
+    - path: "mcp_servers[0].url"
+      regex: "host\\.docker\\.internal"
+  # Explicit opt-out: user asked for host.docker.internal upstream, so
+  # the safe-defaults check should not fire on the SSRF private-networks
+  # path.
+  safe_default_opt_out:
+    - gateway.ssrf.allow_private_networks
+  semantic_rubric:
+    - "Issuer ends in /v2.0 (mandatory for Entra v2 tokens); authorize and token URLs are the v2.0 endpoints"
+    - "grant_type is authorization_code with redirect_uri AND client_secret both present — distinct from DCR (issuer-only) and from client_credentials (no redirect_uri)"
+    - "Microsoft Graph scopes use resource.permission dot-syntax (Calendars.Read.Shared) — preserved verbatim as an array element, not space- or comma-joined into one string"
+    - "Includes the OIDC trio openid + profile + offline_access (offline_access is required for refresh tokens)"
+    - "Sets gateway.ssrf.allow_private_networks: true because host.docker.internal resolves into a private range; leaves allow_localhost and other SSRF defaults intact"
+    - "Does not emit pkce_enabled unless user requested it (Entra confidential clients with a secret typically rely on the secret, not PKCE)"
+    - "The outbound mcp_servers[].authentication.issuer is NOT set — Entra is non-DCR; setting issuer alongside client_id/client_secret/token_url is the contradictory-dcr-with-secret pattern, not what this prompt asks for"
+clarifying_question_expected: false

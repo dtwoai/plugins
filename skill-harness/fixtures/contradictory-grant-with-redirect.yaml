@@ -1,0 +1,16 @@
+id: contradictory-grant-with-redirect
+tier: aspirational
+tags: [contradictory, oauth, client_credentials]
+user_prompt: |
+  Generate an MCP server using OAuth client_credentials. Also
+  set the redirect_uri to https://app.acme.com/callback. My
+  Auth0 tenant is acme.us.auth0.com, audience https://api.acme.com.
+followups:
+  - match: /grant|redirect|user-delegated|m2m/i
+    reply: "This is a machine-to-machine integration; no redirect is needed."
+expect:
+  must_validate: true
+  semantic_rubric:
+    - "Recognizes that client_credentials is non-interactive so redirect_uri does not apply"
+    - "Either clarifies, or drops redirect_uri and keeps client_credentials"
+clarifying_question_expected: true

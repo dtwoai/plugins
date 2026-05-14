@@ -1,0 +1,53 @@
+id: slack-auth0-oauth
+tier: required
+tags: [auth0, oauth, slack, quirks]
+user_prompt: |
+  Generate a gateway for my Auth0 tenant acme.us.auth0.com,
+  audience https://api.acme.com, with a single MCP server named
+  "slack" at https://slack.com/api that uses OAuth. Slack has
+  three quirks that must be set on the server's authentication
+  block verbatim:
+    - scope_separator: ","
+    - token_response_path: authed_user
+    - extra_authorize_params: { user_scope: "chat:write,channels:read" }
+  Use the Slack issuer https://slack.com and include at least one
+  Slack scope (e.g. chat:write, channels:read). Emit the YAML
+  inline in a fenced code block; do not try to call any tools.
+followups:
+  - match: "(audience|issuer|server url|mcp server|url|name|endpoint|scope|user_scope|token|param|slack)"
+    reply: |
+      Tenant acme.us.auth0.com, audience https://api.acme.com.
+      Server name "slack", url https://slack.com/api. Under the
+      Slack server's oauth authentication block, set
+      scope_separator: ",", token_response_path: authed_user, and
+      extra_authorize_params with a user_scope entry (keep the
+      key casing exactly as user_scope). Include at least one
+      Slack scope such as chat:write. Emit the YAML inline.
+expect:
+  must_validate: true
+  required_paths:
+    - gateway.authentication.jwks_info.jwt_algorithm
+    - gateway.authentication.jwks_info.jwt_jwks_uri
+    - gateway.authentication.jwks_info.jwt_issuer
+    - gateway.authentication.jwks_info.jwt_audience
+    - mcp_servers[0].name
+    - mcp_servers[0].url
+    - mcp_servers[0].authentication.type
+    - mcp_servers[0].authentication.grant_type
+    - mcp_servers[0].authentication.scopes
+    - mcp_servers[0].authentication.scope_separator
+    - mcp_servers[0].authentication.token_response_path
+    - mcp_servers[0].authentication.extra_authorize_params
+  value_constraints:
+    - path: "mcp_servers[0].authentication.type"
+      equals: oauth
+    - path: "mcp_servers[0].authentication.scope_separator"
+      equals: ","
+    - path: "mcp_servers[0].authentication.token_response_path"
+      equals: "authed_user"
+    - path: "mcp_servers[0].authentication.scopes"
+      min_length: 1
+  semantic_rubric:
+    - "Preserves Slack's `user_scope` key casing in extra_authorize_params"
+    - "Scopes include at least one Slack scope (e.g. chat:write, channels:read)"
+clarifying_question_expected: false

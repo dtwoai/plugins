@@ -1,0 +1,37 @@
+id: cert-mtls
+tier: required
+tags: [cert, mtls]
+user_prompt: |
+  Generate a gateway with a single MCP server named "my-api" at
+  https://my-api.acme.com/mcp that uses client-certificate auth
+  (mTLS) with a custom CA. My Auth0 tenant is acme.us.auth0.com,
+  audience https://api.acme.com. The CA is internal; use a PEM
+  placeholder for the ca_cert value (a minimal
+  -----BEGIN CERTIFICATE----- ... -----END CERTIFICATE----- block
+  is fine) — do not commit a real cert. Emit the YAML inline in a
+  fenced code block; do not try to call any tools.
+followups:
+  - match: "(server url|mcp server|url|cert|ca|pem|name|endpoint)"
+    reply: |
+      Server name "my-api", url https://my-api.acme.com/mcp. Use
+      a PEM placeholder for ca_cert (BEGIN/END CERTIFICATE
+      markers around any dummy body). Emit the YAML inline.
+expect:
+  must_validate: true
+  required_paths:
+    - gateway.authentication.jwks_info.jwt_algorithm
+    - gateway.authentication.jwks_info.jwt_jwks_uri
+    - gateway.authentication.jwks_info.jwt_issuer
+    - gateway.authentication.jwks_info.jwt_audience
+    - mcp_servers[0].name
+    - mcp_servers[0].url
+    - mcp_servers[0].authentication.type
+    - mcp_servers[0].authentication.ca_cert
+  value_constraints:
+    - path: "mcp_servers[0].authentication.type"
+      equals: cert
+    - path: "mcp_servers[0].authentication.ca_cert"
+      regex: "-----BEGIN CERTIFICATE-----"
+  semantic_rubric:
+    - "ca_cert contains a PEM-encoded placeholder (BEGIN/END CERTIFICATE markers) — not a real cert"
+clarifying_question_expected: false
