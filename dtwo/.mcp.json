@@ -1,10 +1,10 @@
 {
   "mcpServers": {
     "dtwo": {
-      "url": "${DTWO_MCP_URL:-https://mcp.staging.dtwo.ai/mcp}",
+      "url": "${DTWO_MCP_URL:-https://mcp.stg1.staging.dtwo.ai/mcp}",
       "type": "http",
       "oauth": {
-        "clientId": "ti760mUirmKnX5WmS1aV5IA29Jf3irbn",
+        "clientId": "mNUGctRXP2CMgPgn8QVRkO2wE5PeQ1ys",
         "callbackPort": 33418
       }
     }

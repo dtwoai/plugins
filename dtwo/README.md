@@ -28,7 +28,7 @@ The URL can be overridden by setting `DTWO_MCP_URL` before launching Claude Code
 export DTWO_MCP_URL=http://localhost:3000/mcp
 
 # Point at staging or production
-export DTWO_MCP_URL=https://mcp.dtwo.ai/mcp
+export DTWO_MCP_URL=https://mcp.stg1.staging.dtwo.ai/mcp
 ```
 
 For a per-project override that doesn't touch your shell, drop it in `.claude/settings.local.json` at the root of the project you're working in (this file is git-ignored by default):
