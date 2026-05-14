@@ -33,13 +33,14 @@ The tools listed below reflect the initial set. The DTwo MCP server may add new 
 
 **Tool naming note:** This skill refers to the DTwo MCP tools by their short names (e.g., `dtwo-list-gateways`). In Claude Code, that short name is what you call directly — the `mcp__dtwo__` server prefix is stripped automatically. In other MCP clients you may see the fully-qualified name `mcp__dtwo__dtwo-list-gateways`; both refer to the same tool. This is **separate** from the per-tool name that appears inside Rego policies (`input.payload.name`) — see the companion `dtwo-policy-rego` instructions for that.
 
-## Workflow
+## High-level workflow
 
-1. Identify the target gateway and relevant policy or policies.
-2. Inspect the current policy draft, published versions, and pipeline attachments.
-3. For any Rego authoring or modification, invoke `Skill("dtwo-policy-rego")` (or your host's equivalent) to produce or revise the code before proceeding.
-4. Validate before creating, updating, publishing, or attaching.
-5. Only deploy after confirming with the user, then verify both deployment completion and policy behavior.
+1. Pull tenant claims with `dtwo-list-claims` (see Tool Discovery → Finding Identity Claims).
+2. Identify the target gateway and relevant policy or policies.
+3. Inspect the current policy draft, published versions, and pipeline attachments.
+4. For any Rego authoring or modification, invoke `Skill("dtwo-policy-rego")` (or your host's equivalent) to produce or revise the code before proceeding.
+5. Validate before creating, updating, publishing, or attaching.
+6. Only deploy after confirming with the user, then verify both deployment completion and policy behavior.
 
 ## Rules
 
@@ -47,6 +48,7 @@ The tools listed below reflect the initial set. The DTwo MCP server may add new 
 - Prefer testing draft policies before publishing and pinning versions.
 - Treat pipeline changes as non-live until a deploy completes successfully.
 - Do not treat `revert-policy` as deletion; detach first if the user wants removal from runtime behavior.
+- Before authoring a policy for a gateway that fronts the DTwo MCP server (a `Dtwo` entry in `mcp_servers`), plan a `dtwo-*` passthrough into the Rego. Without it, the deploy locks management calls out — see Deploying → Self-lock risk.
 
 ## Available Tools
 
@@ -62,7 +64,7 @@ The tools listed below reflect the initial set. The DTwo MCP server may add new 
 | `dtwo-update-policy` | Update an existing policy's draft — any field (policy, packageName, name, description, direction, tags). Validates Rego when both policy and packageName are provided |
 | `dtwo-publish-policy` | Publish the current draft as a new version |
 | `dtwo-revert-policy` | Restore a published version back into the draft |
-| `dtwo-list-claims` | Return the union of JWT claim names that have been observed for a gateway, plus the issuers seen — use when authoring claim-based policies (`input.subject.claims.<x>`) to discover what claim names will actually match at runtime |
+| `dtwo-list-claims` | Return the union of JWT claim names observed across the tenant, plus the issuers seen. Defaults to tenant-wide; pass `gatewayUid` to scope to a single gateway when the user asks. Call this *first* on any policy-authoring task so identity-based rules can reference claims that actually exist. |
 
 ### Pipeline & Gateway Tools
 
@@ -93,7 +95,7 @@ Users typically refer to gateways by name. Use `dtwo-list-gateways` with the `na
 
 ## Tool Discovery
 
-When writing policies, you need exact tool names, argument schemas, and (for identity-aware policies) the shape of `input.subject.claims`. Use the DTwo MCP server's discovery tools (`dtwo-get-gateway-config` for tool names, `dtwo-list-claims` for claim names) — falling back to the dump-input debug technique when you need actual claim *values* rather than just names — instead of guessing.
+When writing policies, you need exact tool names, argument schemas, and (for identity-aware policies) the shape of `input.subject.claims`. Use `dtwo-get-gateway-config` for tool names and `dtwo-list-claims` for claim names (details in Finding Identity Claims below) — falling back to the dump-input debug technique when you need actual claim *values* rather than just names — instead of guessing.
 
 ### Finding Tool Names
 
@@ -103,14 +105,11 @@ When writing policies, you need exact tool names, argument schemas, and (for ide
 
 ### Finding Identity Claims
 
-For policies that authorize on JWT claims (`input.subject.claims.<x>`), the projected claim set varies by IdP, by the scopes the client requested, and by the gateway's `jwt_audience`. Don't assume — query.
+Pull claims at the start of every policy-authoring task — not only when the user has explicitly asked for identity gating. Knowing what claims the tenant has actually observed often surfaces a cleaner policy shape (for example, gating on `org_id` instead of a brittle email-substring match). The projected claim set varies by IdP, by the scopes the client requested, and by each gateway's `jwt_audience`, so don't assume — query.
 
-**Primary path: `dtwo-list-claims(gatewayUid)`.** The gateway tracks every JWT claim name it has observed and exposes the cumulative union via this tool, along with the issuers seen. The response gives you the exact set of names that `input.subject.claims.<x>` references will match at runtime — no policy attach/deploy/detach cycle required.
+**Primary path: `dtwo-list-claims`.** Returns the tenant-wide union of JWT claim names and issuers. Call it with no arguments by default. Pass `gatewayUid` only when the user has explicitly asked to scope the result to a single gateway (e.g., "what claims does the PARC Gateway see"); otherwise tenant-wide is the right default and gives a more complete picture.
 
-**Fallback: dump-input policy.** Use the dump-input technique (described in `dtwo-policy-rego` — see Debugging Policies + Identity (Subject and Claims)) when:
-
-- The gateway has not yet seen any caller traffic, so `dtwo-list-claims` returns an empty set — making one real call populates the discovery store.
-- You need to see actual claim *values* (e.g., the specific `org_id` for a particular caller), not just claim names.
+**Fallback: dump-input policy.** Fall back to the dump-input technique (described in `dtwo-policy-rego` — see Debugging Policies + Identity (Subject and Claims)) when you need actual claim *values* for a specific caller (e.g. the exact `org_id` for a particular user), not just claim names — `dtwo-list-claims` only returns names and issuers. Rare edge case: if `dtwo-list-claims` returns an empty set the tenant has not yet observed *any* JWT traffic anywhere; making one real call populates the discovery store.
 
 Detach the dump policy when done — the `dtwo-policy-rego` Common Pitfalls section warns about leaving an always-deny policy attached.
 
@@ -125,27 +124,30 @@ If `dtwo-get-gateway-config` shows an MCP server named `atlassian-jira-mcp`, and
 
 ### Creating a New Policy
 
-1. Generate the Rego code using the guidance in the companion `dtwo-policy-rego` instructions
-2. Validate with `dtwo-validate-policy-rego`
-3. Create with `dtwo-add-policy` — provide:
+1. Pull tenant claims with `dtwo-list-claims` (see Tool Discovery → Finding Identity Claims).
+2. If the target gateway fronts the DTwo MCP server, plan a `dtwo-*` passthrough before authoring — see Deploying → Self-lock risk.
+3. Generate the Rego code using the guidance in the companion `dtwo-policy-rego` instructions
+4. Validate with `dtwo-validate-policy-rego`
+5. Create with `dtwo-add-policy` — provide:
    - `name` — human-readable policy name
    - `description` — what the policy does
    - `policy` — the Rego code
    - `packageName` — the Rego package name (e.g., `jira.ingress.readonly`)
    - `direction` — `ingress` or `egress`
-4. Attach the **draft** (unpublished) policy to a gateway with `dtwo-set-gateway-pipelines` — **omit** `policyVersion` to reference the draft
-5. Deploy with `dtwo-deploy-gateway` and test the policy behavior
-6. Once the draft is working as desired, publish with `dtwo-publish-policy`
-7. Update the gateway pipeline to pin the published version with `dtwo-set-gateway-pipelines` and redeploy
+6. Attach the **draft** (unpublished) policy to a gateway with `dtwo-set-gateway-pipelines` — **omit** `policyVersion` to reference the draft
+7. Deploy with `dtwo-deploy-gateway` and test the policy behavior
+8. Once the draft is working as desired, publish with `dtwo-publish-policy`
+9. Update the gateway pipeline to pin the published version with `dtwo-set-gateway-pipelines` and redeploy
 
 ### Modifying an Existing Policy
 
 1. Fetch current Rego with `dtwo-get-policy`
-2. Modify the Rego code using the guidance in the companion `dtwo-policy-rego` instructions
-3. Save the updated Rego with `dtwo-update-policy` — provide `uid`, `policy`, and `packageName` (Rego is validated automatically when both are provided)
-4. If the policy is already attached to the gateway pipeline as a draft (no `policyVersion`), just deploy to pick up the new draft. If it was pinned to a published version, update the pipeline step by omitting `policyVersion` with `dtwo-set-gateway-pipelines`, then deploy.
-5. Once working, publish with `dtwo-publish-policy`
-6. Update the gateway pipeline to pin the new published version and redeploy
+2. If the change might introduce or alter identity gating, pull tenant claims with `dtwo-list-claims` (see Tool Discovery → Finding Identity Claims).
+3. Modify the Rego code using the guidance in the companion `dtwo-policy-rego` instructions
+4. Save the updated Rego with `dtwo-update-policy` — provide `uid`, `policy`, and `packageName` (Rego is validated automatically when both are provided)
+5. If the policy is already attached to the gateway pipeline as a draft (no `policyVersion`), just deploy to pick up the new draft. If it was pinned to a published version, update the pipeline step by omitting `policyVersion` with `dtwo-set-gateway-pipelines`, then deploy.
+6. Once working, publish with `dtwo-publish-policy`
+7. Update the gateway pipeline to pin the new published version and redeploy
 
 ### Rolling Back a Policy
 
@@ -206,28 +208,31 @@ This section walks through one complete request — from natural-language prompt
 
 **User request:** "Create a policy that blocks DMs to John in Slack when the message contains sensitive information."
 
-### 1. Resolve the gateway
+### 1. Pull tenant claims
+Call `dtwo-list-claims` per Tool Discovery → Finding Identity Claims. Capture the claim names so step 6 can pass them to the Rego author.
+
+### 2. Resolve the gateway
 Call `dtwo-list-gateways`. If the user hasn't named one and multiple exist, ask. Record the UID.
 
-### 2. Inspect current pipeline state
+### 3. Inspect current pipeline state
 Call `dtwo-get-gateway-pipelines` for that UID. This tells you whether new steps append cleanly, or risk colliding with existing transforms / deny policies.
 
-### 3. Discover the tool name and arguments
+### 4. Discover the tool name and arguments
 Call `dtwo-get-gateway-config`. Read `mcp_servers[].name` — the server name prefixes policy tool names. For Slack, the send tool is typically `slack-mcp-slack-send-message` with args `{channel_id, message, thread_ts, ...}`. Do not guess; confirm from the config.
 
-### 4. Look up resource IDs the policy depends on
+### 5. Look up resource IDs the policy depends on
 For "DMs to John", you need John's Slack user ID (DMs use user IDs as `channel_id`). Use `slack-search-users` or equivalent. Capture the ID, and note the assumption that DM = user ID.
 
-### 5. Hand off Rego authoring to `dtwo-policy-rego`
-Invoke `Skill("dtwo-policy-rego")` (or your host's equivalent) with the exact tool name, channel ID, and the sensitive-content patterns agreed with the user. It returns a fenced Rego block.
+### 6. Hand off Rego authoring to `dtwo-policy-rego`
+Invoke `Skill("dtwo-policy-rego")` (or your host's equivalent) with the exact tool name, channel ID, the sensitive-content patterns agreed with the user, and the claim names from step 1 (so the Rego author can decide whether to gate by identity). It returns a fenced Rego block.
 
-### 6. Validate before creating
-Call `dtwo-validate-policy-rego` with the Rego and its `packageName`. If validation fails, loop back to step 5 — do *not* create a broken policy.
+### 7. Validate before creating
+Call `dtwo-validate-policy-rego` with the Rego and its `packageName`. If validation fails, loop back to step 6 — do *not* create a broken policy.
 
-### 7. Create the policy
+### 8. Create the policy
 Call `dtwo-add-policy` with `name`, `description`, `policy`, `packageName`, `direction`. Capture the returned `uid`. The draft is stored but not live.
 
-### 8. Attach as a draft
+### 9. Attach as a draft
 Call `dtwo-set-gateway-pipelines` with the new step, **omitting `policyVersion`** so the draft is used. Preserve existing steps — do not overwrite them.
 
 ```json
@@ -239,29 +244,29 @@ Call `dtwo-set-gateway-pipelines` with the new step, **omitting `policyVersion`*
 }
 ```
 
-### 9. Confirm with the user, then deploy
+### 10. Confirm with the user, then deploy
 Deployment is the first live-state change. State it plainly ("I'll deploy now — the gateway will disconnect for ~5–10s") and wait for confirmation before calling `dtwo-deploy-gateway`. Capture the task UID.
 
-### 10. Poll until complete, handling 502s
+### 11. Poll until complete, handling 502s
 Loop on `dtwo-get-deployment`. A `502 Bad Gateway` means the gateway is mid-restart — keep retrying. An `"MCP server is not connected"` error means the client fully dropped — ask the user to reconnect, then resume polling. Stop only when `status: "completed"`.
 
-### 11. Verify the attachment landed
+### 12. Verify the attachment landed
 Call `dtwo-get-gateway-pipelines` again. Confirm the new step is at the expected index with the right `evalNamespace` and the intended `policyVersion` (undefined for draft).
 
-### 12. Test both sides
+### 13. Test both sides
 Invoke the guarded tool two ways:
 - **Deny case** — sensitive content. Expect an OPA denial error. Proves enforcement works.
 - **Allow case** — benign content. Expect success. Proves the policy is not over-blocking.
 
 If the deny case fails silently (the request goes through), the most common cause is an `evalNamespace` / `package` mismatch — verify both match exactly.
 
-### 13. Ask before publishing
+### 14. Ask before publishing
 Once both tests pass, **ask the user whether to publish**. They may want to tweak the Rego, add more test cases, or stabilize the draft in a later session before cutting a version — publishing is not reversible without a new version. If confirmed, call `dtwo-publish-policy` with a clear publish message (what the policy does + what was verified).
 
-### 14. Re-pin the pipeline to v1 and redeploy (with confirmation)
-After publishing, call `dtwo-set-gateway-pipelines` again with `policyVersion: 1` on the new step. Confirm the redeploy with the user before calling `dtwo-deploy-gateway`; poll as in step 10.
+### 15. Re-pin the pipeline to v1 and redeploy (with confirmation)
+After publishing, call `dtwo-set-gateway-pipelines` again with `policyVersion: 1` on the new step. Confirm the redeploy with the user before calling `dtwo-deploy-gateway`; poll as in step 11.
 
-**Do not skip step 14.** Leaving the attachment on the draft does not take effect immediately, but the current draft state will be bundled into the *next* deploy of that gateway, whoever triggers it and whatever the reason. A later `dtwo-update-policy` edit — even an experimental one — will then go live on a deploy that was meant for an unrelated change. Pinning to a published version freezes runtime behavior against future draft edits.
+**Do not skip step 15.** Leaving the attachment on the draft does not take effect immediately, but the current draft state will be bundled into the *next* deploy of that gateway, whoever triggers it and whatever the reason. A later `dtwo-update-policy` edit — even an experimental one — will then go live on a deploy that was meant for an unrelated change. Pinning to a published version freezes runtime behavior against future draft edits.
 
 ## Limitations
 
