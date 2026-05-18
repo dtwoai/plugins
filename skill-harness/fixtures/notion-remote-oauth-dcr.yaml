@@ -1,0 +1,89 @@
+# Sources (verified 2026-04-22):
+#   - https://developers.notion.com/docs/get-started-with-mcp         (official setup doc)
+#   - https://developers.notion.com/guides/mcp/build-mcp-client       (documents RFC 7591 DCR
+#                                                                      via Cloudflare workers-oauth-provider)
+#   - Endpoint: https://mcp.notion.com/mcp (streamable HTTP); /sse fallback
+#   - Auth: OAuth only. Notion's hosted MCP documents RFC 7591 Dynamic Client Registration,
+#     so the DCR shape (issuer set, no static client_id/client_secret/token_url) is the
+#     first-class path — matching the Atlassian and Linear fixtures.
+#   - Bearer / static tokens are EXPLICITLY NOT supported on the hosted MCP server — if the
+#     user asks for a "long-lived Notion token," the skill should push back rather than emit bearer.
+#   - Scopes: granted via Notion's workspace connection UI; Notion does not publish OAuth
+#     scope strings, so this fixture only asserts min_length ≥ 1 on scopes (value left open).
+# Schema ref: packages/libs/utils/schema-reference.json
+#   generatorVersion 1.0.0 — mcp_servers[].url, mcp_servers[].transport_type, authentication (oauth)
+#
+# Known skill defect (2026-04-23):
+#   At N=10, temperature=0, claude-cli — this fixture is a reliable
+#   fail. Pooled across 30 runs (plan's pre-fix batch + two post-fix
+#   batches, no constraint change between them) it passes ~20-30% of
+#   the time; Wilson 95% CI is well below the 80% gate.
+#   Observed failure mode: the skill drops every
+#   `gateway.authentication.jwks_info.*` key even though the prompt
+#   supplies the Auth0 tenant (`acme.us.auth0.com`) and audience
+#   (`https://api.acme.com`) needed to populate them.
+#   Working hypothesis: the skill conflates the gateway-IdP jwks_info
+#   (which validates inbound client tokens) with the server-IdP DCR
+#   block (which configures outbound Notion OAuth) when `mcp_servers[]`
+#   uses a DCR `issuer`. The two are independent and both are required
+#   in this fixture's shape.
+#   Caveat: `linear-remote-dcr-streamable-http` uses the same DCR shape
+#   (issuer set, no static client triple) and passes 10/10 — so the raw
+#   conflation hypothesis is incomplete. The Notion-specific trigger
+#   (prompt mentions "OAuth only — bearer tokens are not accepted",
+#   longer no-bearer reasoning, or something else) is not yet isolated.
+#   No fixture constraints are changed; this entry documents the
+#   failure mode so the pass-rate signal is interpretable. Skill-side
+#   investigation is out of scope of the harness PR — see
+#   packages/libs/skill-harness/known-defects.md (Phase 3) for the
+#   searchable record.
+id: notion-remote-oauth-dcr
+tier: aspirational
+tags: [notion, oauth, dcr, pkce, streamable_http, mcp_url_pinned, no_bearer]
+user_prompt: |
+  Hook up the Notion remote MCP server at
+  https://mcp.notion.com/mcp using streamable HTTP. Notion
+  only supports OAuth — bearer tokens are not accepted.
+  Notion's hosted MCP supports RFC 7591 DCR, so use DCR with
+  PKCE. My Auth0 tenant is acme.us.auth0.com, audience
+  https://api.acme.com.
+followups:
+  - match: /audience/i
+    reply: "https://api.acme.com"
+  - match: /dtwo|d2.+sandbox|connect.*mcp|mcp.*not.+connected/i
+    reply: "Skip any DTwo/sandbox MCP connection — emit the gateway YAML directly as a fenced code block; do not call any tools."
+expect:
+  must_validate: true
+  required_paths:
+    - gateway.authentication.jwks_info.jwt_algorithm
+    - gateway.authentication.jwks_info.jwt_jwks_uri
+    - gateway.authentication.jwks_info.jwt_issuer
+    - gateway.authentication.jwks_info.jwt_audience
+    - mcp_servers[0].name
+    - mcp_servers[0].url
+    - mcp_servers[0].transport_type
+    - mcp_servers[0].authentication.type
+    - mcp_servers[0].authentication.issuer
+    - mcp_servers[0].authentication.grant_type
+    - mcp_servers[0].authentication.scopes
+    - mcp_servers[0].authentication.pkce_enabled
+  forbidden_paths:
+    - mcp_servers[0].authentication.client_id
+    - mcp_servers[0].authentication.client_secret
+    - mcp_servers[0].authentication.token_url
+  value_constraints:
+    - path: "mcp_servers[0].url"
+      equals: "https://mcp.notion.com/mcp"
+    - path: "mcp_servers[0].transport_type"
+      regex: "^(streamable_http|streamablehttp|http)$"
+    - path: "mcp_servers[0].authentication.type"
+      equals: oauth
+    - path: "mcp_servers[0].authentication.pkce_enabled"
+      equals: true
+    - path: "mcp_servers[0].authentication.scopes"
+      min_length: 1
+  semantic_rubric:
+    - "Uses DCR path (issuer set, no client_id/client_secret/token_url) — Notion's hosted MCP documents RFC 7591 support"
+    - "Does NOT use bearer, basic, or authheaders variants (Notion does not accept static tokens)"
+    - "The /mcp (streamable HTTP) endpoint, not the legacy /sse endpoint"
+clarifying_question_expected: false

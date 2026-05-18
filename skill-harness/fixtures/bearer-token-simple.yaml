@@ -1,0 +1,37 @@
+id: bearer-token-simple
+tier: required
+tags: [bearer, simple]
+user_prompt: |
+  Generate a gateway with a single MCP server named "my-api" at
+  https://my-api.acme.com/mcp that uses a static bearer token for
+  auth. My Auth0 tenant is acme.us.auth0.com, audience
+  https://api.acme.com. Use the exact placeholder string
+  "<REPLACE_WITH_BEARER_TOKEN>" (including the angle brackets) as
+  the token value — do not ask for the real token. Emit the YAML
+  inline in a fenced code block; do not try to call any tools.
+followups:
+  - match: "(server url|mcp server|url|token|name|endpoint)"
+    reply: |
+      Server name "my-api", url https://my-api.acme.com/mcp. Use
+      the exact placeholder "<REPLACE_WITH_BEARER_TOKEN>" for the
+      token value (including the angle brackets). Emit the YAML
+      inline.
+expect:
+  must_validate: true
+  required_paths:
+    - gateway.authentication.jwks_info.jwt_algorithm
+    - gateway.authentication.jwks_info.jwt_jwks_uri
+    - gateway.authentication.jwks_info.jwt_issuer
+    - gateway.authentication.jwks_info.jwt_audience
+    - mcp_servers[0].name
+    - mcp_servers[0].url
+    - mcp_servers[0].authentication.type
+    - mcp_servers[0].authentication.token
+  value_constraints:
+    - path: "mcp_servers[0].authentication.type"
+      equals: bearer
+    # Global secrets-are-placeholders check also fires on this leaf;
+    # the fixture-level regex assertion keeps the intent self-contained.
+    - path: "mcp_servers[0].authentication.token"
+      regex: "^<REPLACE_|\\$\\{|CHANGE_?ME"
+clarifying_question_expected: false

@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.DS_Store
+
+# skill-harness run artifacts
+skill-harness/bench-results/
+skill-harness/tsconfig.tsbuildinfo

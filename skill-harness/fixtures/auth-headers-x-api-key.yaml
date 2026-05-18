@@ -1,0 +1,43 @@
+id: auth-headers-x-api-key
+tier: required
+tags: [authheaders, custom_header]
+user_prompt: |
+  Generate a gateway with a single MCP server named "my-api" at
+  https://my-api.acme.com/mcp that expects an `X-Api-Key` header
+  for auth. Use the exact placeholder string
+  "<REPLACE_WITH_API_KEY>" (including the angle brackets) as the
+  header value — do not ask for the real key. My Auth0 tenant is
+  acme.us.auth0.com, audience https://api.acme.com. Emit the YAML
+  inline in a fenced code block; do not try to call any tools.
+followups:
+  - match: "(server url|mcp server|url|header|key|value|name|endpoint|api_key)"
+    reply: |
+      Server name "my-api", url https://my-api.acme.com/mcp.
+      Header key "X-Api-Key", header value
+      "<REPLACE_WITH_API_KEY>" (keep the angle brackets). Emit
+      the YAML inline.
+expect:
+  must_validate: true
+  required_paths:
+    - gateway.authentication.jwks_info.jwt_algorithm
+    - gateway.authentication.jwks_info.jwt_jwks_uri
+    - gateway.authentication.jwks_info.jwt_issuer
+    - gateway.authentication.jwks_info.jwt_audience
+    - mcp_servers[0].name
+    - mcp_servers[0].url
+    - mcp_servers[0].authentication.type
+    - mcp_servers[0].authentication.headers
+    - mcp_servers[0].authentication.headers[0].key
+    - mcp_servers[0].authentication.headers[0].value
+  value_constraints:
+    - path: "mcp_servers[0].authentication.type"
+      equals: authheaders
+    - path: "mcp_servers[0].authentication.headers[0].key"
+      equals: X-Api-Key
+    - path: "mcp_servers[0].authentication.headers[0].value"
+      regex: "^<REPLACE_|\\$\\{|CHANGE_?ME"
+    - path: "mcp_servers[0].authentication.headers"
+      min_length: 1
+  semantic_rubric:
+    - "Exercises issue #754: headers[].value now carries secret: true and must be a placeholder"
+clarifying_question_expected: false

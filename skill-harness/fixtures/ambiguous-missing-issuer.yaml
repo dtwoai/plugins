@@ -1,0 +1,13 @@
+id: ambiguous-missing-issuer
+tier: aspirational
+tags: [ambiguous, clarification, atlassian]
+user_prompt: |
+  I want a gateway with Atlassian. Go.
+followups:
+  - match: /issuer|auth0|tenant|jwks/i
+    reply: "Auth0 tenant acme.us.auth0.com, audience https://api.acme.com"
+expect:
+  must_validate: true
+  semantic_rubric:
+    - "Asks which identity provider / issuer to trust — prompt supplied neither an Auth0 tenant nor a JWKS URI"
+clarifying_question_expected: true
