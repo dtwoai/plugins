@@ -17,18 +17,16 @@ That's it. Restart your Claude Code session — the skills are auto-discovered a
 
 ### MCP server
 
-| Name   | Transport | Default URL                       |
-| ------ | --------- | --------------------------------- |
-| `dtwo` | HTTP      | `https://mcp.dev.dtwo.ai/mcp`     |
+| Name   | Transport | Default URL                        |
+| ------ | --------- | ---------------------------------- |
+| `dtwo` | HTTP      | `https://mcp.us1.prod.dtwo.ai/mcp` |
 
-The URL can be overridden by setting `DTWO_MCP_URL` before launching Claude Code, e.g.:
+The URL can be overridden by setting `DTWO_MCP_URL` and `DTWO_CLIENT_ID` before launching Claude Code, e.g.:
 
 ```bash
 # Point at your local dtwo-mcp server
 export DTWO_MCP_URL=http://localhost:3000/mcp
-
-# Point at staging or production
-export DTWO_MCP_URL=https://mcp.stg1.staging.dtwo.ai/mcp
+export DTWO_CLIENT_ID=[...]
 ```
 
 For a per-project override that doesn't touch your shell, drop it in `.claude/settings.local.json` at the root of the project you're working in (this file is git-ignored by default):
@@ -36,22 +34,23 @@ For a per-project override that doesn't touch your shell, drop it in `.claude/se
 ```json
 {
   "env": {
-    "DTWO_MCP_URL": "http://localhost:3000/mcp"
+    "DTWO_MCP_URL": "http://localhost:3000/mcp",
+    "DTWO_CLIENT_ID": [...]
   }
 }
 ```
 
 Use `.claude/settings.json` instead if you want the override committed and shared with your team.
 
-If unset, the plugin connects to https://mcp.dev.dtwo.ai/mcp automatically.
+If unset, the plugin connects to https://mcp.us1.prod.dtwo.ai/mcp automatically.
 
 ### Skills
 
-| Skill                  | Use when                                                                                |
-| ---------------------- | --------------------------------------------------------------------------------------- |
-| `dtwo-gateway-config`  | Editing gateway YAML, adding/removing MCP servers, publishing or rolling back configs.  |
-| `dtwo-gateway-policy`  | Creating, attaching, publishing, deploying, or verifying policies and pipelines.        |
-| `dtwo-policy-rego`     | Authoring, modifying, explaining, or debugging Rego policy code for the DTwo Gateway.   |
+| Skill                 | Use when                                                                               |
+| --------------------- | -------------------------------------------------------------------------------------- |
+| `dtwo-gateway-config` | Editing gateway YAML, adding/removing MCP servers, publishing or rolling back configs. |
+| `dtwo-gateway-policy` | Creating, attaching, publishing, deploying, or verifying policies and pipelines.       |
+| `dtwo-policy-rego`    | Authoring, modifying, explaining, or debugging Rego policy code for the DTwo Gateway.  |
 
 The skills load each other on demand via Claude Code's `Skill` tool — most real tasks pull in two or three together.
 
