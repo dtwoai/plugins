@@ -4,7 +4,7 @@
       "url": "${DTWO_MCP_URL:-https://mcp.us1.prod.dtwo.ai/mcp}",
       "type": "http",
       "oauth": {
-        "clientId": "EleONdxmthzCtATDyGkHW4w9TIct7qRO",
+        "clientId": "${DTWO_CLIENT_ID:-EleONdxmthzCtATDyGkHW4w9TIct7qRO}",
         "callbackPort": 33418
       }
     }

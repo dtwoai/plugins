@@ -21,14 +21,12 @@ That's it. Restart your Claude Code session — the skills are auto-discovered a
 | ------ | --------- | ---------------------------------- |
 | `dtwo` | HTTP      | `https://mcp.us1.prod.dtwo.ai/mcp` |
 
-The URL can be overridden by setting `DTWO_MCP_URL` before launching Claude Code, e.g.:
+The URL can be overridden by setting `DTWO_MCP_URL` and `DTWO_CLIENT_ID` before launching Claude Code, e.g.:
 
 ```bash
 # Point at your local dtwo-mcp server
 export DTWO_MCP_URL=http://localhost:3000/mcp
-
-# Point at production
-export DTWO_MCP_URL=https://mcp.us1.prod.dtwo.ai/mcp
+export DTWO_CLIENT_ID=[...]
 ```
 
 For a per-project override that doesn't touch your shell, drop it in `.claude/settings.local.json` at the root of the project you're working in (this file is git-ignored by default):
@@ -36,7 +34,8 @@ For a per-project override that doesn't touch your shell, drop it in `.claude/se
 ```json
 {
   "env": {
-    "DTWO_MCP_URL": "http://localhost:3000/mcp"
+    "DTWO_MCP_URL": "http://localhost:3000/mcp",
+    "DTWO_CLIENT_ID": [...]
   }
 }
 ```
