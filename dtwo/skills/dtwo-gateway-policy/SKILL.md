@@ -136,6 +136,39 @@ If `dtwo-get-gateway-config` shows an MCP server named `atlassian-jira-mcp`, and
 - Policy tool name: `atlassian-jira-mcp-getjiraissue` (matched against `input.resource.name` or `input.payload.name`)
 - Available argument keys: `cloudId`, `issueIdOrKey`, etc.
 
+## Policy Description Format
+
+Every policy must have a structured `description` written in markdown. Use the three-section template below. The field is rendered in a markdown editor that supports headings, bold, italic, lists, and code blocks.
+
+```markdown
+## Description
+<General description of the policy — what it is and what it governs.>
+
+## Intent
+<One short sentence describing what the policy is trying to achieve, written so an LLM can understand the purpose at a glance. Example: "Prevent access to personal emails.">
+
+## Implementation
+<What the policy allows, blocks, redacts, or transforms, and how.>
+```
+
+**Field rules:**
+- **Description**: 1–3 sentences, human-readable, general.
+- **Intent**: 1 sentence max. Focus on the *goal*, not the mechanism. Written for LLM consumption — this is what a downstream agent reads to understand policy intent at a glance.
+- **Implementation**: Omit this section entirely if the Description already makes the behavior self-evident. Include it when the mechanism (specific tool names blocked, claim values checked, redaction patterns) is non-obvious.
+
+**Example** (Slack DM content filter):
+
+```markdown
+## Description
+Blocks Slack direct messages to John (user ID U12345678) when the message contains sensitive information such as passwords, API keys, or PII.
+
+## Intent
+Prevent accidental or deliberate exfiltration of sensitive data via Slack DMs to a specific user.
+
+## Implementation
+Blocks ingress calls to `slack-mcp-slack-send-message` where `channel_id` equals `U12345678` and the `message` argument matches a sensitive-content pattern. All other Slack tools and DMs to other users are allowed.
+```
+
 ## Policy Workflow
 
 ### Creating a New Policy
@@ -146,7 +179,7 @@ If `dtwo-get-gateway-config` shows an MCP server named `atlassian-jira-mcp`, and
 4. Validate with `dtwo-validate-policy-rego`
 5. Create with `dtwo-add-policy` — provide:
    - `name` — human-readable policy name
-   - `description` — what the policy does
+   - `description` — structured markdown using the three-section template in Policy Description Format (Description / Intent / Implementation)
    - `policy` — the Rego code
    - `packageName` — the Rego package name (e.g., `jira.ingress.readonly`)
    - `direction` — `ingress` or `egress`
@@ -160,7 +193,7 @@ If `dtwo-get-gateway-config` shows an MCP server named `atlassian-jira-mcp`, and
 1. Fetch current Rego with `dtwo-get-policy`
 2. If the change might introduce or alter identity gating, pull tenant claims with `dtwo-list-claims` (see Tool Discovery → Finding Identity Claims).
 3. Modify the Rego code using the guidance in the companion `dtwo-policy-rego` instructions
-4. Save the updated Rego with `dtwo-update-policy` — provide `uid`, `policy`, and `packageName` (Rego is validated automatically when both are provided)
+4. Save the updated Rego with `dtwo-update-policy` — provide `uid`, `policy`, and `packageName` (Rego is validated automatically when both are provided). If the change affects the policy's purpose or behavior, also pass an updated `description` using the three-section template in Policy Description Format.
 5. If the policy is already attached to the gateway pipeline as a draft (no `policyVersion`), just deploy to pick up the new draft. If it was pinned to a published version, update the pipeline step by omitting `policyVersion` with `dtwo-set-gateway-pipelines`, then deploy.
 6. Once working, publish with `dtwo-publish-policy`
 7. Update the gateway pipeline to pin the new published version and redeploy
@@ -251,6 +284,19 @@ Call `dtwo-validate-policy-rego` with the Rego and its `packageName`. If validat
 
 ### 7. Create the policy
 Call `dtwo-add-policy` with `name`, `description`, `policy`, `packageName`, `direction`. Capture the returned `uid`. The draft is stored but not live.
+
+Use the Policy Description Format three-section template for `description`. For this example:
+
+```markdown
+## Description
+Blocks Slack direct messages to John (user ID U12345678) when the message contains sensitive information such as passwords, API keys, or PII.
+
+## Intent
+Prevent accidental or deliberate exfiltration of sensitive data via Slack DMs to a specific user.
+
+## Implementation
+Blocks ingress calls to `slack-mcp-slack-send-message` where `channel_id` equals `U12345678` and the `message` argument matches a sensitive-content pattern. All other Slack tools and DMs to other users are allowed.
+```
 
 ### 8. Attach as a draft
 Call `dtwo-set-gateway-pipelines` with the new step, **omitting `policyVersion`** so the draft is used. Preserve existing steps — do not overwrite them.
