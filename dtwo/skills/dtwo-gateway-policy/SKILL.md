@@ -154,7 +154,7 @@ Every policy must have a structured `description` written in markdown. Use the t
 **Field rules:**
 - **Description**: 1–3 sentences, human-readable, general.
 - **Intent**: 1 sentence max. Focus on the *goal*, not the mechanism. Written for LLM consumption — this is what a downstream agent reads to understand policy intent at a glance.
-- **Implementation**: Omit this section entirely if the Description already makes the behavior self-evident. Include it when the mechanism (specific tool names blocked, claim values checked, redaction patterns) is non-obvious.
+- **Implementation**: Always include this heading. If the Description already makes the behavior self-evident, say so briefly. Otherwise, describe the mechanism (specific tool names blocked, claim values checked, redaction patterns).
 
 **Example** (Slack DM content filter):
 
@@ -190,13 +190,17 @@ Blocks ingress calls to `slack-mcp-slack-send-message` where `channel_id` equals
 
 ### Modifying an Existing Policy
 
-1. Fetch current Rego with `dtwo-get-policy`
-2. If the change might introduce or alter identity gating, pull tenant claims with `dtwo-list-claims` (see Tool Discovery → Finding Identity Claims).
-3. Modify the Rego code using the guidance in the companion `dtwo-policy-rego` instructions
-4. Save the updated Rego with `dtwo-update-policy` — provide `uid`, `policy`, and `packageName` (Rego is validated automatically when both are provided). If the change affects the policy's purpose or behavior, also pass an updated `description` using the three-section template in Policy Description Format.
-5. If the policy is already attached to the gateway pipeline as a draft (no `policyVersion`), just deploy to pick up the new draft. If it was pinned to a published version, update the pipeline step by omitting `policyVersion` with `dtwo-set-gateway-pipelines`, then deploy.
-6. Once working, publish with `dtwo-publish-policy`
-7. Update the gateway pipeline to pin the new published version and redeploy
+1. Fetch the current Rego and `description` with `dtwo-get-policy`
+2. Review the current `description` before editing:
+   - Preserve the existing **Intent** unless the user's goal changes.
+   - Update **Description** or **Implementation** when behavior changes.
+   - If the description is missing or unstructured, backfill it using the three-section template in Policy Description Format before saving.
+3. If the change might introduce or alter identity gating, pull tenant claims with `dtwo-list-claims` (see Tool Discovery → Finding Identity Claims).
+4. Modify the Rego code using the guidance in the companion `dtwo-policy-rego` instructions
+5. Save the updated Rego with `dtwo-update-policy` — provide `uid`, `policy`, and `packageName` (Rego is validated automatically when both are provided). Also pass `description` when it was updated, normalized, or backfilled; preserve it unchanged for mechanical refactors that do not alter behavior and already have a structured description.
+6. If the policy is already attached to the gateway pipeline as a draft (no `policyVersion`), just deploy to pick up the new draft. If it was pinned to a published version, update the pipeline step by omitting `policyVersion` with `dtwo-set-gateway-pipelines`, then deploy.
+7. Once working, publish with `dtwo-publish-policy`
+8. Update the gateway pipeline to pin the new published version and redeploy
 
 ### Rolling Back a Policy
 
