@@ -138,35 +138,62 @@ If `dtwo-get-gateway-config` shows an MCP server named `atlassian-jira-mcp`, and
 
 ## Policy Description Format
 
-Every policy must have a structured `description` written in markdown. Use the three-section template below. The field is rendered in a markdown editor that supports headings, bold, italic, lists, and code blocks.
+Every policy `description` is structured markdown with up to three sections. The field is rendered in a markdown editor that supports headings, bold, italic, lists, and code blocks.
 
 ```markdown
-## Description
-<General description of the policy — what it is and what it governs.>
-
 ## Intent
-<One short sentence describing what the policy is trying to achieve, written so an LLM can understand the purpose at a glance. Example: "Prevent access to personal emails.">
+<One sentence. The policy's durable goal — no tool names, claim names, or argument identifiers.>
+
+## Description
+<Optional. Free-form. History, ticket links, owners, expiry plans — anything that doesn't fit the other sections.>
 
 ## Implementation
-<What the policy allows, blocks, redacts, or transforms, and how.>
+<Optional. Only when there's something the Rego doesn't make obvious on its own.>
 ```
 
 **Field rules:**
-- **Description**: 1–3 sentences, human-readable, general.
-- **Intent**: 1 sentence max. Focus on the *goal*, not the mechanism. Written for LLM consumption — this is what a downstream agent reads to understand policy intent at a glance.
-- **Implementation**: Always include this heading. If the Description already makes the behavior self-evident, say so briefly. Otherwise, describe the mechanism (specific tool names blocked, claim values checked, redaction patterns).
+- **Intent** (required) — 1 sentence. The policy's durable goal, written so it remains true even if tool names, claim names, or argument schemas change. No tool/claim/argument identifiers. Agents should not edit Intent unless the user's goal has changed.
+  - Good: *"Prevent exfiltration of secrets through outbound chat."*
+  - Bad: *"Block `slack-mcp-slack-send-message` when `message` matches a secret regex."* (that's Implementation)
+- **Description** (optional) — Free-form, user-owned. Any length. Use for context that doesn't fit the other two sections: history, ticket links, owners, expiry plans. Agents should not edit this unless explicitly asked.
+- **Implementation** (optional) — Include only when there's something the Rego doesn't make obvious on its own. Most useful for:
+  - **Interactions with other policies** in the same pipeline (e.g., "depends on `slack.ingress.allowlist` running first"; "must precede any redaction step that rewrites `message`")
+  - Non-obvious choices (why a specific regex, threshold, or bypass exists)
+  - Known limitations the Rego doesn't cover
+  
+  If the Rego is self-explanatory and stands alone, omit the section entirely.
 
-**Example** (Slack DM content filter):
+**Examples:**
+
+Common case — Intent + context notes, no Implementation needed:
 
 ```markdown
-## Description
-Blocks Slack direct messages to John (user ID U12345678) when the message contains sensitive information such as passwords, API keys, or PII.
-
 ## Intent
-Prevent accidental or deliberate exfiltration of sensitive data via Slack DMs to a specific user.
+Prevent secrets and PII from leaking to John via Slack DMs.
+
+## Description
+Added 2026-04 after a near-miss where an API key was almost pasted
+into John's DM during an oncall handoff. Owner: paul@dtwo.ai.
+Revisit once the org-wide secrets-DLP egress policy ships (DTWO-1234)
+— this can likely be retired then.
+```
+
+With Implementation — when pipeline ordering matters:
+
+```markdown
+## Intent
+Block Jira ticket creation from contractors outside business hours.
+
+## Description
+Compliance request from legal (DTWO-2210). Contractors are identified
+by the absence of an `employee_id` claim.
 
 ## Implementation
-Blocks ingress calls to `slack-mcp-slack-send-message` where `channel_id` equals `U12345678` and the `message` argument matches a sensitive-content pattern. All other Slack tools and DMs to other users are allowed.
+Runs **after** `jira.ingress.tenant_isolation` in the pipeline —
+relies on that earlier step having already rejected cross-tenant
+calls, so this policy only inspects `input.subject.claims` and
+business-hours, not `cloudId`. Reordering will produce false
+allows.
 ```
 
 ## Policy Workflow
@@ -179,7 +206,7 @@ Blocks ingress calls to `slack-mcp-slack-send-message` where `channel_id` equals
 4. Validate with `dtwo-validate-policy-rego`
 5. Create with `dtwo-add-policy` — provide:
    - `name` — human-readable policy name
-   - `description` — structured markdown using the three-section template in Policy Description Format (Description / Intent / Implementation)
+   - `description` — structured markdown using the template in Policy Description Format (Intent required; Description and Implementation optional)
    - `policy` — the Rego code
    - `packageName` — the Rego package name (e.g., `jira.ingress.readonly`)
    - `direction` — `ingress` or `egress`
@@ -192,12 +219,13 @@ Blocks ingress calls to `slack-mcp-slack-send-message` where `channel_id` equals
 
 1. Fetch the current Rego and `description` with `dtwo-get-policy`
 2. Review the current `description` before editing:
-   - Preserve the existing **Intent** unless the user's goal changes.
-   - Update **Description** or **Implementation** when behavior changes.
+   - Preserve the existing **Intent** unless the user's goal has changed.
+   - Update **Implementation** if the behavior change affects how this policy interacts with others or introduces non-obvious detail; otherwise leave it.
+   - **Description** is the user's notes — do not edit unless explicitly asked.
    - If the description is missing or unstructured, backfill it using the three-section template in Policy Description Format before saving.
 3. If the change might introduce or alter identity gating, pull tenant claims with `dtwo-list-claims` (see Tool Discovery → Finding Identity Claims).
 4. Modify the Rego code using the guidance in the companion `dtwo-policy-rego` instructions
-5. Save the updated Rego with `dtwo-update-policy` — provide `uid`, `policy`, and `packageName` (Rego is validated automatically when both are provided). Also pass `description` when it was updated, normalized, or backfilled; preserve it unchanged for mechanical refactors that do not alter behavior and already have a structured description.
+5. Save the updated Rego with `dtwo-update-policy` — provide `uid`, `policy`, and `packageName` (Rego is validated automatically when both are provided). Also pass `description` when Implementation was updated or the description was backfilled; preserve it unchanged otherwise.
 6. If the policy is already attached to the gateway pipeline as a draft (no `policyVersion`), just deploy to pick up the new draft. If it was pinned to a published version, update the pipeline step by omitting `policyVersion` with `dtwo-set-gateway-pipelines`, then deploy.
 7. Once working, publish with `dtwo-publish-policy`
 8. Update the gateway pipeline to pin the new published version and redeploy
@@ -289,17 +317,15 @@ Call `dtwo-validate-policy-rego` with the Rego and its `packageName`. If validat
 ### 7. Create the policy
 Call `dtwo-add-policy` with `name`, `description`, `policy`, `packageName`, `direction`. Capture the returned `uid`. The draft is stored but not live.
 
-Use the Policy Description Format three-section template for `description`. For this example:
+Use the Policy Description Format template for `description`. For this example (Intent is required; Implementation is omitted because the Rego is self-explanatory):
 
 ```markdown
-## Description
-Blocks Slack direct messages to John (user ID U12345678) when the message contains sensitive information such as passwords, API keys, or PII.
-
 ## Intent
-Prevent accidental or deliberate exfiltration of sensitive data via Slack DMs to a specific user.
+Prevent secrets and PII from leaking to John via Slack DMs.
 
-## Implementation
-Blocks ingress calls to `slack-mcp-slack-send-message` where `channel_id` equals `U12345678` and the `message` argument matches a sensitive-content pattern. All other Slack tools and DMs to other users are allowed.
+## Description
+Requested by the security team after an oncall near-miss. Revisit
+if a tenant-wide egress DLP policy ships — this may be redundant then.
 ```
 
 ### 8. Attach as a draft
