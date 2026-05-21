@@ -9,7 +9,7 @@
       "name": "dtwo",
       "source": "./dtwo",
       "description": "DTwo MCP gateway management — bundles the DTwo MCP server and skills for managing gateway configs, deploys, and policies",
-      "version": "0.1.4",
+      "version": "0.1.5",
       "category": "security",
       "keywords": [
         "agentic",
