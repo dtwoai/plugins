@@ -87,33 +87,33 @@ ready), and `results.html` (workflow-artifact ready) under `--output`.
 | `--compare-baseline=<path>` | — | Loads baseline.json, runs comparison, exits non-zero on regression. |
 | `--append-history=<path>` | — | Appends one JSON line per run. |
 | `--write-baseline=<path>` | — | Derives a fresh baseline from the current run. Mutually exclusive with `--compare-baseline`. |
-| `--skill-bundle=<path>` | sibling checkout of `dtwoai/dtwo-plugin` | Path to the `dtwo-gateway-config` skill dir (contains `SKILL.md`). Falls back to `DTWO_SKILL_BUNDLE_PATH` env then well-known sibling paths. The skill was moved out of d2 in #775. |
+| `--skill-bundle=<path>` | sibling checkout of `dtwoai/plugins` | Path to the `dtwo-gateway-config` skill dir (contains `SKILL.md`). Falls back to `DTWO_SKILL_BUNDLE_PATH` env then well-known sibling paths. The skill was moved out of d2 in #775. |
 | `--dry-run` | off | Prints fixture list + stats; no LLM calls. |
 
 ## Skill-bundle location
 
 The `dtwo-gateway-config` skill was moved out of d2 via PR #775
-(2026-04-28) and now lives canonically in [`dtwoai/dtwo-plugin`][plugin]
+(2026-04-28) and now lives canonically in [`dtwoai/plugins`][plugin]
 at `dtwo/skills/dtwo-gateway-config/`. The harness resolves the bundle
 in this order:
 
 1. `--skill-bundle=<path>` CLI flag (cwd-relative or absolute).
 2. `DTWO_SKILL_BUNDLE_PATH` env var.
 3. Sibling-checkout paths next to the d2 worktree:
-   `../dtwo-plugin/dtwo/skills/dtwo-gateway-config` and
-   `../../dtwo-plugin/dtwo/skills/dtwo-gateway-config`.
+   `../plugins/dtwo/skills/dtwo-gateway-config` and
+   `../../plugins/dtwo/skills/dtwo-gateway-config`.
 
 Clone the plugin alongside this worktree for the defaults to work:
 
 ```bash
 cd <parent-of-this-repo>
-git clone git@github.com:dtwoai/dtwo-plugin.git
+git clone git@github.com:dtwoai/plugins.git
 ```
 
 The bench fails fast with an actionable error if none of the three
 sources resolve to a directory containing `SKILL.md`.
 
-[plugin]: https://github.com/dtwoai/dtwo-plugin
+[plugin]: https://github.com/dtwoai/plugins
 
 ## Document map
 

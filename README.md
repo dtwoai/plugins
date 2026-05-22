@@ -1,4 +1,4 @@
-# dtwo-plugin
+# plugins
 
 This repo is a **Claude Code plugin marketplace**. Today it ships one plugin — `dtwo` — which bundles the DTwo MCP server connection and the gateway/policy/Rego skills for managing DTwo gateways.
 
@@ -7,7 +7,7 @@ If you're a customer looking to install or use the plugin, jump to [`dtwo/README
 ## What's in here
 
 ```
-dtwo-plugin/
+plugins/
 ├── .claude-plugin/
 │   └── marketplace.json     # marketplace manifest — lists every plugin in this repo
 ├── dtwo/                     # the dtwo plugin
@@ -102,7 +102,7 @@ Keep `version` in sync between the marketplace entry (`.claude-plugin/marketplac
 To test changes without pushing:
 
 ```
-/plugin marketplace add /absolute/path/to/dtwo-plugin
+/plugin marketplace add /absolute/path/to/plugins
 /plugin install dtwo@dtwo
 /reload-plugins
 ```

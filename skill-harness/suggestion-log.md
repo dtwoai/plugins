@@ -377,7 +377,7 @@ it in.
 **Status:** open
 **Defect ID:** n/a (architectural intervention, not a single-defect
 fix — supersedes the schema-delegation refactor attempt logged on
-`dtwoai/dtwo-plugin#5`)
+`dtwoai/plugins#5`)
 **Fixtures referenced:** the full aspirational tier (17 fixtures)
 under `--skip-injected-schema`; full battery deferred
 **Confidence (agent / author):** medium — implementation-complete,
@@ -388,7 +388,7 @@ session
 
 ### Observed data
 
-A 4-expert review of `dtwoai/dtwo-plugin#5`'s original
+A 4-expert review of `dtwoai/plugins#5`'s original
 schema-delegation refactor concluded that production Claude Code
 does NOT auto-load a skill's `references/` directory the way the
 harness's `loadSkillBundle` does — only `SKILL.md` body lands in
@@ -424,7 +424,7 @@ The harness gains `--skip-injected-schema` (off by default;
 preserves existing baselines) so a future bench can measure the
 skill under production-equivalent context.
 
-Landed in `dtwoai/dtwo-plugin` branch `iter/schema-delegation`
+Landed in `dtwoai/plugins` branch `iter/schema-delegation`
 (commit `f024315` on top of the original prose-pointer attempt
 `44f5747`) and `dtwoai/d2` branch `feat/gateway-config-skill-harness`
 (commit `e2887e9e`). Neither pushed.
