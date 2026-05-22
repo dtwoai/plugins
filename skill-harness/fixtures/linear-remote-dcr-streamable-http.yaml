@@ -1,0 +1,56 @@
+# Sources (verified 2026-04-22):
+#   - https://linear.app/docs/mcp                             (official setup doc)
+#   - Endpoint: https://mcp.linear.app/mcp (streamable HTTP primary); SSE fallback at /sse
+#   - Auth: OAuth 2.1 with Dynamic Client Registration; Linear is its own IdP.
+#   - The gateway.authentication side still uses the enterprise IdP (Auth0 here) — only the
+#     upstream mcp_servers[0].authentication talks to Linear. This mirrors the Atlassian fixture.
+# Schema ref: packages/libs/utils/schema-reference.json
+#   generatorVersion 1.0.0 — mcp_servers[].url, mcp_servers[].transport_type, authentication (oauth)
+id: linear-remote-dcr-streamable-http
+tier: aspirational
+tags: [linear, oauth, dcr, pkce, streamable_http, mcp_url_pinned]
+user_prompt: |
+  Hook up the Linear remote MCP server at
+  https://mcp.linear.app/mcp using streamable HTTP. Linear is
+  its own IdP — use DCR with PKCE. My Auth0 tenant is
+  acme.us.auth0.com, audience https://api.acme.com.
+followups:
+  - match: /audience/i
+    reply: "https://api.acme.com"
+  - match: /dtwo|d2.+sandbox|connect.*mcp|mcp.*not.+connected/i
+    reply: "Skip any DTwo/sandbox MCP connection — emit the gateway YAML directly as a fenced code block; do not call any tools."
+expect:
+  must_validate: true
+  required_paths:
+    - gateway.authentication.jwks_info.jwt_algorithm
+    - gateway.authentication.jwks_info.jwt_jwks_uri
+    - gateway.authentication.jwks_info.jwt_issuer
+    - gateway.authentication.jwks_info.jwt_audience
+    - mcp_servers[0].name
+    - mcp_servers[0].url
+    - mcp_servers[0].transport_type
+    - mcp_servers[0].authentication.type
+    - mcp_servers[0].authentication.issuer
+    - mcp_servers[0].authentication.grant_type
+    - mcp_servers[0].authentication.scopes
+    - mcp_servers[0].authentication.pkce_enabled
+  forbidden_paths:
+    - mcp_servers[0].authentication.client_id
+    - mcp_servers[0].authentication.client_secret
+    - mcp_servers[0].authentication.token_url
+  value_constraints:
+    - path: "mcp_servers[0].url"
+      equals: "https://mcp.linear.app/mcp"
+    - path: "mcp_servers[0].transport_type"
+      regex: "^(streamable_http|streamablehttp|http)$"
+    - path: "mcp_servers[0].authentication.type"
+      equals: oauth
+    - path: "mcp_servers[0].authentication.pkce_enabled"
+      equals: true
+    - path: "mcp_servers[0].authentication.scopes"
+      min_length: 1
+  semantic_rubric:
+    - "Uses the /mcp (streamable HTTP) endpoint, NOT the legacy /sse endpoint"
+    - "Uses DCR path (issuer set, no client_id/client_secret/token_url)"
+    - "mcp_servers[0].authentication.issuer points at Linear's OAuth issuer, not Auth0 — those are distinct roles"
+clarifying_question_expected: false

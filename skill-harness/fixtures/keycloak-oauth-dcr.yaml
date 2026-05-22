@@ -1,0 +1,58 @@
+# Sources (verified 2026-04-22):
+#   - https://www.keycloak.org/docs/latest/securing_apps/     (OIDC endpoints; /realms/{r}, /protocol/openid-connect/*)
+#   - https://www.keycloak.org/docs/latest/server_admin/      (audience protocol mapper — default aud is client_id)
+#   - Keycloak 17+ removed the /auth/ path prefix (KC_HTTP_RELATIVE_PATH); issuer is /realms/{r} with no trailing slash.
+#   - DCR endpoint: {issuer}/clients-registrations/openid-connect (anonymous or initial-access-token modes).
+# Schema ref: packages/libs/utils/schema-reference.json
+#   generatorVersion 1.0.0 — gateway.authentication.jwks_info, mcp_servers[].authentication (oauth)
+id: keycloak-oauth-dcr
+tier: aspirational
+tags: [keycloak, oauth, dcr, pkce, idp_variety, realm]
+user_prompt: |
+  Generate a gateway that validates tokens from our self-hosted
+  Keycloak at sso.example.com, realm `acme`. Audience is
+  `d2-mcp-gateway` (we added an audience mapper on the Keycloak
+  side). Hook it up to the Atlassian MCP server at
+  https://mcp.atlassian.com/v1/mcp using Keycloak DCR with PKCE.
+followups:
+  - match: /audience/i
+    reply: "d2-mcp-gateway"
+expect:
+  must_validate: true
+  required_paths:
+    - gateway.authentication.jwks_info.jwt_algorithm
+    - gateway.authentication.jwks_info.jwt_jwks_uri
+    - gateway.authentication.jwks_info.jwt_issuer
+    - gateway.authentication.jwks_info.jwt_audience
+    - mcp_servers[0].name
+    - mcp_servers[0].url
+    - mcp_servers[0].authentication.type
+    - mcp_servers[0].authentication.issuer
+    - mcp_servers[0].authentication.grant_type
+    - mcp_servers[0].authentication.scopes
+    - mcp_servers[0].authentication.pkce_enabled
+  forbidden_paths:
+    - mcp_servers[0].authentication.client_id
+    - mcp_servers[0].authentication.client_secret
+    - mcp_servers[0].authentication.token_url
+  value_constraints:
+    - path: "gateway.authentication.jwks_info.jwt_issuer"
+      regex: "^https://[^/]+/realms/[^/]+$"
+    - path: "gateway.authentication.jwks_info.jwt_jwks_uri"
+      regex: "^https://[^/]+/realms/[^/]+/protocol/openid-connect/certs$"
+    - path: "gateway.authentication.jwks_info.jwt_audience"
+      equals: "d2-mcp-gateway"
+    - path: "mcp_servers[0].authentication.type"
+      equals: oauth
+    - path: "mcp_servers[0].authentication.pkce_enabled"
+      equals: true
+    - path: "mcp_servers[0].authentication.issuer"
+      regex: "^https://[^/]+/realms/[^/]+$"
+    - path: "mcp_servers[0].authentication.scopes"
+      min_length: 1
+  semantic_rubric:
+    - "Issuer uses /realms/{realm} shape with NO trailing slash and NO /auth/ prefix (Keycloak 17+)"
+    - "JWKS URI ends in /protocol/openid-connect/certs — not /v1/keys or /discovery/v2.0/keys"
+    - "Audience is the value set by the Keycloak audience mapper, not the client_id default"
+    - "Uses DCR path (issuer set, no client_id/client_secret/token_url)"
+clarifying_question_expected: false

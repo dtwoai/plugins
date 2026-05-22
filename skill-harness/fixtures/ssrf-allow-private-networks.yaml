@@ -1,0 +1,47 @@
+# Sources:
+#   - RFC 1918 (private IPv4 ranges: 10/8, 172.16/12, 192.168/16)
+#   - Schema ref: packages/libs/utils/schema-reference.json
+#     generatorVersion 1.0.0 — gateway.ssrf.allow_private_networks (deployDefault false)
+#   - Field rationale (from schema): "Enable only when the gateway and MCP server share a private network … prefer
+#     `allowed_networks` with a surgical CIDR allowlist in production."
+id: ssrf-allow-private-networks
+tier: aspirational
+tags: [ssrf, safe_default_opt_out, private_network, co_located]
+user_prompt: |
+  My gateway and the MCP server run on the same EC2 host in a
+  VPC and talk over the RFC 1918 private range. Generate a
+  config that allows outbound to private networks. My Auth0
+  tenant is acme.us.auth0.com, audience https://api.acme.com,
+  with a bearer-token MCP server at `https://mcp.internal.acme.com/mcp`.
+followups:
+  - match: /audience/i
+    reply: "https://api.acme.com"
+expect:
+  must_validate: true
+  required_paths:
+    - gateway.authentication.jwks_info.jwt_algorithm
+    - gateway.authentication.jwks_info.jwt_jwks_uri
+    - gateway.authentication.jwks_info.jwt_issuer
+    - gateway.authentication.jwks_info.jwt_audience
+    - gateway.ssrf.allow_private_networks
+    - mcp_servers[0].name
+    - mcp_servers[0].url
+    - mcp_servers[0].authentication.type
+    - mcp_servers[0].authentication.token
+  forbidden_paths:
+    - gateway.ssrf.allow_localhost
+  value_constraints:
+    - path: "gateway.ssrf.allow_private_networks"
+      equals: true
+    - path: "mcp_servers[0].authentication.type"
+      equals: bearer
+    - path: "mcp_servers[0].authentication.token"
+      regex: "^<?(REPLACE_|PLACEHOLDER_|CHANGE_?ME|YOUR[_-]|your[_-])|^\\$\\{"
+  # Explicit opt-out: the user asked for the weakening, so the
+  # safe-defaults check should not fire on this path.
+  safe_default_opt_out:
+    - gateway.ssrf.allow_private_networks
+  semantic_rubric:
+    - "Weakens only allow_private_networks — does NOT also flip allow_localhost or dns_fail_closed"
+    - "Does NOT also populate allowed_networks (would be a redundant double-weakening)"
+clarifying_question_expected: false

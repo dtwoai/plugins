@@ -1,0 +1,14 @@
+id: ambiguous-missing-audience
+tier: aspirational
+tags: [ambiguous, clarification]
+user_prompt: |
+  Generate a gateway for my Auth0 tenant acme.us.auth0.com with
+  a bearer-token MCP server.
+followups:
+  - match: /audience/i
+    reply: "https://api.acme.com"
+expect:
+  must_validate: true
+  semantic_rubric:
+    - "Asks about the audience claim before emitting YAML — the prompt did not supply it"
+clarifying_question_expected: true

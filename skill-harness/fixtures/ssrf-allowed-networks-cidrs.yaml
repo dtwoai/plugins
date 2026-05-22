@@ -1,0 +1,54 @@
+# Sources:
+#   - RFC 4632 (CIDR notation)
+#   - Schema ref: packages/libs/utils/schema-reference.json
+#     generatorVersion 1.0.0 — gateway.ssrf.allowed_networks (array<string>, deployDefault [])
+#   - Field rationale (from schema): "Set to the specific CIDRs your MCP servers live on … prefer this surgical
+#     allowlist over the blanket allow_private_networks=true, since every range you add widens the gateway's
+#     outbound attack surface."
+id: ssrf-allowed-networks-cidrs
+tier: aspirational
+tags: [ssrf, safe_default_opt_out, cidr_allowlist, surgical]
+user_prompt: |
+  The MCP server lives in our VPC at 10.42.7.0/28 (and nowhere
+  else). Generate a gateway config with a surgical SSRF
+  allowlist for exactly that CIDR — do NOT flip the blanket
+  private-networks allow. My Auth0 tenant is acme.us.auth0.com,
+  audience https://api.acme.com, with a bearer-token MCP server
+  at http://10.42.7.5:8080/mcp.
+followups:
+  - match: /audience/i
+    reply: "https://api.acme.com"
+expect:
+  must_validate: true
+  required_paths:
+    - gateway.authentication.jwks_info.jwt_algorithm
+    - gateway.authentication.jwks_info.jwt_jwks_uri
+    - gateway.authentication.jwks_info.jwt_issuer
+    - gateway.authentication.jwks_info.jwt_audience
+    - gateway.ssrf.allowed_networks
+    - mcp_servers[0].name
+    - mcp_servers[0].url
+    - mcp_servers[0].authentication.type
+    - mcp_servers[0].authentication.token
+  forbidden_paths:
+    - gateway.ssrf.allow_localhost
+    - gateway.ssrf.allow_private_networks
+  value_constraints:
+    - path: "gateway.ssrf.allowed_networks"
+      min_length: 1
+    - path: "gateway.ssrf.allowed_networks[0]"
+      equals: "10.42.7.0/28"
+    - path: "mcp_servers[0].authentication.type"
+      equals: bearer
+    - path: "mcp_servers[0].authentication.token"
+      regex: "^<?(REPLACE_|PLACEHOLDER_|CHANGE_?ME|YOUR[_-]|your[_-])|^\\$\\{"
+  # Explicit opt-out: the user asked for the weakening (any non-empty
+  # allowed_networks CIDR list is a weakening), so the safe-defaults
+  # check should not fire on this path.
+  safe_default_opt_out:
+    - gateway.ssrf.allowed_networks
+  semantic_rubric:
+    - "Uses allowed_networks with exactly the one /28 CIDR the user named — not a looser range"
+    - "Does NOT also set allow_private_networks: true (surgical allowlist is the whole point)"
+    - "Preserves dns_fail_closed default"
+clarifying_question_expected: false

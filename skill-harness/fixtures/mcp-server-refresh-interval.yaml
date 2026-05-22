@@ -1,0 +1,49 @@
+# Sources (verified 2026-04-22):
+#   - Schema ref: packages/libs/utils/schema-reference.json
+#     generatorVersion 1.0.0 — mcp_servers[].refresh_interval_seconds (integer, >= 60)
+#   - Rationale from schema: "How often the gateway re-fetches the server's tool list.
+#     Raise when the list changes rarely, lower when it changes often."
+id: mcp-server-refresh-interval
+tier: aspirational
+tags: [refresh_interval, typed_scalar, bearer]
+user_prompt: |
+  I have an internal MCP server at https://mcp.services.acme.com/mcp
+  that updates its tool list every 5 minutes. Generate a gateway
+  config that refreshes this server's tools every 300 seconds. Use a
+  bearer token for auth. My Auth0 tenant is acme.us.auth0.com,
+  audience https://api.acme.com.
+followups:
+  - match: /audience/i
+    reply: "https://api.acme.com"
+expect:
+  must_validate: true
+  required_paths:
+    - gateway.authentication.jwks_info.jwt_algorithm
+    - gateway.authentication.jwks_info.jwt_jwks_uri
+    - gateway.authentication.jwks_info.jwt_issuer
+    - gateway.authentication.jwks_info.jwt_audience
+    - mcp_servers[0].name
+    - mcp_servers[0].url
+    - mcp_servers[0].refresh_interval_seconds
+    - mcp_servers[0].authentication.type
+    - mcp_servers[0].authentication.token
+  forbidden_paths:
+    - mcp_servers[0].authentication.issuer
+    - mcp_servers[0].authentication.client_id
+    - mcp_servers[0].authentication.client_secret
+    - mcp_servers[0].authentication.grant_type
+    - mcp_servers[0].authentication.scopes
+  value_constraints:
+    - path: "mcp_servers[0].authentication.type"
+      equals: bearer
+    # Global secrets-are-placeholders check also fires on this leaf;
+    # the fixture-level regex assertion keeps the intent self-contained.
+    - path: "mcp_servers[0].authentication.token"
+      regex: "^<?(REPLACE_|PLACEHOLDER_|CHANGE_?ME|YOUR[_-]|your[_-])|^\\$\\{"
+    - path: "mcp_servers[0].refresh_interval_seconds"
+      equals: 300
+  semantic_rubric:
+    - "Emits refresh_interval_seconds as a typed integer (not a string, not milliseconds)"
+    - "Value is 300 — matches the '5 minutes' requested, not a different unit"
+    - "Does NOT emit a value below 60 (schema constraint)"
+clarifying_question_expected: false

@@ -1,0 +1,70 @@
+# Sources (verified 2026-04-22):
+#   - https://github.com/github/github-mcp-server                   (official repo)
+#   - Endpoint: https://api.githubcopilot.com/mcp/ (streamable HTTP); insiders variant adds
+#     X-MCP-Insiders: true or /mcp/insiders suffix.
+#   - Auth: OAuth (GitHub as IdP, DCR-capable clients) OR PAT as Authorization: Bearer <pat>.
+#   - Behavioral headers documented by GitHub:
+#       X-MCP-Toolsets: <csv>   — restrict tool surface
+#       X-MCP-Readonly: true    — readonly mode (remote enforcement is best-effort)
+#   - The current gateway schema has no per-server "static headers" field — the only way to
+#     inject Authorization + X-MCP-* together is the `authheaders` variant, which marks every
+#     header value as `secret: true`. That forces the behavioral-flag values (`true`, `"repos"`)
+#     through the secret-placeholder check. We work around this by putting behavioral flags
+#     into ${ENV_VAR} form so they look like placeholders — but this is a workaround, not a
+#     real solution.
+#   - SCHEMA GAP (flag for Phase 3): add a non-secret `extra_headers` array on mcp_servers[] so
+#     behavioral headers don't have to masquerade as secrets.
+# Schema ref: packages/libs/utils/schema-reference.json
+#   generatorVersion 1.0.0 — mcp_servers[].url, mcp_servers[].transport_type,
+#   authentication (authheaders).headers[]
+id: github-copilot-mcp-authheaders
+tier: aspirational
+tags: [github, copilot, pat, authheaders, streamable_http, mcp_url_pinned, schema_gap_flagged]
+user_prompt: |
+  Hook up the GitHub Copilot MCP server at
+  https://api.githubcopilot.com/mcp/ using streamable HTTP.
+  Auth is a GitHub PAT sent as Authorization: Bearer <PAT>.
+  We also want to pin the toolset to "repos,issues" and enable
+  readonly mode via X-MCP-Readonly. We'll fill the PAT and flag
+  values from env vars later. My Auth0 tenant is
+  acme.us.auth0.com, audience https://api.acme.com.
+followups:
+  - match: /audience/i
+    reply: "https://api.acme.com"
+expect:
+  must_validate: true
+  required_paths:
+    - gateway.authentication.jwks_info.jwt_algorithm
+    - gateway.authentication.jwks_info.jwt_jwks_uri
+    - gateway.authentication.jwks_info.jwt_issuer
+    - gateway.authentication.jwks_info.jwt_audience
+    - mcp_servers[0].name
+    - mcp_servers[0].url
+    - mcp_servers[0].transport_type
+    - mcp_servers[0].authentication.type
+    - mcp_servers[0].authentication.headers
+    - mcp_servers[0].authentication.headers[0].key
+    - mcp_servers[0].authentication.headers[0].value
+  forbidden_paths:
+    - mcp_servers[0].authentication.token
+    - mcp_servers[0].authentication.issuer
+    - mcp_servers[0].authentication.client_id
+  value_constraints:
+    - path: "mcp_servers[0].url"
+      equals: "https://api.githubcopilot.com/mcp/"
+    - path: "mcp_servers[0].transport_type"
+      regex: "^(streamable_http|streamablehttp|http)$"
+    - path: "mcp_servers[0].authentication.type"
+      equals: authheaders
+    - path: "mcp_servers[0].authentication.headers"
+      min_length: 1
+    - path: "mcp_servers[0].authentication.headers[0].key"
+      equals: Authorization
+    - path: "mcp_servers[0].authentication.headers[0].value"
+      regex: "^<?(REPLACE_|PLACEHOLDER_|CHANGE_?ME|YOUR[_-]|your[_-])|^\\$\\{"
+  semantic_rubric:
+    - "Uses the authheaders variant (not bearer) so multiple headers can be injected together"
+    - "The Authorization header value is a placeholder matching the secret regex — never a live PAT"
+    - "Any X-MCP-Toolsets / X-MCP-Readonly headers, if emitted, use ${ENV_VAR} placeholders — this is a documented workaround because the schema marks every authheaders value as secret"
+    - "The /mcp/ streamable HTTP endpoint (trailing slash), not the insiders variant"
+clarifying_question_expected: false

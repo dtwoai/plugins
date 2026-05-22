@@ -1,0 +1,57 @@
+# Sources (verified 2026-04-22):
+#   - https://developer.okta.com/docs/reference/api/oidc/          (issuer/JWKS/authorize/token URL shapes)
+#   - https://developer.okta.com/docs/guides/customize-authz-server/ (custom AS vs org AS)
+#   - https://developer.okta.com/docs/reference/api/oauth-clients/   (DCR support)
+#   - RFC 7636 (PKCE; Okta requires it for public clients)
+# Schema ref: packages/libs/utils/schema-reference.json
+#   generatorVersion 1.0.0 — gateway.authentication.jwks_info, mcp_servers[].authentication (oauth)
+id: okta-oauth-dcr
+tier: aspirational
+tags: [okta, oauth, dcr, pkce, idp_variety]
+user_prompt: |
+  Generate a gateway that validates tokens from my Okta tenant
+  dev-12345.okta.com using the default custom authorization
+  server, audience api://d2-mcp-gateway. Hook it up to an
+  Atlassian MCP server using Okta DCR with PKCE.
+followups:
+  - match: /audience/i
+    reply: "api://d2-mcp-gateway"
+expect:
+  must_validate: true
+  required_paths:
+    - gateway.authentication.jwks_info.jwt_algorithm
+    - gateway.authentication.jwks_info.jwt_jwks_uri
+    - gateway.authentication.jwks_info.jwt_issuer
+    - gateway.authentication.jwks_info.jwt_audience
+    - mcp_servers[0].name
+    - mcp_servers[0].url
+    - mcp_servers[0].authentication.type
+    - mcp_servers[0].authentication.issuer
+    - mcp_servers[0].authentication.grant_type
+    - mcp_servers[0].authentication.scopes
+    - mcp_servers[0].authentication.pkce_enabled
+  forbidden_paths:
+    - mcp_servers[0].authentication.client_id
+    - mcp_servers[0].authentication.client_secret
+    - mcp_servers[0].authentication.token_url
+  value_constraints:
+    - path: "gateway.authentication.jwks_info.jwt_issuer"
+      regex: "^https://[a-zA-Z0-9-]+\\.okta\\.com/oauth2/[A-Za-z0-9]+(?:/|$)"
+    - path: "gateway.authentication.jwks_info.jwt_jwks_uri"
+      regex: "^https://[a-zA-Z0-9-]+\\.okta\\.com/oauth2/.+/v1/keys$"
+    - path: "gateway.authentication.jwks_info.jwt_audience"
+      regex: "^api://"
+    - path: "mcp_servers[0].authentication.type"
+      equals: oauth
+    - path: "mcp_servers[0].authentication.pkce_enabled"
+      equals: true
+    - path: "mcp_servers[0].authentication.issuer"
+      regex: "^https://[a-zA-Z0-9-]+\\.okta\\.com/oauth2/[A-Za-z0-9]+(?:/|$)"
+    - path: "mcp_servers[0].authentication.scopes"
+      min_length: 1
+  semantic_rubric:
+    - "Uses Okta custom AS issuer shape (path includes /oauth2/{asId}), not the org AS shape"
+    - "JWKS URI uses /v1/keys (Okta), not /.well-known/jwks.json or /discovery/v2.0/keys"
+    - "Audience is an Okta-style API identifier (api://…), not a client_id"
+    - "Uses DCR path (issuer set, no client_id/client_secret/token_url)"
+clarifying_question_expected: false

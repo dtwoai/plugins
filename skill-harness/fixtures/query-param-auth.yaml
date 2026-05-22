@@ -1,0 +1,39 @@
+id: query-param-auth
+tier: required
+tags: [query_param, simple]
+user_prompt: |
+  Generate a gateway with a single MCP server named "my-api" at
+  https://my-api.acme.com/mcp that authenticates via a URL query
+  parameter. Set param_key to "api_key" and use the exact
+  placeholder string "<REPLACE_WITH_API_KEY>" (including the
+  angle brackets) as the param_value — do not ask for the real
+  key. My Auth0 tenant is acme.us.auth0.com, audience
+  https://api.acme.com. Emit the YAML inline in a fenced code
+  block; do not try to call any tools.
+followups:
+  - match: "(server url|mcp server|url|param|key|name|endpoint|api_key)"
+    reply: |
+      Server name "my-api", url https://my-api.acme.com/mcp.
+      param_key: "api_key", param_value:
+      "<REPLACE_WITH_API_KEY>" (keep the angle brackets). Emit
+      the YAML inline.
+expect:
+  must_validate: true
+  required_paths:
+    - gateway.authentication.jwks_info.jwt_algorithm
+    - gateway.authentication.jwks_info.jwt_jwks_uri
+    - gateway.authentication.jwks_info.jwt_issuer
+    - gateway.authentication.jwks_info.jwt_audience
+    - mcp_servers[0].name
+    - mcp_servers[0].url
+    - mcp_servers[0].authentication.type
+    - mcp_servers[0].authentication.param_key
+    - mcp_servers[0].authentication.param_value
+  value_constraints:
+    - path: "mcp_servers[0].authentication.type"
+      equals: query_param
+    - path: "mcp_servers[0].authentication.param_key"
+      equals: api_key
+    - path: "mcp_servers[0].authentication.param_value"
+      regex: "^<REPLACE_|\\$\\{|CHANGE_?ME"
+clarifying_question_expected: false

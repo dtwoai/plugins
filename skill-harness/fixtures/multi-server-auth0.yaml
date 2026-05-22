@@ -1,0 +1,91 @@
+id: multi-server-auth0
+tier: required
+tags: [auth0, multi_server, compound, atlassian, slack, bearer]
+user_prompt: |
+  Generate a gateway for my Auth0 tenant acme.us.auth0.com,
+  audience https://api.acme.com, that proxies three MCP servers.
+  List them in this order:
+    1. Server name "atlassian", url
+       https://api.atlassian.com/ex/oauth/mcp — OAuth with DCR
+       and PKCE. Set issuer to https://acme.us.auth0.com/ and
+       pkce_enabled: true. Do NOT emit client_id, client_secret,
+       or token_url.
+    2. Server name "slack", url https://slack.com/api — OAuth
+       with Slack's quirks. Under this server's oauth
+       authentication block specifically, set scope_separator:
+       ",", token_response_path: authed_user, and
+       extra_authorize_params with a user_scope entry (keep the
+       key casing exactly as user_scope). Do not place these
+       fields anywhere else. Omit redirect_uri — it's optional
+       and we don't have a concrete callback URL; only emit a
+       URL-typed field if you have an actual URL.
+    3. Server name "internal-api", url
+       https://internal.acme.com/mcp — static bearer token. Use
+       the exact placeholder "<REPLACE_WITH_BEARER_TOKEN>"
+       (including angle brackets) as the token value.
+  Emit the YAML inline in a fenced code block; do not try to call
+  any tools.
+followups:
+  - match: "(audience|issuer|server url|mcp server|url|name|endpoint|scope|user_scope|token|param|client_id|client_secret|pkce|dcr|slack|atlassian|bearer|internal)"
+    reply: |
+      Three servers in order: (1) "atlassian" at
+      https://api.atlassian.com/ex/oauth/mcp — OAuth DCR+PKCE,
+      issuer https://acme.us.auth0.com/, pkce_enabled: true, no
+      client_id/client_secret/token_url; (2) "slack" at
+      https://slack.com/api — OAuth, and UNDER the slack
+      server's oauth authentication block set scope_separator:
+      ",", token_response_path: authed_user, and
+      extra_authorize_params: { user_scope: "chat:write,channels:read" };
+      (3) "internal-api" at https://internal.acme.com/mcp —
+      bearer, token "<REPLACE_WITH_BEARER_TOKEN>". Gateway-level
+      jwt_issuer https://acme.us.auth0.com/, jwt_audience
+      https://api.acme.com. Emit the YAML inline.
+expect:
+  must_validate: true
+  required_paths:
+    - gateway.authentication.jwks_info.jwt_algorithm
+    - gateway.authentication.jwks_info.jwt_jwks_uri
+    - gateway.authentication.jwks_info.jwt_issuer
+    - gateway.authentication.jwks_info.jwt_audience
+    - mcp_servers[0].name
+    - mcp_servers[0].url
+    - mcp_servers[0].authentication.type
+    - mcp_servers[0].authentication.issuer
+    - mcp_servers[0].authentication.grant_type
+    - mcp_servers[0].authentication.scopes
+    - mcp_servers[0].authentication.pkce_enabled
+    - mcp_servers[1].name
+    - mcp_servers[1].url
+    - mcp_servers[1].authentication.type
+    - mcp_servers[1].authentication.grant_type
+    - mcp_servers[1].authentication.scopes
+    - mcp_servers[1].authentication.scope_separator
+    - mcp_servers[1].authentication.token_response_path
+    - mcp_servers[2].name
+    - mcp_servers[2].url
+    - mcp_servers[2].authentication.type
+    - mcp_servers[2].authentication.token
+  forbidden_paths:
+    - mcp_servers[0].authentication.client_id
+    - mcp_servers[0].authentication.client_secret
+    - mcp_servers[0].authentication.token_url
+  value_constraints:
+    - path: "mcp_servers[0].authentication.type"
+      equals: oauth
+    - path: "mcp_servers[0].authentication.pkce_enabled"
+      equals: true
+    - path: "mcp_servers[1].authentication.type"
+      equals: oauth
+    - path: "mcp_servers[1].authentication.scope_separator"
+      equals: ","
+    - path: "mcp_servers[1].authentication.token_response_path"
+      equals: "authed_user"
+    - path: "mcp_servers[2].authentication.type"
+      equals: bearer
+    - path: "mcp_servers[2].authentication.token"
+      regex: "^<REPLACE_|\\$\\{|CHANGE_?ME"
+  semantic_rubric:
+    - "Each server uses the auth style the user named — never mixes OAuth with bearer"
+    - "Atlassian uses DCR (issuer set, no client_id/client_secret)"
+    - "Slack preserves user_scope key casing in extra_authorize_params"
+clarifying_question_expected: false

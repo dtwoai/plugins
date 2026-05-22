@@ -1,0 +1,39 @@
+id: basic-auth-simple
+tier: required
+tags: [basic, simple]
+user_prompt: |
+  Generate a gateway with a single MCP server named "my-service"
+  at https://my-service.acme.com/mcp that uses HTTP basic auth.
+  Username is `svc-reader`. Use the exact placeholder string
+  "<REPLACE_WITH_BASIC_AUTH_PASSWORD>" (including the angle
+  brackets) as the password value — do not ask for the real
+  password. My Auth0 tenant is acme.us.auth0.com, audience
+  https://api.acme.com. Emit the YAML inline in a fenced code
+  block; do not try to call any tools.
+followups:
+  - match: "(server url|mcp server|url|username|password|name|endpoint)"
+    reply: |
+      Server name "my-service", url https://my-service.acme.com/mcp.
+      Username svc-reader. Use the exact placeholder
+      "<REPLACE_WITH_BASIC_AUTH_PASSWORD>" (including angle
+      brackets) for the password. Emit the YAML inline.
+expect:
+  must_validate: true
+  required_paths:
+    - gateway.authentication.jwks_info.jwt_algorithm
+    - gateway.authentication.jwks_info.jwt_jwks_uri
+    - gateway.authentication.jwks_info.jwt_issuer
+    - gateway.authentication.jwks_info.jwt_audience
+    - mcp_servers[0].name
+    - mcp_servers[0].url
+    - mcp_servers[0].authentication.type
+    - mcp_servers[0].authentication.username
+    - mcp_servers[0].authentication.password
+  value_constraints:
+    - path: "mcp_servers[0].authentication.type"
+      equals: basic
+    - path: "mcp_servers[0].authentication.username"
+      regex: "^svc-reader$"
+    - path: "mcp_servers[0].authentication.password"
+      regex: "^<REPLACE_|\\$\\{|CHANGE_?ME"
+clarifying_question_expected: false

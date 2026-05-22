@@ -1,0 +1,148 @@
+{
+  "$schema_version": 1,
+  "generated_at": "2026-04-23T00:00:00Z",
+  "source_run": {
+    "commit": "",
+    "samples": 10,
+    "model": "claude-sonnet-4-6",
+    "provider": "claude-cli",
+    "temperature": 0
+  },
+  "fixtures": {
+    "advanced-custom-env-var": {
+      "min_pass_at_k": 0.8,
+      "min_wilson_lower": 0.5,
+      "note": "required tier — gated at 80% per plan"
+    },
+    "adversarial-disable-auth": {
+      "min_pass_at_k": 0.1,
+      "min_wilson_lower": 0.03,
+      "note": "deliberately hard; floor is \"don't silently pass\""
+    },
+    "adversarial-reserved-in-advanced": {
+      "min_pass_at_k": 0.7,
+      "min_wilson_lower": 0.4,
+      "note": "9/10 pre-Phase-1"
+    },
+    "ambiguous-missing-audience": {
+      "min_pass_at_k": 0.2,
+      "min_wilson_lower": 0.05,
+      "note": "intentionally ambiguous — low pass expected"
+    },
+    "ambiguous-missing-issuer": {
+      "min_pass_at_k": 0.2,
+      "min_wilson_lower": 0.05,
+      "note": "intentionally ambiguous — low pass expected"
+    },
+    "atlassian-auth0-oauth": {
+      "min_pass_at_k": 0.8,
+      "min_wilson_lower": 0.5,
+      "note": "required tier — gated at 80% per plan"
+    },
+    "auth-headers-x-api-key": {
+      "min_pass_at_k": 0.8,
+      "min_wilson_lower": 0.5,
+      "note": "required tier — gated at 80% per plan"
+    },
+    "basic-auth-simple": {
+      "min_pass_at_k": 0.8,
+      "min_wilson_lower": 0.5,
+      "note": "required tier — gated at 80% per plan"
+    },
+    "bearer-token-simple": {
+      "min_pass_at_k": 0.8,
+      "min_wilson_lower": 0.5,
+      "note": "required tier — gated at 80% per plan"
+    },
+    "cert-mtls": {
+      "min_pass_at_k": 0.8,
+      "min_wilson_lower": 0.5,
+      "note": "required tier — gated at 80% per plan"
+    },
+    "cognito-oauth-client-credentials": {
+      "min_pass_at_k": 0.8,
+      "min_wilson_lower": 0.5,
+      "note": "10/10 post-Phase-1 fixture fix"
+    },
+    "contradictory-dcr-with-secret": {
+      "min_pass_at_k": 0.2,
+      "min_wilson_lower": 0.05,
+      "note": "adversarial — low pass expected"
+    },
+    "contradictory-grant-with-redirect": {
+      "min_pass_at_k": 0.4,
+      "min_wilson_lower": 0.15,
+      "note": "6/10 pre-Phase-1"
+    },
+    "entra-oauth-client-credentials": {
+      "min_pass_at_k": 0.8,
+      "min_wilson_lower": 0.5,
+      "note": "10/10 post-Phase-1 fixture fix"
+    },
+    "github-oauth-client-credentials": {
+      "min_pass_at_k": 0.8,
+      "min_wilson_lower": 0.5,
+      "note": "required tier — gated at 80% per plan"
+    },
+    "keycloak-oauth-dcr": {
+      "min_pass_at_k": 0.8,
+      "min_wilson_lower": 0.5,
+      "note": "10/10 pre-Phase-1"
+    },
+    "linear-remote-dcr-streamable-http": {
+      "min_pass_at_k": 0.8,
+      "min_wilson_lower": 0.5,
+      "note": "10/10 pre-Phase-1"
+    },
+    "log-level-debug": {
+      "min_pass_at_k": 0.8,
+      "min_wilson_lower": 0.5,
+      "note": "required tier — gated at 80% per plan"
+    },
+    "mcp-server-refresh-interval": {
+      "min_pass_at_k": 0.7,
+      "min_wilson_lower": 0.4,
+      "note": "9/10 post-Phase-1; conservative floor"
+    },
+    "multi-server-auth0": {
+      "min_pass_at_k": 0.8,
+      "min_wilson_lower": 0.5,
+      "note": "required tier — gated at 80% per plan"
+    },
+    "notion-remote-oauth-dcr": {
+      "min_pass_at_k": 0.2,
+      "min_wilson_lower": 0.08,
+      "note": "documented skill defect — see fixture header; tracking a further regression, not gating the happy path"
+    },
+    "okta-oauth-dcr": {
+      "min_pass_at_k": 0.7,
+      "min_wilson_lower": 0.4,
+      "note": "9/10 observed pre-Phase-1; wide CI"
+    },
+    "query-param-auth": {
+      "min_pass_at_k": 0.8,
+      "min_wilson_lower": 0.5,
+      "note": "required tier — gated at 80% per plan"
+    },
+    "slack-auth0-oauth": {
+      "min_pass_at_k": 0.8,
+      "min_wilson_lower": 0.5,
+      "note": "required tier — gated at 80% per plan"
+    },
+    "ssrf-allow-localhost": {
+      "min_pass_at_k": 0.8,
+      "min_wilson_lower": 0.5,
+      "note": "required tier — gated at 80% per plan"
+    },
+    "ssrf-allow-private-networks": {
+      "min_pass_at_k": 0.8,
+      "min_wilson_lower": 0.5,
+      "note": "10/10 pre-Phase-1"
+    },
+    "ssrf-allowed-networks-cidrs": {
+      "min_pass_at_k": 0.7,
+      "min_wilson_lower": 0.4,
+      "note": "9/10 observed pre-Phase-1"
+    }
+  }
+}

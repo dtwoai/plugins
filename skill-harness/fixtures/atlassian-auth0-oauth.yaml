@@ -1,0 +1,51 @@
+id: atlassian-auth0-oauth
+tier: required
+tags: [auth0, oauth, atlassian, dcr, pkce]
+user_prompt: |
+  Generate a gateway for my Auth0 tenant acme.us.auth0.com,
+  audience https://api.acme.com, with a single MCP server named
+  "atlassian" at https://api.atlassian.com/ex/oauth/mcp. Use the
+  Auth0 Dynamic Client Registration (DCR) path with PKCE — set the
+  issuer to https://acme.us.auth0.com/ and enable pkce_enabled.
+  Do not emit client_id, client_secret, or token_url; those come
+  from DCR at runtime. Include at least one read-scope for Jira or
+  Confluence. Emit the YAML inline in a fenced code block; do not
+  try to call any tools.
+followups:
+  - match: "(audience|issuer|server url|mcp server|url|name|endpoint|scope|dcr|client_id|client_secret|pkce)"
+    reply: |
+      Tenant acme.us.auth0.com, audience https://api.acme.com,
+      issuer https://acme.us.auth0.com/. Server name "atlassian",
+      url https://api.atlassian.com/ex/oauth/mcp. Use DCR +
+      pkce_enabled: true; do NOT include client_id, client_secret,
+      or token_url. Include a Jira/Confluence read-scope such as
+      read:jira-work. Emit the YAML inline.
+expect:
+  must_validate: true
+  required_paths:
+    - gateway.authentication.jwks_info.jwt_algorithm
+    - gateway.authentication.jwks_info.jwt_jwks_uri
+    - gateway.authentication.jwks_info.jwt_issuer
+    - gateway.authentication.jwks_info.jwt_audience
+    - mcp_servers[0].name
+    - mcp_servers[0].url
+    - mcp_servers[0].authentication.type
+    - mcp_servers[0].authentication.issuer
+    - mcp_servers[0].authentication.grant_type
+    - mcp_servers[0].authentication.scopes
+    - mcp_servers[0].authentication.pkce_enabled
+  forbidden_paths:
+    - mcp_servers[0].authentication.client_id
+    - mcp_servers[0].authentication.client_secret
+    - mcp_servers[0].authentication.token_url
+  value_constraints:
+    - path: "mcp_servers[0].authentication.type"
+      equals: oauth
+    - path: "mcp_servers[0].authentication.pkce_enabled"
+      equals: true
+    - path: "mcp_servers[0].authentication.scopes"
+      min_length: 1
+  semantic_rubric:
+    - "Uses DCR path (issuer set, no client_id/client_secret)"
+    - "Scopes include at least one read-scope for Jira or Confluence"
+clarifying_question_expected: false
