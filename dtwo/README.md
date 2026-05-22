@@ -13,6 +13,19 @@ In Claude Code:
 
 That's it. Restart your Claude Code session — the skills are auto-discovered and the `dtwo` MCP server is registered. On the first DTwo tool call, your browser opens to complete the Auth0 OAuth flow.
 
+## Working with Claude Cowork
+
+The DTwo MCP server does not yet support CIMD, so Claude Cowork can't connect to it through the plugin alone. Support for CIMD will be added soon. In the meantime, to make our plugin work in Claude Cowork, an admin of your Anthropic organization needs to configure a custom connector first.
+
+1. As an Anthropic org admin, create a custom connector with the following settings:
+   - **Name:** `dtwo` (must match the plugin name exactly)
+   - **Transport:** HTTP
+   - **URL:** `https://mcp.us1.prod.dtwo.ai/mcp`
+   - **Client ID:** `EleONdxmthzCtATDyGkHW4w9TIct7qRO`
+2. Once the connector is in place, install the plugin from the marketplace as described in [Install](#install).
+
+Naming the connector `dtwo` is required — it has to match the plugin's MCP server name so users connect through it cleanly.
+
 ## What's included
 
 ### MCP server
@@ -21,28 +34,6 @@ That's it. Restart your Claude Code session — the skills are auto-discovered a
 | ------ | --------- | ---------------------------------- |
 | `dtwo` | HTTP      | `https://mcp.us1.prod.dtwo.ai/mcp` |
 
-The URL can be overridden by setting `DTWO_MCP_URL` and `DTWO_CLIENT_ID` before launching Claude Code, e.g.:
-
-```bash
-# Point at your local dtwo-mcp server
-export DTWO_MCP_URL=http://localhost:3000/mcp
-export DTWO_CLIENT_ID=[...]
-```
-
-For a per-project override that doesn't touch your shell, drop it in `.claude/settings.local.json` at the root of the project you're working in (this file is git-ignored by default):
-
-```json
-{
-  "env": {
-    "DTWO_MCP_URL": "http://localhost:3000/mcp",
-    "DTWO_CLIENT_ID": [...]
-  }
-}
-```
-
-Use `.claude/settings.json` instead if you want the override committed and shared with your team.
-
-If unset, the plugin connects to https://mcp.us1.prod.dtwo.ai/mcp automatically.
 
 ### Skills
 
@@ -57,5 +48,4 @@ The skills load each other on demand via Claude Code's `Skill` tool — most rea
 ## Troubleshooting
 
 - **OAuth doesn't open a browser** — make sure port `33418` is free; this is the registered OAuth callback port.
-- **`dtwo` server not connecting** — confirm `DTWO_MCP_URL` (if set) is reachable, and that you're logged into the right Auth0 tenant.
 - **Skills not appearing** — restart your Claude Code session after install. Skills are scanned on session start.
