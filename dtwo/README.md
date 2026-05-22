@@ -7,7 +7,7 @@ A Claude Code plugin that bundles the DTwo MCP server connection together with t
 In Claude Code:
 
 ```
-/plugin marketplace add dtwoai/dtwo-plugin
+/plugin marketplace add dtwoai/plugins
 /plugin install dtwo@dtwo
 ```
 

@@ -7,7 +7,7 @@
     "email": "support@dtwo.ai"
   },
   "homepage": "https://dtwo.ai",
-  "repository": "https://github.com/dtwoai/dtwo-plugin",
+  "repository": "https://github.com/dtwoai/plugins",
   "license": "MIT",
   "keywords": [
     "agentic",
