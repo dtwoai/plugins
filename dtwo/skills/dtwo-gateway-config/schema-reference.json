@@ -301,7 +301,7 @@
           "schemaDefault": null,
           "deployDefault": null,
           "target": "WELL_KNOWN_ALLOW_HTTP",
-          "description": "When true, forces contextforge to grant tokens to http URLs. This is used to run the container in local mode.",
+          "description": "When true, forces the gateway to grant tokens to http URLs. This is used to run the container in local mode.",
           "targetKind": "envVar"
         }
       ],
