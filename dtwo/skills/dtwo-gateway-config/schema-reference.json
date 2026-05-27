@@ -142,7 +142,9 @@
           "enumValues": null,
           "audience": "internal",
           "schemaDefault": null,
-          "deployDefault": ["http://localhost:6274"],
+          "deployDefault": [
+            "http://localhost:6274"
+          ],
           "target": "ALLOWED_ORIGINS",
           "description": "CORS allowlist; JSON-encoded array in the env file.",
           "targetKind": "envVar"
@@ -263,7 +265,9 @@
           "name": "sso_generic_scope",
           "required": false,
           "type": "string",
-          "constraints": ["min length: 1"],
+          "constraints": [
+            "min length: 1"
+          ],
           "enumValues": null,
           "audience": "user",
           "schemaDefault": null,
@@ -271,6 +275,33 @@
           "target": "SSO_GENERIC_SCOPE",
           "description": "OAuth scope string for the generic SSO discovery flow.",
           "rationale": "Set to the OAuth scope your SSO provider requires (e.g. `openid profile email`). Ignored when `sso_issuer` is not set.",
+          "targetKind": "envVar"
+        },
+        {
+          "name": "oauth_dcr",
+          "required": false,
+          "type": "object",
+          "constraints": [],
+          "enumValues": null,
+          "audience": "internal",
+          "schemaDefault": null,
+          "deployDefault": null,
+          "target": null,
+          "description": "OAuth Dynamic Client Registration overrides. Defaults are auto-derived from mcp_servers; set fields here to override (typically to disable DCR/discovery for IdPs that pre-provision clients)."
+        },
+        {
+          "name": "well_known_allow_http",
+          "required": false,
+          "type": "string",
+          "constraints": [
+            "min length: 1"
+          ],
+          "enumValues": null,
+          "audience": "internal",
+          "schemaDefault": null,
+          "deployDefault": null,
+          "target": "WELL_KNOWN_ALLOW_HTTP",
+          "description": "When true, forces the gateway to grant tokens to http URLs. This is used to run the container in local mode.",
           "targetKind": "envVar"
         }
       ],
@@ -327,7 +358,9 @@
           "name": "jwt_issuer",
           "required": true,
           "type": "string",
-          "constraints": ["min length: 1"],
+          "constraints": [
+            "min length: 1"
+          ],
           "enumValues": null,
           "audience": "user",
           "schemaDefault": null,
@@ -341,7 +374,9 @@
           "name": "jwt_audience",
           "required": true,
           "type": "string",
-          "constraints": ["min length: 1"],
+          "constraints": [
+            "min length: 1"
+          ],
           "enumValues": null,
           "audience": "user",
           "schemaDefault": null,
@@ -349,6 +384,55 @@
           "target": "JWT_AUDIENCE",
           "description": "Expected aud claim value.",
           "rationale": "Set to the `aud` claim the provider targets at this gateway; prevents tokens meant for other services from being accepted.",
+          "targetKind": "envVar"
+        }
+      ]
+    },
+    {
+      "path": "gateway.authentication.oauth_dcr",
+      "title": "gateway.authentication.oauth_dcr",
+      "description": "OAuth Dynamic Client Registration overrides. Defaults are auto-derived from mcp_servers; set fields here to override (typically to disable DCR/discovery for IdPs that pre-provision clients).",
+      "fields": [
+        {
+          "name": "dcr_enabled",
+          "required": false,
+          "type": "boolean",
+          "constraints": [],
+          "enumValues": null,
+          "audience": "user",
+          "schemaDefault": null,
+          "deployDefault": null,
+          "target": "DCR_ENABLED",
+          "description": "Enable Dynamic Client Registration (RFC 7591) against upstream OAuth issuers.",
+          "rationale": "Set `false` when your IdP (e.g. Entra ID) does not support DCR and OAuth clients are pre-provisioned out of band; leave unset to inherit the default driven by `mcp_servers[*].authentication.issuer`.",
+          "targetKind": "envVar"
+        },
+        {
+          "name": "auto_register_on_missing_credentials",
+          "required": false,
+          "type": "boolean",
+          "constraints": [],
+          "enumValues": null,
+          "audience": "user",
+          "schemaDefault": null,
+          "deployDefault": null,
+          "target": "DCR_AUTO_REGISTER_ON_MISSING_CREDENTIALS",
+          "description": "Automatically register a client with the issuer when client_id/client_secret are absent.",
+          "rationale": "Set `false` to require pre-provisioned client credentials and fail closed when they are missing.",
+          "targetKind": "envVar"
+        },
+        {
+          "name": "oauth_discovery_enabled",
+          "required": false,
+          "type": "boolean",
+          "constraints": [],
+          "enumValues": null,
+          "audience": "user",
+          "schemaDefault": null,
+          "deployDefault": null,
+          "target": "OAUTH_DISCOVERY_ENABLED",
+          "description": "Enable RFC 8414 OAuth authorization-server metadata discovery on the gateway.",
+          "rationale": "Set `false` when the upstream IdP does not publish authorization-server metadata (common with config-only Entra deployments).",
           "targetKind": "envVar"
         }
       ]
@@ -375,7 +459,9 @@
           "name": "file_path",
           "required": false,
           "type": "string",
-          "constraints": ["min length: 1"],
+          "constraints": [
+            "min length: 1"
+          ],
           "enumValues": null,
           "audience": "internal",
           "schemaDefault": null,
@@ -408,7 +494,9 @@
           "name": "interval_seconds",
           "required": false,
           "type": "integer",
-          "constraints": ["> 0"],
+          "constraints": [
+            "> 0"
+          ],
           "enumValues": null,
           "audience": "internal",
           "schemaDefault": null,
@@ -434,7 +522,9 @@
           "name": "debounce_seconds",
           "required": false,
           "type": "integer",
-          "constraints": ["> 0"],
+          "constraints": [
+            "> 0"
+          ],
           "enumValues": null,
           "audience": "internal",
           "schemaDefault": null,
@@ -467,7 +557,9 @@
           "name": "interval_seconds",
           "required": false,
           "type": "integer",
-          "constraints": ["> 0"],
+          "constraints": [
+            "> 0"
+          ],
           "enumValues": null,
           "audience": "internal",
           "schemaDefault": null,
@@ -549,7 +641,9 @@
           "name": "name",
           "required": true,
           "type": "string",
-          "constraints": ["min length: 1"],
+          "constraints": [
+            "min length: 1"
+          ],
           "enumValues": null,
           "audience": "user",
           "schemaDefault": null,
@@ -563,7 +657,9 @@
           "name": "description",
           "required": false,
           "type": "string",
-          "constraints": ["min length: 1"],
+          "constraints": [
+            "min length: 1"
+          ],
           "enumValues": null,
           "audience": "user",
           "schemaDefault": null,
@@ -592,7 +688,12 @@
           "required": false,
           "type": "enum",
           "constraints": [],
-          "enumValues": ["sse", "streamable_http", "streamablehttp", "http"],
+          "enumValues": [
+            "sse",
+            "streamable_http",
+            "streamablehttp",
+            "http"
+          ],
           "audience": "user",
           "schemaDefault": null,
           "deployDefault": null,
@@ -617,7 +718,9 @@
           "name": "refresh_interval_seconds",
           "required": false,
           "type": "integer",
-          "constraints": ["≥ 60"],
+          "constraints": [
+            "≥ 60"
+          ],
           "enumValues": null,
           "audience": "user",
           "schemaDefault": null,
@@ -632,7 +735,11 @@
           "required": false,
           "type": "enum",
           "constraints": [],
-          "enumValues": ["public", "team", "private"],
+          "enumValues": [
+            "public",
+            "team",
+            "private"
+          ],
           "audience": "user",
           "schemaDefault": null,
           "deployDefault": null,
@@ -666,37 +773,60 @@
         {
           "name": "bearer",
           "path": "mcp_servers[].authentication (bearer)",
-          "requiredFields": ["type", "token"]
+          "requiredFields": [
+            "type",
+            "token"
+          ]
         },
         {
           "name": "basic",
           "path": "mcp_servers[].authentication (basic)",
-          "requiredFields": ["type", "username", "password"]
+          "requiredFields": [
+            "type",
+            "username",
+            "password"
+          ]
         },
         {
           "name": "authheaders",
           "path": "mcp_servers[].authentication (authheaders)",
-          "requiredFields": ["type", "headers"]
+          "requiredFields": [
+            "type",
+            "headers"
+          ]
         },
         {
           "name": "query_param",
           "path": "mcp_servers[].authentication (query_param)",
-          "requiredFields": ["type", "param_key", "param_value"]
+          "requiredFields": [
+            "type",
+            "param_key",
+            "param_value"
+          ]
         },
         {
           "name": "oauth",
           "path": "mcp_servers[].authentication (oauth)",
-          "requiredFields": ["type", "grant_type", "scopes"]
+          "requiredFields": [
+            "type",
+            "grant_type",
+            "scopes"
+          ]
         },
         {
           "name": "cert",
           "path": "mcp_servers[].authentication (cert)",
-          "requiredFields": ["type", "ca_cert"]
+          "requiredFields": [
+            "type",
+            "ca_cert"
+          ]
         },
         {
           "name": "none",
           "path": "mcp_servers[].authentication (none)",
-          "requiredFields": ["type"]
+          "requiredFields": [
+            "type"
+          ]
         }
       ]
     },
@@ -722,7 +852,9 @@
           "name": "token",
           "required": true,
           "type": "string",
-          "constraints": ["min length: 1"],
+          "constraints": [
+            "min length: 1"
+          ],
           "enumValues": null,
           "audience": "user",
           "schemaDefault": null,
@@ -757,7 +889,9 @@
           "name": "username",
           "required": true,
           "type": "string",
-          "constraints": ["min length: 1"],
+          "constraints": [
+            "min length: 1"
+          ],
           "enumValues": null,
           "audience": "user",
           "schemaDefault": null,
@@ -771,7 +905,9 @@
           "name": "password",
           "required": true,
           "type": "string",
-          "constraints": ["min length: 1"],
+          "constraints": [
+            "min length: 1"
+          ],
           "enumValues": null,
           "audience": "user",
           "schemaDefault": null,
@@ -806,7 +942,9 @@
           "name": "headers",
           "required": true,
           "type": "array<object>",
-          "constraints": ["min length: 1"],
+          "constraints": [
+            "min length: 1"
+          ],
           "enumValues": null,
           "audience": "user",
           "schemaDefault": null,
@@ -827,7 +965,9 @@
           "name": "key",
           "required": true,
           "type": "string",
-          "constraints": ["min length: 1"],
+          "constraints": [
+            "min length: 1"
+          ],
           "enumValues": null,
           "audience": "user",
           "schemaDefault": null,
@@ -841,7 +981,9 @@
           "name": "value",
           "required": true,
           "type": "string",
-          "constraints": ["min length: 1"],
+          "constraints": [
+            "min length: 1"
+          ],
           "enumValues": null,
           "audience": "user",
           "schemaDefault": null,
@@ -876,7 +1018,9 @@
           "name": "param_key",
           "required": true,
           "type": "string",
-          "constraints": ["min length: 1"],
+          "constraints": [
+            "min length: 1"
+          ],
           "enumValues": null,
           "audience": "user",
           "schemaDefault": null,
@@ -890,7 +1034,9 @@
           "name": "param_value",
           "required": true,
           "type": "string",
-          "constraints": ["min length: 1"],
+          "constraints": [
+            "min length: 1"
+          ],
           "enumValues": null,
           "audience": "user",
           "schemaDefault": null,
@@ -925,7 +1071,9 @@
           "name": "grant_type",
           "required": true,
           "type": "string",
-          "constraints": ["min length: 1"],
+          "constraints": [
+            "min length: 1"
+          ],
           "enumValues": null,
           "audience": "user",
           "schemaDefault": null,
@@ -939,7 +1087,9 @@
           "name": "client_id",
           "required": false,
           "type": "string",
-          "constraints": ["min length: 1"],
+          "constraints": [
+            "min length: 1"
+          ],
           "enumValues": null,
           "audience": "user",
           "schemaDefault": null,
@@ -953,7 +1103,9 @@
           "name": "client_secret",
           "required": false,
           "type": "string",
-          "constraints": ["min length: 1"],
+          "constraints": [
+            "min length: 1"
+          ],
           "enumValues": null,
           "audience": "user",
           "schemaDefault": null,
@@ -1024,7 +1176,9 @@
           "name": "scopes",
           "required": true,
           "type": "array<string>",
-          "constraints": ["min length: 1"],
+          "constraints": [
+            "min length: 1"
+          ],
           "enumValues": null,
           "audience": "user",
           "schemaDefault": null,
@@ -1052,7 +1206,9 @@
           "name": "oauth_quirks",
           "required": false,
           "type": "array<string>",
-          "constraints": ["min length: 1"],
+          "constraints": [
+            "min length: 1"
+          ],
           "enumValues": null,
           "audience": "internal",
           "schemaDefault": null,
@@ -1081,7 +1237,9 @@
           "name": "token_response_path",
           "required": false,
           "type": "string",
-          "constraints": ["min length: 1"],
+          "constraints": [
+            "min length: 1"
+          ],
           "enumValues": null,
           "audience": "internal",
           "schemaDefault": null,
@@ -1094,7 +1252,9 @@
           "name": "scope_param_name",
           "required": false,
           "type": "string",
-          "constraints": ["min length: 1"],
+          "constraints": [
+            "min length: 1"
+          ],
           "enumValues": null,
           "audience": "internal",
           "schemaDefault": null,
@@ -1107,7 +1267,9 @@
           "name": "scope_separator",
           "required": false,
           "type": "string",
-          "constraints": ["min length: 1"],
+          "constraints": [
+            "min length: 1"
+          ],
           "enumValues": null,
           "audience": "internal",
           "schemaDefault": null,
@@ -1120,7 +1282,9 @@
           "name": "token_lifetime_seconds",
           "required": false,
           "type": "integer",
-          "constraints": ["> 0"],
+          "constraints": [
+            "> 0"
+          ],
           "enumValues": null,
           "audience": "internal",
           "schemaDefault": null,
@@ -1158,7 +1322,9 @@
           "name": "ca_cert",
           "required": true,
           "type": "string",
-          "constraints": ["min length: 1"],
+          "constraints": [
+            "min length: 1"
+          ],
           "enumValues": null,
           "audience": "user",
           "schemaDefault": null,
@@ -1215,10 +1381,12 @@
       "key": "DATABASE_URL"
     },
     {
-      "key": "DCR_AUTO_REGISTER_ON_MISSING_CREDENTIALS"
+      "key": "DCR_AUTO_REGISTER_ON_MISSING_CREDENTIALS",
+      "schemaPath": "gateway.authentication.oauth_dcr.auto_register_on_missing_credentials"
     },
     {
-      "key": "DCR_ENABLED"
+      "key": "DCR_ENABLED",
+      "schemaPath": "gateway.authentication.oauth_dcr.dcr_enabled"
     },
     {
       "key": "DISABLE_ACCESS_LOG"
@@ -1289,7 +1457,8 @@
       "schemaPath": "gateway.authentication.enabled"
     },
     {
-      "key": "OAUTH_DISCOVERY_ENABLED"
+      "key": "OAUTH_DISCOVERY_ENABLED",
+      "schemaPath": "gateway.authentication.oauth_dcr.oauth_discovery_enabled"
     },
     {
       "key": "PLATFORM_ADMIN_EMAIL"
@@ -1367,6 +1536,10 @@
     },
     {
       "key": "TRANSPORT_TYPE"
+    },
+    {
+      "key": "WELL_KNOWN_ALLOW_HTTP",
+      "schemaPath": "gateway.authentication.well_known_allow_http"
     }
   ]
 }
