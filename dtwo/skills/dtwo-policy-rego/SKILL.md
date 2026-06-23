@@ -2,11 +2,14 @@
 name: "dtwo-policy-rego"
 description: |
   Generate, modify, explain, and debug Rego policy code for the DTwo MCP Gateway (ingress and egress),
-  including the input schema, allow/deny/transform patterns, and debugging techniques.
+  including the input schema, allow/deny/transform patterns, debugging techniques, and policy-store
+  catalog contribution structure.
   TRIGGER when: user asks to write/modify/explain/debug a Rego policy, says "block/allow/redact/transform"
   a tool call or response, mentions OPA, package paths, `input.payload`, `default allow`, or pastes Rego
-  for review; also when diagnosing blanket denies or transform conflicts. Pair with dtwo-gateway-policy
-  whenever the resulting Rego must be saved, attached, or deployed.
+  for review; asks to contribute to `dtwoai/policy-store`, create catalog policy files, or update app,
+  industry, bundle, manifest, or tests files for reusable DTwo policies; also when diagnosing blanket denies
+  or transform conflicts. Pair with dtwo-gateway-policy whenever the resulting Rego must be saved, attached,
+  or deployed.
   SKIP when: task is policy CRUD or pipeline attachment that does not change Rego (use dtwo-gateway-policy
   alone); task is general OPA usage outside the MCP Gateway; task is editing gateway YAML (use dtwo-gateway-config).
 ---
@@ -36,7 +39,7 @@ This skill is typically used alongside others. Invoke them via the `Skill` tool 
 2. Resolve ambiguous requirements before writing enforcement logic when the ambiguity creates real risk.
 3. Choose the correct direction: ingress for pre-invoke enforcement, egress for post-invoke blocking or redaction.
 4. Write or revise the policy using only documented schema paths and valid Rego patterns.
-5. Return the policy in a fenced `rego` block with a short explanation of behavior and assumptions.
+5. Return the policy in a fenced `rego` block with a short explanation of behavior and assumptions, unless the user is contributing to `dtwoai/policy-store`; in that case, create or update the catalog files described below.
 
 ## Core Rules
 
@@ -58,6 +61,101 @@ This skill is typically used alongside others. Invoke them via the `Skill` tool 
 - Always return generated or modified policies in a fenced `rego` code block
 - When generating or modifying a policy, include a brief explanation of what the policy does and its direction (ingress/egress)
 - When explaining an existing policy, no code block is needed unless referencing specific rules
+- When contributing to the DTwo Policy Store repository, produce or edit the repository files described in "Policy Store Catalog Contributions" instead of returning only a standalone fenced Rego block.
+
+## Policy Store Catalog Contributions
+
+Use this section when the target is the `dtwoai/policy-store` repository rather than a tenant-local gateway policy. The policy-store catalog is a curated source of reusable policies; this skill still owns Rego correctness, while the repository owns file layout, metadata, tests, and manifest generation.
+
+### Repository layout
+
+```text
+apps/
+  <app>/
+    README.md
+    <policy-slug>/
+      policy.md
+      tests.yaml
+
+industries/
+  <industry>/
+    README.md
+
+bundles/
+  <bundle>/
+    README.md
+
+manifest.json
+schema.json
+```
+
+- Put canonical policy bodies only under `apps/<app>/<policy-slug>/`.
+- Never duplicate policy bodies under `industries/` or `bundles/`; those directories contain landing pages that link to canonical app policies.
+- Use `<app>` as the lowercase, hyphenated MCP server or SaaS app slug commonly configured on a gateway, such as `slack`, `jira`, `github`, or `postgres`.
+- Use `<policy-slug>` as the lowercase, hyphenated purpose, such as `block-secrets`, `readonly`, or `pii-redaction`.
+- Do not add per-policy `README.md` or `metadata.json` files. Human documentation and all metadata live in `policy.md` frontmatter.
+- Treat `manifest.json` as generated from policy frontmatter. Do not hand-edit it except through the manifest generator.
+
+### `policy.md`
+
+Each policy directory requires a `policy.md` file with YAML frontmatter followed by one fenced `rego` block.
+
+Frontmatter must include the required schema fields from `schema.json`:
+
+- `name`
+- `tags`
+- `publishedAt`
+- `description`
+- `direction`
+- `apps`
+- `schemaVersion`
+
+Include `industries`, `bundles`, and `minimumGatewayVersion` when they apply. Put the policy's human-facing documentation in `description`: what it does, when to use it, assumptions, limitations, examples, and relevant composition notes.
+
+Catalog policies are stricter than tenant-local examples:
+
+- Use PARC fields for action, resource, and identity: `input.action`, `input.resource`, `input.subject`, and `input.context`.
+- Do not use deprecated legacy aliases in catalog policies: `input.kind`, `input.payload.name`, or `input.user`.
+- Use `input.payload.args` and other hook-specific `input.payload` data for the actual request/response payload when needed.
+- Compare tool names case-insensitively with `lower(input.resource.name)`.
+- Use `object.get(obj, key, default)` for optional fields and missing claims.
+- Use only IdP-supplied claims in `input.subject.claims`; do not authorize on stripped ContextForge-internal claims such as `is_admin`, `teams`, or nested `user`.
+
+### `tests.yaml`
+
+Each policy directory requires a `tests.yaml` file containing a top-level YAML array of test cases. Include at least one positive and one negative case. For deny policies, this usually means one allow case and one deny case; for transform-only policies, use a passthrough case and a transform-applied case.
+
+Each test case uses this shape:
+
+```yaml
+- description: what this case demonstrates
+  input:
+    resource: { ... }
+    action: tool_pre_invoke
+    payload: { ... }
+  output:
+    expectedResult: deny
+    expectedReason: exact reason when relevant
+  transformApplied: true
+  transform: { replacement: "[REDACTED]" }
+  transformedArgsContain: { jql: "project != HR" }
+```
+
+- The runner feeds only each case's `input` object to OPA. Do not nest the PARC decision object under another `input` key inside the test case input.
+- `output.expectedResult` is required and must be `allow` or `deny`.
+- `output.expectedReason`, `transformApplied`, `transform`, and `transformedArgsContain` are optional and should be included only when they assert relevant behavior.
+- For identity-aware policies, document required IdP claim names and missing-claim defaults in the `policy.md` description.
+
+### Registering a policy
+
+1. Create `apps/<app>/<policy-slug>/policy.md` and `tests.yaml`.
+2. Add a row or link to `apps/<app>/README.md`.
+3. If the policy belongs to an industry or bundle, list the slug in `policy.md` frontmatter and add a link from the matching `industries/<industry>/README.md` or `bundles/<bundle>/README.md`.
+4. For new apps, industries, or bundles, create the corresponding directory and `README.md`.
+5. Run `pnpm manifest`, commit the generated `manifest.json`, then run `pnpm manifest:check`.
+6. Run `pnpm test`; it requires the OPA CLI on `PATH` or `OPA_BIN` set.
+
+Do not invent new manifest fields. Match existing policy frontmatter and open an issue first if the schema lacks a needed field.
 
 ## Handling Ambiguous Requests
 
@@ -65,13 +163,14 @@ When a user's requirement is ambiguous (e.g., "block access to sensitive data"),
 
 ## Capabilities
 
-This skill has three primary modes:
+This skill has four primary modes:
 
 - **Generate** — produce a complete Rego policy from a natural language requirement. Before returning, verify all `input.*` paths used in the policy exist in the DTwo Gateway Input Schema below.
 - **Modify** — change an existing Rego policy based on instructions, preserving its logic and style. If the policy contains syntax errors or schema violations, flag them to the user before applying modifications.
 - **Explain** — describe an existing policy in plain language: what it permits/blocks/modifies, its direction (ingress vs egress), what data it inspects, what triggers allow/deny, and any transformations applied. Flag syntax errors or schema violations as part of the explanation.
+- **Contribute** — create or update `dtwoai/policy-store` catalog artifacts (`policy.md`, `tests.yaml`, landing-page links, and generated manifest) using the repository layout and contribution flow above.
 
-All three modes must follow the Core Rules above.
+All modes must follow the Core Rules above.
 
 ## DTwo Policy Structure
 
