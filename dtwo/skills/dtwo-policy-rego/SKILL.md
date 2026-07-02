@@ -343,7 +343,7 @@ Older fields (`input.user`, `input.kind`, `input.payload.name`) are **deprecated
     },
     "payload":          {},           // Hook-specific data (see Payload by Hook Type)
     "tool_metadata":    {} | null,    // Tool definition (name, url, auth_type, gateway_id, input_schema, ...)
-    "context":          {},           // Mirror of top-level fields (correlation_id, payload, tool_metadata, ...) plus context.session.policies[<writer_uid>][<key>] for reading markers / session state — see Session State & Markers
+    "context":          {},           // Mirror of top-level fields (correlation_id, payload, tool_metadata, ...); additionally carries context.session.policies[<writer_uid>][<key>] (context-only, no top-level equivalent) for reading markers / session state — see Session State & Markers
     "correlation_id":   "<string>",   // Request trace ID
     "request_ip":       "<string>",   // Client IP address or "unknown"
     "headers":          {},           // Filtered HTTP headers (dict<string, string>)
@@ -935,7 +935,7 @@ reasons contains reason if {
 
 ## Session State & Markers
 
-Beyond allow/deny/transform, a policy can **write to session state** and other policies can **read it** — giving the gateway a shared, tenant-scoped, TTL-bounded "notepad" that survives across tool calls and across upstream MCP servers. The main use is **markers**: session-state flags one policy stamps and another gates on. A marker written during a Slack egress call is visible during the next Jira ingress call in the same session, because markers are scoped by tenant and user (not by server).
+Beyond allow/deny/transform, a policy can **write to session state** and other policies can **read it** — giving the gateway a shared, tenant- and user-scoped, TTL-bounded "notepad" that survives across tool calls and across upstream MCP servers. The main use is **markers**: session-state flags one policy stamps and another gates on. A marker written during a Slack egress call is visible during a later Jira ingress call for the same user, because markers are scoped by tenant and user (not by server) and persist until their TTL expires.
 
 This lets you compose small single-purpose policies that signal to each other without shared code, instead of one giant policy that observes everything:
 
@@ -998,20 +998,20 @@ allow := false if {
     _pii_active
 }
 
-reason := "PII was detected earlier in this session; outbound Slack sends are blocked. Wait for the marker TTL to expire or start a new session." if {
+reason := "PII was detected earlier in this session; outbound Slack sends are blocked. Wait for the marker TTL to expire." if {
     lower(input.resource.name) == "slack-mcp-slack-send-message"
     _pii_active
 }
 ```
 
 - The walk-all-writers pattern (`some writer_uid; input.context.session.policies[writer_uid][key]`) is "present under *any* writer is truthy." To trust only a specific writer, filter on `writer_uid == "<known-uid>"`.
-- Deny reasons are user-visible — explain what to do about the block ("wait for TTL", "start a new session").
+- Deny reasons are user-visible — explain what to do about the block (e.g. "wait for the marker TTL to expire"). Avoid "start a new session": marker state is scoped to tenant + user and survives reconnecting, so a new session for the same user won't clear it.
 
 ### `writableKeySchema` (attached via `dtwo-add-policy` / `dtwo-update-policy`)
 
-The Rego emits the write; the `writableKeySchema` on the policy record tells the gateway what shape the write must have. It is set through the lifecycle tools (see `dtwo-gateway-policy`), not inside the Rego, but the Rego author owns getting the value shape right. Each entry has `name` (the marker key, matching the registry exactly), `jsonSchema` (a stringified JSON object — a JSON Schema — for the value), `ttlSeconds` (≥ the marker's registered `minimumTtlSeconds`), and `onDrop` (`"drop"` — silently drop a schema-failing write; `"deny_request"` — hard-deny the tool call).
+The Rego emits the write; the `writableKeySchema` on the policy record tells the gateway what shape the write must have. It is set through the lifecycle tools (see `dtwo-gateway-policy`), not inside the Rego, but the Rego author owns getting the value shape right. Each entry has `name` (the marker key, matching the registry exactly), `jsonSchema` (a stringified JSON object — a JSON Schema — for the value), `ttlSeconds` (should be ≥ the marker's registered `minimumTtlSeconds` — not enforced yet, so keep them in sync manually), and `onDrop` (`"drop"` — silently drop a schema-failing write; `"deny_request"` — hard-deny the tool call).
 
-The tool boundary rejects malformed marker keys: each `marker:<ns>:<id>` segment must be alphanumerics, underscores, or hyphens and start with an alphanumeric (see `dtwo-gateway-policy` → Managing Markers for the exact pattern; lowercase is conventional). It also rejects a `jsonSchema` that doesn't parse as a JSON object.
+Marker-key *shape* is validated server-side (the backend on save, and at deploy), not at the MCP tool boundary — so keep the key simple (lowercase alphanumerics with `_`/`-`; avoid dots, slashes, spaces) and reference it identically everywhere; keys are exact-match and never normalized (see `dtwo-gateway-policy` → Managing Markers). The `jsonSchema`, though, *is* checked at the tool boundary — it must parse as a JSON object.
 
 ### Marker Rego gotchas
 
@@ -1032,7 +1032,7 @@ Intent capture builds on the same session-state mechanism as markers. It ships a
 Two coupling requirements that fail silently if missed:
 
 - **Upstream server must be named `Dtwo`.** Both policies trigger on tool names case-folding to `dtwo-set-intent` / `dtwo-set_intent` (names arrive as `<server-name>-<tool-name>`). The DTwo MCP upstream `mcp_servers[].name` **must** case-fold to `dtwo`. Any other name silently bypasses the egress capture and deadlocks the ingress gate.
-- **Shared UID placeholder.** Both files ship with `REPLACE-WITH-INTENT-CAPTURE-POLICY-UID` — the ingress gate trusts only writes from the canonical capture policy, so both must reference the capture policy's own UID. After `dtwo-add-policy` returns the real UID, replace the placeholder in **both** bodies and re-save. Until swapped, the ingress gate denies every non-`set_intent` call and the egress capture treats every set as first-set.
+- **Shared UID placeholder.** Both files ship with `REPLACE-WITH-INTENT-CAPTURE-POLICY-UID` — the ingress gate trusts only writes from the canonical capture policy, so both must reference the capture policy's own UID. After `dtwo-add-policy` returns the real UID, replace the placeholder in **both** bodies and re-save. Until swapped, the egress capture **hard-denies every `set_intent` with a `config_error`** naming the missed swap (a deliberate fail-closed guard), and the ingress gate (if attached) denies every non-`set_intent` call — so a blanket `set_intent` deny right after setup points straight at the missed swap.
 
 Compatibility is **one-directional and set-time only**: the egress checks `intent → active markers` at `set_intent` time. A marker raised *after* an intent is set does not retroactively deny.
 
