@@ -948,7 +948,11 @@ Registering the marker vocabulary, attaching the `writableKeySchema`, and deploy
 
 ### Writing a marker (`session_writes`)
 
-A writer emits `session_writes["marker:<namespace>:<id>"] := <value>` when its trigger fires. The value shape must satisfy the `writableKeySchema` attached to the policy (see below), and the policy **must** declare that key in its `writableKeySchema` or the gateway drops the write.
+A writer emits `session_writes["marker:<namespace>:<id>"] := <value>` when its trigger fires. The canonical shape:
+
+- **The value is stored verbatim — there is no envelope.** The object you assign *is* what's persisted for that key. The `writableKeySchema` entry's `jsonSchema` validates that object **at its top level** — it describes the value object directly, not a nested `value`/`data`/`payload` wrapper. So your object's keys must be exactly the properties the schema declares (typically a couple of flat fields like `marked_at` + `source_action`).
+- **The key must be declared** in the policy's `writableKeySchema`, or the gateway drops the write.
+- **TTL comes from the schema, never the value.** The entry's `ttlSeconds` is applied by the gateway as the key's expiry when the write lands; it is metadata attached to the key at runtime, not a field of the value, and there is no way to set expiry from within the Rego.
 
 ```rego
 package acme.egress.pii_detector
@@ -977,6 +981,25 @@ session_writes["marker:acme:pii_detected"] := marker_value if {
 ```
 
 A writer is usually a `default allow := true` policy — it observes and stamps, it does not block. (A single policy *can* both deny and write, but prefer separate concerns.)
+
+**The write only happens when the trigger matches.** The `if { ... }` body gates the write like any other rule, so it uses the same request-matching as the rest of this skill: compare tool names case-insensitively (`lower(input.resource.name) == "<server>-<tool>"`, with the server-name prefix), read args via `object.get(input.payload.args, ...)`, and inspect response content via `input.payload.text` on egress. A writer whose trigger never matches (wrong case, missing server prefix, wrong direction) stamps nothing — and there's no error, just an absent marker. Confirm the exact tool name and payload shape with the dump-input technique (see Debugging Policies) before relying on the trigger.
+
+**Silent-drop trap.** Because the schema is strict (`additionalProperties: false`), slipping any undeclared field into the value fails validation — most commonly a `ttl`/`ttlSeconds`, which belongs on the schema (per the rule above), not the value. With the default `onDrop: "drop"` that failure is **silent**: the marker never lands and readers never see it. If a marker mysteriously isn't being read, check the written value against the schema first.
+
+```rego
+# WRONG — `ttl_seconds` is not a declared schema field, so the entire write silently drops
+session_writes["marker:acme:jira_access"] := {
+    "marked_at": time.now_ns(),
+    "source_action": input.resource.name,
+    "ttl_seconds": 3600,   # ← remove; TTL belongs on the writableKeySchema, not the value
+}
+
+# RIGHT — value carries only the declared fields; TTL is configured on writableKeySchema
+session_writes["marker:acme:jira_access"] := {
+    "marked_at": time.now_ns(),
+    "source_action": input.resource.name,
+}
+```
 
 ### Reading a marker
 
