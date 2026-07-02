@@ -40,8 +40,8 @@ Naming the connector `dtwo` is required — it has to match the plugin's MCP ser
 | Skill                 | Use when                                                                               |
 | --------------------- | -------------------------------------------------------------------------------------- |
 | `dtwo-gateway-config` | Editing gateway YAML, adding/removing MCP servers, publishing or rolling back configs. |
-| `dtwo-gateway-policy` | Creating, attaching, publishing, deploying, or verifying policies and pipelines.       |
-| `dtwo-policy-rego`    | Authoring, modifying, explaining, or debugging Rego policy code for the DTwo Gateway.  |
+| `dtwo-gateway-policy` | Creating, attaching, publishing, deploying, or verifying policies and pipelines; managing markers (and the intent registry when those tools are enabled). |
+| `dtwo-policy-rego`    | Authoring, modifying, explaining, or debugging Rego policy code for the DTwo Gateway, including marker writer/reader policies.  |
 
 The skills load each other on demand via Claude Code's `Skill` tool — most real tasks pull in two or three together.
 

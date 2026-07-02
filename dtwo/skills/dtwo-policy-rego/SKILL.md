@@ -6,10 +6,11 @@ description: |
   catalog contribution structure.
   TRIGGER when: user asks to write/modify/explain/debug a Rego policy, says "block/allow/redact/transform"
   a tool call or response, mentions OPA, package paths, `input.payload`, `default allow`, or pastes Rego
-  for review; asks to contribute to `dtwoai/policy-store`, create catalog policy files, or update app,
-  industry, bundle, manifest, or tests files for reusable DTwo policies; also when diagnosing blanket denies
-  or transform conflicts. Pair with dtwo-gateway-policy whenever the resulting Rego must be saved, attached,
-  or deployed.
+  for review; asks to write a marker writer/reader policy, `session_writes`, session state, or (only when the
+  intent tools are enabled) to recognize/explain the platform-managed intent-capture policies (not user-authored); asks to contribute to `dtwoai/policy-store`, create
+  catalog policy files, or update app, industry, bundle, manifest, or tests files for reusable DTwo policies;
+  also when diagnosing blanket denies or transform conflicts. Pair with dtwo-gateway-policy whenever the
+  resulting Rego must be saved, attached, or deployed.
   SKIP when: task is policy CRUD or pipeline attachment that does not change Rego (use dtwo-gateway-policy
   alone); task is general OPA usage outside the MCP Gateway; task is editing gateway YAML (use dtwo-gateway-config).
 ---
@@ -19,6 +20,15 @@ description: |
 # DTwo Rego Policy Expert
 
 You are a Rego policy expert for the DTwo MCP Gateway. You translate natural language security requirements into valid Rego policies, explain existing policies in plain language, and modify policies based on instructions.
+
+## Where a policy fits
+
+This skill owns the Rego *inside* a policy — the allow / deny / transform / `session_writes` logic for a single tool call. The surrounding pieces it plugs into (a **pipeline** is the ordered list of policies on a gateway direction; a **gateway** enforces them once deployed; **markers** and **intent** let policies share session state) are owned by the companion `dtwo-gateway-policy` skill — see its Core Concepts and Choosing the Right Approach sections to pick the right mechanism before writing Rego. A quick orientation for what you write here:
+
+- **Deny / allow** — decide a single call from the call itself (ingress) or its response (egress).
+- **Transform** — rewrite request arguments (ingress) or redact response content (egress).
+- **Marker write / read** — coordinate across calls: one policy stamps a session-state flag (`session_writes`), another reads it (see Session State & Markers).
+- **Intent** *(only when the intent tools are enabled)* — session-purpose capture and gating (see Intent-capture policies, including its availability gate).
 
 ## Companion skills
 
@@ -227,6 +237,7 @@ transform := {
 | `reasons` | `set<string>` | Collects human-readable denial messages. Multiple reasons can fire. |
 | `reason` | `string` | Joins `reasons` into a single semicolon-delimited string. |
 | `transform` | `object` | Transformation instructions (redaction, payload replacement). |
+| `session_writes` | `object` | Optional. Session-state keys this policy writes (e.g. markers: `session_writes["marker:<ns>:<id>"] := {...}`). Each written key must be declared in the policy's `writableKeySchema`. See Session State & Markers. |
 
 ### Transform Object Fields
 
@@ -332,7 +343,7 @@ Older fields (`input.user`, `input.kind`, `input.payload.name`) are **deprecated
     },
     "payload":          {},           // Hook-specific data (see Payload by Hook Type)
     "tool_metadata":    {} | null,    // Tool definition (name, url, auth_type, gateway_id, input_schema, ...)
-    "context":          {},           // Mirror of top-level fields (correlation_id, payload, tool_metadata, ...)
+    "context":          {},           // Mirror of top-level fields (correlation_id, payload, tool_metadata, ...); additionally carries context.session.policies[<writer_uid>][<key>] (context-only, no top-level equivalent) for reading markers / session state — see Session State & Markers
     "correlation_id":   "<string>",   // Request trace ID
     "request_ip":       "<string>",   // Client IP address or "unknown"
     "headers":          {},           // Filtered HTTP headers (dict<string, string>)
@@ -921,6 +932,126 @@ reasons contains reason if {
 - The `data.<package-path>.allow` reference must **exactly match** the step policy's `package` declaration. If the step policy declares `package jira.ingress.readonly` but the aggregator references `data.jira.readonly.allow`, the value is `undefined` and the aggregator's `default allow := false` takes effect — denying everything.
 - When the aggregator ANDs multiple step policies (`allow if { policy_a.allow; policy_b.allow }`), **all** must evaluate to `true`. If any step policy's package path is wrong, its `allow` is `undefined`, and the AND fails.
 - Transform-only step policies should use `default allow := true` so they don't block requests when their transform doesn't apply.
+
+## Session State & Markers
+
+Beyond allow/deny/transform, a policy can **write to session state** and other policies can **read it** — giving the gateway a shared, tenant- and user-scoped, TTL-bounded "notepad" that survives across tool calls and across upstream MCP servers. The main use is **markers**: session-state flags one policy stamps and another gates on. A marker written during a Slack egress call is visible during a later Jira ingress call for the same user, because markers are scoped by tenant and user (not by server) and persist until their TTL expires.
+
+This lets you compose small single-purpose policies that signal to each other without shared code, instead of one giant policy that observes everything:
+
+- **Writer policy** — inspects the current call (arguments, response text, identity, whatever) and stamps a marker when a condition is met.
+- **Reader policy** — checks whether a marker is set and allows/denies/transforms accordingly. The writer and reader can attach to different tools, different directions, and different upstream servers.
+
+Start with the simplest shape — a **boolean flag** whose *presence* is the whole signal (the PII example below). Value-carrying markers (counters, structured payloads) are more advanced and rarely needed; a self-incrementing counter, for instance, has to read its own prior value and re-emit every call, which keeps refreshing the TTL.
+
+Registering the marker vocabulary, attaching the `writableKeySchema`, and deploying are lifecycle operations owned by the companion `dtwo-gateway-policy` instructions (Managing Markers). This section covers only the **Rego**.
+
+### Writing a marker (`session_writes`)
+
+A writer emits `session_writes["marker:<namespace>:<id>"] := <value>` when its trigger fires. The canonical shape:
+
+- **The value is stored verbatim — there is no envelope.** The object you assign *is* what's persisted for that key. The `writableKeySchema` entry's `jsonSchema` validates that object **at its top level** — it describes the value object directly, not a nested `value`/`data`/`payload` wrapper. So your object's keys must be exactly the properties the schema declares (typically a couple of flat fields like `marked_at` + `source_action`).
+- **The key must be declared** in the policy's `writableKeySchema`, or the gateway drops the write.
+- **TTL comes from the schema, never the value.** The entry's `ttlSeconds` is applied by the gateway as the key's expiry when the write lands; it is metadata attached to the key at runtime, not a field of the value, and there is no way to set expiry from within the Rego.
+
+```rego
+package acme.egress.pii_detector
+
+import future.keywords.if
+import future.keywords.in
+
+default allow := true  # writer only observes and stamps; it does not deny
+
+_email_pattern := `[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}`
+
+_pii_email_found if {
+    some text in input.payload.text
+    is_string(text)
+    regex.match(_email_pattern, text)
+}
+
+# Stamp the marker when PII is observed in the response
+session_writes["marker:acme:pii_detected"] := marker_value if {
+    _pii_email_found
+    marker_value := {
+        "marked_at": time.now_ns(),
+        "source_action": input.resource.name,
+    }
+}
+```
+
+A writer is usually a `default allow := true` policy — it observes and stamps, it does not block. (A single policy *can* both deny and write, but prefer separate concerns.)
+
+**The write only happens when the trigger matches.** The `if { ... }` body gates the write like any other rule, so it uses the same request-matching as the rest of this skill: compare tool names case-insensitively (`lower(input.resource.name) == "<server>-<tool>"`, with the server-name prefix), read args via `object.get(input.payload.args, ...)`, and inspect response content via `input.payload.text` on egress. A writer whose trigger never matches (wrong case, missing server prefix, wrong direction) stamps nothing — and there's no error, just an absent marker. Confirm the exact tool name and payload shape with the dump-input technique (see Debugging Policies) before relying on the trigger.
+
+**Silent-drop trap.** Because the schema is strict (`additionalProperties: false`), slipping any undeclared field into the value fails validation — most commonly a `ttl`/`ttlSeconds`, which belongs on the schema (per the rule above), not the value. With the default `onDrop: "drop"` that failure is **silent**: the marker never lands and readers never see it. If a marker mysteriously isn't being read, check the written value against the schema first.
+
+```rego
+# WRONG — `ttl_seconds` is not a declared schema field, so the entire write silently drops
+session_writes["marker:acme:jira_access"] := {
+    "marked_at": time.now_ns(),
+    "source_action": input.resource.name,
+    "ttl_seconds": 3600,   # ← remove; TTL belongs on the writableKeySchema, not the value
+}
+
+# RIGHT — value carries only the declared fields; TTL is configured on writableKeySchema
+session_writes["marker:acme:jira_access"] := {
+    "marked_at": time.now_ns(),
+    "source_action": input.resource.name,
+}
+```
+
+### Reading a marker
+
+Active session state is exposed to a policy at `input.context.session.policies`, shaped as `policies[<writer_uid>][<key>] = <value>` — an outer object keyed by the UID of the policy that wrote each key, and under each writer the keys it wrote (a marker key `marker:<ns>:<id>` maps to the object the writer emitted). A marker is stored under the **writer policy's UID**, so the read walks all writer slots and treats the key as truthy if any writer set it:
+
+```rego
+package acme.ingress.pii_gate
+
+import future.keywords.if
+
+default allow := true
+
+_pii_active if {
+    some writer_uid
+    input.context.session.policies[writer_uid]["marker:acme:pii_detected"]
+}
+
+# Block outbound Slack sends once PII was seen anywhere in this session
+allow := false if {
+    lower(input.resource.name) == "slack-mcp-slack-send-message"
+    _pii_active
+}
+
+reason := "PII was detected earlier in this session; outbound Slack sends are blocked. Wait for the marker TTL to expire." if {
+    lower(input.resource.name) == "slack-mcp-slack-send-message"
+    _pii_active
+}
+```
+
+- The walk-all-writers pattern (`some writer_uid; input.context.session.policies[writer_uid][key]`) is "present under *any* writer is truthy." To trust only a specific writer, filter on `writer_uid == "<known-uid>"`.
+- Deny reasons are user-visible — explain what to do about the block (e.g. "wait for the marker TTL to expire"). Avoid "start a new session": marker state is scoped to tenant + user and survives reconnecting, so a new session for the same user won't clear it.
+
+### `writableKeySchema` (attached via `dtwo-add-policy` / `dtwo-update-policy`)
+
+The Rego emits the write; the `writableKeySchema` on the policy record tells the gateway what shape the write must have. It is set through the lifecycle tools (see `dtwo-gateway-policy`), not inside the Rego, but the Rego author owns getting the value shape right. Each entry has `name` (the marker key, matching the registry exactly), `jsonSchema` (a stringified JSON object — a JSON Schema — for the value), `ttlSeconds` (should be ≥ the marker's registered `minimumTtlSeconds` — not enforced yet, so keep them in sync manually), and `onDrop` (`"drop"` — silently drop a schema-failing write; `"deny_request"` — hard-deny the tool call).
+
+Marker-key *shape* is validated server-side (the backend on save, and at deploy), not at the MCP tool boundary — so keep the key simple (lowercase alphanumerics with `_`/`-`; avoid dots, slashes, spaces) and reference it identically everywhere; keys are exact-match and never normalized (see `dtwo-gateway-policy` → Managing Markers). The `jsonSchema`, though, *is* checked at the tool boundary — it must parse as a JSON object.
+
+### Marker Rego gotchas
+
+- **`time.now_ns()` must stay an integer.** Use `time.now_ns()` raw for timestamp fields typed `integer` in the schema. Dividing in Rego (e.g. `time.now_ns() / 1000000`) produces a **float**, which fails a `"type": "integer"` schema — and with `onDrop: "deny_request"` that silently-authored bug will block the tool call.
+- **Match the key exactly.** The `session_writes` key, the `writableKeySchema` `name`, and the registered marker FQID must all be the identical `marker:<namespace>:<id>` string. A mismatch drops the write.
+- **Multiple writers land in separate slots.** If two policies declare and emit the same key, each write lands under its own writer UID; the walk-all-writers read finds either. Prefer one canonical writer per marker.
+- **Reads fail open on absent state.** If `input.context.session.policies` is missing or the marker was never written, the `_active` helper simply doesn't match — the reader allows. Structure high-sensitivity gates so the *presence* of the marker is what denies, not its absence (that's the intended semantics: no signal → nothing to block).
+
+## Intent-capture policies (conditional — feature-gated)
+
+> **Availability gate — read this first.** The intent-capture surface (the `dtwo-set-intent` tool and the intent registry) only exists when the DTwo MCP server is deployed with `enable_intent_tools: true`. **Do not present intent-capture policies, `set_intent`, or intent/marker compatibility to the user unless those tools are actually available** — check for `dtwo-set-intent` / `dtwo-*-intent*` in your tool list, or confirm via the companion `dtwo-gateway-policy` instructions. If they are absent, this section is inert; markers (above) still work fully.
+
+**The intent-capture Rego is platform-managed — do not write or modify it, and do not offer to.** Two policies do the enforcement — an **egress capture** that records the declared intent into session state and denies disallowed transitions or intent/marker incompatibilities, and an optional **intent-required gate** that blocks tool calls until an intent is set. These are owned by the platform (being moved to automatic injection when intent capture is enabled); their bodies and wiring are not user-authored, and the Rego may not be visible to users. If asked to author or change intent-capture Rego, decline and point the user at the platform-managed feature (and the user-facing registry/compatibility tools in `dtwo-gateway-policy` → Intent Capture). This section exists only so you can *recognize and explain* the behavior, not reproduce it.
+
+One behavior worth knowing when explaining them: intent/marker compatibility is **one-directional and set-time only** — the check runs at `set_intent` time; a marker raised *after* an intent is set does not retroactively deny.
 
 ## Handling Parse and Access Failures
 
