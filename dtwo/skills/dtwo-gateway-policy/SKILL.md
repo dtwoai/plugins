@@ -99,7 +99,7 @@ The tools listed below reflect the initial set. The DTwo MCP server may add new 
 | `dtwo-get-policy-versions` | List published versions for a policy |
 | `dtwo-validate-policy-rego` | Validate Rego code without saving — useful for dry-run checks before committing changes (note: `dtwo-add-policy` and `dtwo-update-policy` also validate automatically) |
 | `dtwo-add-policy` | Validate and create a new policy (requires name, description, policy, packageName, direction). Optionally pass `writableKeySchema` to declare the session-state keys the policy is authorized to write — required for any policy that emits a marker (see Managing Markers) |
-| `dtwo-update-policy` | Update an existing policy's draft — any field (policy, packageName, name, description, direction, tags, `writableKeySchema`). Validates Rego when both policy and packageName are provided. `writableKeySchema` is tri-state: omit → leave unchanged, `null` → clear, `[]` → explicit-empty, `[...]` → set |
+| `dtwo-update-policy` | Update an existing policy's draft — any field (policy, packageName, name, description, direction, tags, `writableKeySchema`). Validates Rego when both policy and packageName are provided. `writableKeySchema` is tri-state: **omit** → leave unchanged; **`null`** → clear the field (policy keeps no writable keys); **`[]`** → set an explicit empty list (also leaves no writable keys — practically the same effect as `null`; use `null` as the reset); **`[...]`** → replace with that list |
 | `dtwo-publish-policy` | Publish the current draft as a new version |
 | `dtwo-revert-policy` | Restore a published version back into the draft |
 | `dtwo-delete-policy` | Permanently delete a policy by UID. Fails if the policy is still attached to one or more gateways — detach it from every gateway first (see Deleting a Policy). Distinct from `dtwo-revert-policy`, which only restores a prior version |
@@ -152,7 +152,7 @@ When present, these tools manage the intent vocabulary and the rules that govern
 The delete **fails if the policy is still attached to any gateway**, so detach it everywhere first:
 
 1. **Detach first** — remove the policy from all pipelines with `dtwo-set-gateway-pipelines` (pass `[]` to clear the relevant direction, or re-send the direction's steps without this policy), then redeploy each affected gateway. A detached policy remains in the policy list but has no runtime effect.
-2. **Delete** — call `dtwo-delete-policy` with the `uid`. If it errors that the policy is still attached, a detach was missed (or a deploy hasn't landed) — re-check attachments with `dtwo-get-gateway-pipelines` before retrying.
+2. **Delete** — call `dtwo-delete-policy` with the `uid`. If the policy is still attached, the call fails with an error naming the gateways still referencing it. Use those names (or `dtwo-get-gateway-pipelines`) to find the remaining attachments, detach them, redeploy, and retry.
 
 Deletion is irreversible and confirmation-worthy — confirm with the user before calling `dtwo-delete-policy`. If they only want to stop the policy's runtime effect (not remove the record), detaching and redeploying is sufficient; leave the policy in place.
 
@@ -437,6 +437,14 @@ Markers are session-state flags that policies write and later policies read to g
 
 Marker tools are always available (they do not require `enable_intent_tools`). The full lifecycle — register, author writer + reader, attach, deploy — runs through this skill plus `dtwo-policy-rego` for the Rego. The Rego authoring patterns (emitting `session_writes["marker:<ns>:<id>"]`, walking `input.context.session.policies` to read, and the `writableKeySchema` gotchas) live in the companion `dtwo-policy-rego` instructions — load that skill for the writer/reader bodies.
 
+**Start simple — the minimal marker is a boolean flag.** A writer stamps `marker:<ns>:<flag>` when it observes a condition; a reader denies (or transforms) whenever that key is present. Presence *is* the signal — no value semantics needed. That flag pattern (the PII example used throughout this section) is the recommended starting point; reach for value-carrying markers only when a flag won't do. Counters and other read-modify-write markers are possible but more involved — a self-incrementing writer has to read its own prior value and re-emit on every call, which keeps refreshing (pinning) the TTL — so they aren't a good first marker.
+
+**Know these limits before you design** (full list under Marker constraints today):
+
+- **No runtime inspection** — no tool reads a session's active markers; you verify behaviorally (see Verifying a marker pipeline).
+- **No manual clearing** — a marker lifts only when its TTL expires; there is no unset tool.
+- **Tenant + user scope** — marker state persists for a user across reconnects and new sessions until the TTL expires; opening a fresh session does not clear it.
+
 ### Registering a marker
 
 Register the marker in the vocabulary before any policy references it:
@@ -459,7 +467,7 @@ dtwo-create-marker(
 A policy that emits a marker must declare the key in its `writableKeySchema` (on `dtwo-add-policy` / `dtwo-update-policy`), or the gateway drops the write. Each entry is:
 
 - `name` — the session-state key, matching the registered marker exactly (e.g. `marker:acme:pii_detected`).
-- **Key shape is validated server-side, not at the MCP boundary.** The tool accepts any non-empty `name`; the marker-key shape (allowed characters, reserved prefixes) is checked by the backend when the policy is saved and at deploy — the MCP layer does not shape-check it. Keys are **exact-match strings and are never normalized**, so the `session_writes` key, this `name`, and the registered marker FQID must be byte-identical (including case) or the write silently drops. Registry *existence* — that the key is actually in the marker registry — is enforced at deploy time by the `marker-not-in-registry` rule (the deploy fails with `UnknownMarkerReferences`; see the Deploy-time validator note below).
+- **Key shape is validated server-side, not at the MCP boundary.** The tool accepts any non-empty `name`; the marker-key shape (allowed characters, reserved prefixes) is checked by the backend when the policy is saved and at deploy — the MCP layer does not shape-check it. Keys are **exact-match strings and are never normalized**, so the `session_writes` key, this `name`, and the registered marker FQID must be byte-identical (including case) or the write silently drops. Registry *existence* — that the key is actually in the marker registry — is enforced at deploy time: the deploy fails if any attached policy declares a marker key that isn't registered (see the Deploy-time validator note below).
 - `jsonSchema` — a **stringified JSON object** (a JSON Schema) for the value the policy writes. Rejected at the tool boundary if it doesn't parse as a JSON object (arrays and primitives fail). Use it strictly (`additionalProperties: false`, `required` lists) so drift is caught. Add `"x-d2-is-marker": true` for marker keys.
 - `ttlSeconds` — per-key TTL. For a marker key this **should** be ≥ the marker's registered `minimumTtlSeconds`, but keep them in sync manually: the floor is **not yet enforced** (no save-time or deploy-time check today), so a lower value currently saves, deploys, and simply expires early.
 - `onDrop` — behavior when a write fails the schema: `"drop"` (default) silently drops the write (best-effort markers); `"deny_request"` hard-denies the tool call (use for security-critical writes so bugs surface loudly instead of silently letting the call through).
@@ -485,7 +493,7 @@ dtwo-add-policy(
 2. Attach both with `dtwo-set-gateway-pipelines` — the writer on the direction that observes the signal (often egress), the reader on the direction that gates (often ingress). Preserve existing steps.
 3. Deploy with `dtwo-deploy-gateway`. This is a **policy-only deploy** — hot-reloaded, no gateway restart, no MCP client disconnect (see Deploying).
 
-**Deploy-time validator.** The deploy hard-rejects (`UnknownMarkerReferences`, the `marker-not-in-registry` rule) if any attached policy declares a `writableKeySchema` marker key that isn't in the registry. This is separate from the key's structural validation (allowed characters, reserved prefixes), which the backend applies when the policy is saved — the registry-existence check runs at deploy time. Register the marker *before* attaching a policy that writes it.
+**Deploy-time validator.** The deploy hard-rejects if any attached policy declares a `writableKeySchema` marker key that isn't in the registry, reporting which key is unregistered. This is separate from the key's structural validation (allowed characters, reserved prefixes), which the backend applies when the policy is saved — the registry-existence check runs at deploy time. Register the marker *before* attaching a policy that writes it.
 
 ### Verifying a marker pipeline
 
@@ -507,7 +515,7 @@ Watch for these:
 
 ### Cleanup order (reverse of setup)
 
-Skipping a step makes the next deploy fail with `UnknownMarkerReferences` (a policy still claims to write a marker that no longer exists). Tear down in reverse:
+Skipping a step makes the next deploy fail (a policy still claims to write a marker that no longer exists in the registry). Tear down in reverse:
 
 1. Update/remove the **writer policy** so it no longer references the marker in `writableKeySchema`; redeploy so the write contract leaves the bundle.
 2. Delete any **intent/marker compatibility** rows that reference the marker (only relevant when intent tools are enabled — `dtwo-delete-intent-compatibility`); redeploy.
@@ -525,17 +533,16 @@ Skipping a step makes the next deploy fail with `UnknownMarkerReferences` (a pol
 
 Intent capture lets the agent declare *what it's trying to do* (`dtwo-set-intent`), captures that into session state via an egress policy, and lets ingress policies gate downstream tools on the current intent. It builds on the same session-state mechanism as markers.
 
-**Status.** Intent capture is **not customer-available yet.** The intent tools (including `dtwo-set-intent`) stay behind `enable_intent_tools` and will **not** be ungated until the user-intent registry actually drives resolution — today `set_intent` resolves against a built-in vocabulary, not the registry. It ships as **starter policies**, not an auto-injected platform feature — you attach them to a pipeline as drafts; nothing is auto-deployed. Registry-management tools are expected to stay on this server; `dtwo-set-intent` itself may move to a dedicated server later.
+**Status.** Intent capture is **not customer-available yet.** The intent tools (including `dtwo-set-intent`) stay behind `enable_intent_tools` and will **not** be ungated until the user-intent registry actually drives resolution — today `set_intent` resolves against a built-in vocabulary, not the registry. The enforcement policies themselves are **platform-managed** (see below); `dtwo-set-intent` may also move to a dedicated server later.
 
-### The two starter policies
+### The enforcement policies are platform-managed
 
-- **Egress capture** (package `set_intent.egress.intent_capture`, egress) — captures the declared intent into session state when `dtwo-set-intent` is invoked. Validates the proposal against the intent registry, normalizes the stored category, denies disallowed transitions, and denies when the registry marks the proposed intent incompatible with a marker currently active in the session (`intent_marker_incompatible`).
-- **Intent-required gate** (package `set_intent.ingress.intent_required`, ingress) — **optional.** Denies every tool call until an intent has been set; `dtwo-set-intent` itself is always allowed so the agent can declare. Attach only when you want the gate enforced.
+Two policies do the enforcement:
 
-The Rego bodies and the two coupling requirements below are detailed in `dtwo-policy-rego` (Intent-capture policies). The two requirements that block them silently if missed:
+- **Egress capture** — captures the declared intent into session state when `dtwo-set-intent` is invoked, validates it against the registry, normalizes the category, denies disallowed transitions, and denies when a currently-active marker is registered incompatible with the proposed intent (`intent_marker_incompatible`).
+- **Intent-required gate** — optional: denies every tool call until an intent has been set (`dtwo-set-intent` itself is always allowed so the agent can declare).
 
-- **Upstream server must be named `Dtwo`.** Both policies fire on tool names case-folding to `dtwo-set-intent` / `dtwo-set_intent`. The DTwo MCP upstream entry in the gateway's `mcp_servers` config **must** be named `Dtwo` (anything case-folding to `dtwo`). A different name silently bypasses capture and deadlocks the ingress gate — and since `dtwo-get-gateway-config` returns the *draft*, confirm the name against the deployed config.
-- **UID placeholder swap.** Both policies share the capture policy's own UID (`REPLACE-WITH-INTENT-CAPTURE-POLICY-UID`). After `dtwo-add-policy` returns the real UID, replace the placeholder in both bodies and re-save. Until swapped, the egress capture **hard-denies every `set_intent` with a `config_error`** that names the missed swap (a deliberate fail-closed guard), and the ingress gate — if attached — denies every non-`set_intent` call. So a blanket `set_intent` deny right after setup almost always means the placeholder wasn't replaced.
+**These are platform-managed policies — end users do not author, attach, copy, or modify them, and you should not offer to.** They are being moved to automatic injection when intent capture is enabled; the platform owns their bodies and wiring (upstream-server naming, internal UIDs), and their Rego may not be visible to users. If a user asks to write or change intent-capture Rego, decline and point them at the platform-managed feature rather than reconstructing it. The only intent surface users drive is the **registry** — the intent vocabulary, transitions, and marker compatibility (below), when the tools are enabled.
 
 ### Intent/marker compatibility
 

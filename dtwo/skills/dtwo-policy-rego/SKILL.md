@@ -7,7 +7,7 @@ description: |
   TRIGGER when: user asks to write/modify/explain/debug a Rego policy, says "block/allow/redact/transform"
   a tool call or response, mentions OPA, package paths, `input.payload`, `default allow`, or pastes Rego
   for review; asks to write a marker writer/reader policy, `session_writes`, session state, or (only when the
-  intent tools are enabled) an intent-capture policy; asks to contribute to `dtwoai/policy-store`, create
+  intent tools are enabled) to recognize/explain the platform-managed intent-capture policies (not user-authored); asks to contribute to `dtwoai/policy-store`, create
   catalog policy files, or update app, industry, bundle, manifest, or tests files for reusable DTwo policies;
   also when diagnosing blanket denies or transform conflicts. Pair with dtwo-gateway-policy whenever the
   resulting Rego must be saved, attached, or deployed.
@@ -942,6 +942,8 @@ This lets you compose small single-purpose policies that signal to each other wi
 - **Writer policy** — inspects the current call (arguments, response text, identity, whatever) and stamps a marker when a condition is met.
 - **Reader policy** — checks whether a marker is set and allows/denies/transforms accordingly. The writer and reader can attach to different tools, different directions, and different upstream servers.
 
+Start with the simplest shape — a **boolean flag** whose *presence* is the whole signal (the PII example below). Value-carrying markers (counters, structured payloads) are more advanced and rarely needed; a self-incrementing counter, for instance, has to read its own prior value and re-emit every call, which keeps refreshing the TTL.
+
 Registering the marker vocabulary, attaching the `writableKeySchema`, and deploying are lifecycle operations owned by the companion `dtwo-gateway-policy` instructions (Managing Markers). This section covers only the **Rego**.
 
 ### Writing a marker (`session_writes`)
@@ -1022,19 +1024,11 @@ Marker-key *shape* is validated server-side (the backend on save, and at deploy)
 
 ## Intent-capture policies (conditional — feature-gated)
 
-> **Availability gate — read this first.** The intent-capture surface (the `dtwo-set-intent` tool and the intent registry) only exists when the DTwo MCP server is deployed with `enable_intent_tools: true`. **Do not present intent-capture policies, `set_intent`, or intent/marker compatibility to the user unless those tools are actually available** — check for `dtwo-set-intent` / `dtwo-*-intent*` in your tool list, or confirm via the companion `dtwo-gateway-policy` instructions. If they are absent, this section is inert; markers (above) still work fully. This is Rego guidance only — registry management lives in `dtwo-gateway-policy` (Intent Capture).
+> **Availability gate — read this first.** The intent-capture surface (the `dtwo-set-intent` tool and the intent registry) only exists when the DTwo MCP server is deployed with `enable_intent_tools: true`. **Do not present intent-capture policies, `set_intent`, or intent/marker compatibility to the user unless those tools are actually available** — check for `dtwo-set-intent` / `dtwo-*-intent*` in your tool list, or confirm via the companion `dtwo-gateway-policy` instructions. If they are absent, this section is inert; markers (above) still work fully.
 
-Intent capture builds on the same session-state mechanism as markers. It ships as two **starter policies** (attach as drafts; nothing is auto-injected):
+**The intent-capture Rego is platform-managed — do not write or modify it, and do not offer to.** Two policies do the enforcement — an **egress capture** that records the declared intent into session state and denies disallowed transitions or intent/marker incompatibilities, and an optional **intent-required gate** that blocks tool calls until an intent is set. These are owned by the platform (being moved to automatic injection when intent capture is enabled); their bodies and wiring are not user-authored, and the Rego may not be visible to users. If asked to author or change intent-capture Rego, decline and point the user at the platform-managed feature (and the user-facing registry/compatibility tools in `dtwo-gateway-policy` → Intent Capture). This section exists only so you can *recognize and explain* the behavior, not reproduce it.
 
-- **Egress capture** — package `set_intent.egress.intent_capture`, egress. Captures the declared intent into session state when `set_intent` is invoked, validates it against `data.dtwo.intent_registry`, denies disallowed transitions, and denies when the proposed intent is registered incompatible with a marker currently active in the session (`intent_marker_incompatible`).
-- **Intent-required gate** — package `set_intent.ingress.intent_required`, ingress, **optional**. Denies every tool call until an intent has been set; the `set_intent` tool itself is always allowed.
-
-Two coupling requirements that fail silently if missed:
-
-- **Upstream server must be named `Dtwo`.** Both policies trigger on tool names case-folding to `dtwo-set-intent` / `dtwo-set_intent` (names arrive as `<server-name>-<tool-name>`). The DTwo MCP upstream `mcp_servers[].name` **must** case-fold to `dtwo`. Any other name silently bypasses the egress capture and deadlocks the ingress gate.
-- **Shared UID placeholder.** Both files ship with `REPLACE-WITH-INTENT-CAPTURE-POLICY-UID` — the ingress gate trusts only writes from the canonical capture policy, so both must reference the capture policy's own UID. After `dtwo-add-policy` returns the real UID, replace the placeholder in **both** bodies and re-save. Until swapped, the egress capture **hard-denies every `set_intent` with a `config_error`** naming the missed swap (a deliberate fail-closed guard), and the ingress gate (if attached) denies every non-`set_intent` call — so a blanket `set_intent` deny right after setup points straight at the missed swap.
-
-Compatibility is **one-directional and set-time only**: the egress checks `intent → active markers` at `set_intent` time. A marker raised *after* an intent is set does not retroactively deny.
+One behavior worth knowing when explaining them: intent/marker compatibility is **one-directional and set-time only** — the check runs at `set_intent` time; a marker raised *after* an intent is set does not retroactively deny.
 
 ## Handling Parse and Access Failures
 
