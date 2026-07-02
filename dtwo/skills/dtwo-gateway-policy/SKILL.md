@@ -113,7 +113,7 @@ Markers are session-state flags that one policy writes and other policies read t
 |------|---------|
 | `dtwo-list-markers` | List markers in the registry (optional filters: `name` for exact FQID, `tag`). Returns the marker *vocabulary*, not which markers are currently active on a session |
 | `dtwo-get-marker` | Fetch a single marker by UID |
-| `dtwo-create-marker` | Create a customer-tier marker (requires `namespace`, `markerId`, `description`, `minimumTtlSeconds`; optional `tags`). Full key is `marker:<namespace>:<markerId>`. `internal` and `dtwo` namespaces are reserved for platform markers |
+| `dtwo-create-marker` | Create a customer-tier marker (requires `namespace`, `markerId`, `description`, `minimumTtlSeconds`; optional `tags`). Full key is `marker:<namespace>:<markerId>`. `namespace` and `markerId` are each validated at the tool boundary (must start with an alphanumeric; alphanumerics, underscores, or hyphens only). `internal` and `dtwo` namespaces are reserved for platform markers |
 | `dtwo-update-marker` | Update mutable fields on a customer-tier marker (`description`, `tags`, `minimumTtlSeconds`) |
 | `dtwo-delete-marker` | Delete a customer-tier marker. Platform-managed entries cannot be deleted |
 
@@ -451,6 +451,7 @@ dtwo-create-marker(
 ```
 
 - The full key is `marker:acme:pii_detected`. Customer markers live under any namespace except the reserved `internal` and `dtwo`.
+- **`namespace` and `markerId` are validated here** — each must start with an alphanumeric and contain only alphanumerics, underscores, or hyphens (no dots, colons, spaces, etc.). This is the same per-segment rule enforced on `writableKeySchema[].name` (see Authoring the writer policy), so a marker you register is always writable via a policy's `writableKeySchema` — you can't register a key you then can't write to.
 - `minimumTtlSeconds` is a **floor** — a writer policy may declare any TTL ≥ this. Raise it later with `dtwo-update-marker` if a writer needs a longer minimum.
 
 ### Authoring the writer policy — `writableKeySchema`
