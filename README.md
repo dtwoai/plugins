@@ -95,7 +95,7 @@ The generator is dependency-free (Node ESM, single file, ~280 LOC) so it runs an
 
 ## Releases
 
-Keep `version` in sync between the marketplace entry (`.claude-plugin/marketplace.json`) and the plugin manifest (`<plugin>/.claude-plugin/plugin.json`). Tag the release commit (e.g. `dtwo-v0.2.0`) so customers can pin to a specific version when needed.
+Installs are **version-gated**: `/plugin update` and fresh installs only pick up changes when the version number changes. So **any change to distributed plugin content (a `SKILL.md`, `.mcp.json`, etc.) must bump the `version`** — and it must be bumped in **both** the marketplace entry (`.claude-plugin/marketplace.json`) and the plugin manifest (`<plugin>/.claude-plugin/plugin.json`), kept equal. Changes to non-distributed paths only (`skill-harness/`, `scripts/`, docs, CI) don't need a bump. Tag the release commit (e.g. `dtwo-v0.2.0`) so customers can pin to a specific version when needed. See [`CLAUDE.md`](CLAUDE.md) for the agent-facing version of this rule.
 
 ## Local development
 
