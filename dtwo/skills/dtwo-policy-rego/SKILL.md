@@ -69,7 +69,7 @@ This skill is typically used alongside others. Invoke them via the `Skill` tool 
 - Always return generated or modified policies in a fenced `rego` code block
 - When generating or modifying a policy, include a brief explanation of what the policy does and its direction (ingress/egress)
 - When explaining an existing policy, no code block is needed unless referencing specific rules
-- When contributing to the DTwo Policy Store repository, produce or edit the repository files described in `references/policy-store-catalog.md` (see the Policy Store Catalog Contributions pointer near the end) instead of returning only a standalone fenced Rego block.
+- When contributing to the DTwo Policy Store repository, produce or edit the repository files described in [`references/policy-store-catalog.md`](references/policy-store-catalog.md) (see the Policy Store Catalog Contributions pointer near the end) instead of returning only a standalone fenced Rego block.
 
 ## Quick start: the three policy shapes
 
@@ -107,7 +107,7 @@ This skill has four primary modes:
 - **Generate** — produce a complete Rego policy from a natural language requirement. Before returning, verify all `input.*` paths used in the policy exist in the DTwo Gateway Input Schema below.
 - **Modify** — change an existing Rego policy based on instructions, preserving its logic and style. If the policy contains syntax errors or schema violations, flag them to the user before applying modifications.
 - **Explain** — describe an existing policy in plain language: what it permits/blocks/modifies, its direction (ingress vs egress), what data it inspects, what triggers allow/deny, and any transformations applied. Flag syntax errors or schema violations as part of the explanation.
-- **Contribute** — create or update `dtwoai/policy-store` catalog artifacts (`policy.md`, `tests.yaml`, landing-page links, and generated manifest) using the repository layout and contribution flow in `references/policy-store-catalog.md`.
+- **Contribute** — create or update `dtwoai/policy-store` catalog artifacts (`policy.md`, `tests.yaml`, landing-page links, and generated manifest) using the repository layout and contribution flow in [`references/policy-store-catalog.md`](references/policy-store-catalog.md).
 
 All modes must follow the Core Rules above.
 
@@ -1296,8 +1296,9 @@ Policies often contain hardcoded values like transition IDs, project keys, or to
 
 Contributing reusable policies to the **`dtwoai/policy-store`** repo (repository layout, `policy.md`/`tests.yaml`
 frontmatter, landing-page links, manifest generation, and the registration flow) is a separate, lower-frequency
-workflow. To keep this skill lean it lives in a reference file: **read `references/policy-store-catalog.md` in
-this skill's directory before doing any policy-store contribution work.** Rego correctness for those catalog
+workflow. To keep this skill lean it lives in a reference file: before doing any policy-store contribution work,
+read [`references/policy-store-catalog.md`](references/policy-store-catalog.md) (bundled alongside this skill; if the
+relative path doesn't resolve, read `${CLAUDE_SKILL_DIR}/references/policy-store-catalog.md`). Rego correctness for those catalog
 policies still follows the rules in this skill (use PARC fields, compare tool names with `lower(input.resource.name)`, etc.).
 
 ## Limitations
