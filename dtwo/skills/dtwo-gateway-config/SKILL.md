@@ -58,7 +58,7 @@ The tools listed below reflect the initial set. The DTwo MCP server may add new 
 | `dtwo-validate-gateway-config` | Validate YAML configuration without saving |
 | `dtwo-save-gateway-draft-config` | Validate and save YAML as the draft configuration |
 | `dtwo-publish-gateway-config` | Publish the gateway draft as a new version |
-| `dtwo-revert-gateway-config` | Restore a published gateway version back into the draft |
+| `dtwo-revert-gateway-config` | Restore a published `version` back into the draft. Pass `publish: true` to publish it immediately as well |
 
 ### Deploy & Status Tools
 
@@ -215,7 +215,7 @@ Every field marked `secret: true` in the artifact. Emit a self-describing placeh
 
 ### Gateway Section
 
-Controls authentication, SSRF protection, logging, CORS, and advanced flags.
+Controls authentication, SSRF protection, `log_level`, and `advanced` flags — all documented in the Schema Digest above. (CORS is also modeled by the parser but is not detailed in the digest; configure it via the `advanced` escape hatch or confirm the field names with `dtwo-validate-gateway-config` before relying on them.) Authentication and SSRF are the load-bearing ones and are expanded below.
 
 - **Authentication** defaults to enabled when omitted. Supports JWKS-based JWT verification, SSO issuer, audience/issuer verification, JTI requirements, token expiration enforcement, and OAuth resource metadata.
 - **Gateway-side `jwks_info` is independent of any `mcp_servers[].authentication` block.** When the prompt supplies an IdP tenant and audience (e.g. Auth0), populate `gateway.authentication.jwks_info` (`jwt_algorithm`, `jwt_jwks_uri`, `jwt_issuer`, `jwt_audience`) — even when the upstream MCP server uses OAuth/DCR, and even when the prompt says the upstream server "only supports OAuth" or "does not accept bearer tokens." Those statements describe the outbound leg to the MCP server, not the inbound leg from clients to the gateway.
