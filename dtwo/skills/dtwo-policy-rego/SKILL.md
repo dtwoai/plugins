@@ -1023,7 +1023,7 @@ Authoring the intent-*capture* Rego is off-limits (above), but a tenant policy m
 | `data.dtwo.lib.intent_match.current_intent(input)` | The full intent object (`{category, description, set_at}`); **undefined** when no intent is set. |
 | `data.dtwo.lib.intent_match.current_category(input)` | Just the category FQID (e.g. `internal:debug`); undefined when unset. |
 | `data.dtwo.lib.intent_match.category_in(input, allowed)` | `true` when the current category is in the `allowed` set of FQIDs; `false` otherwise (including when no intent is set). |
-| `data.dtwo.lib.intent_match.is_platform_set_intent(input)` | `true` when the incoming call is the platform `dtwo-set-intent` tool hosted by the operator-declared `gateway.intent.server`; `false` for anything else, including lookalike tools from other MCP servers. `false` when intent capture is off. Use to skip a gate for the platform set_intent call (same reason the platform policies use it) — an exact-match anchor that cannot be forged by tenant configuration. |
+| `data.dtwo.lib.intent_match.is_platform_set_intent(input)` | `true` when the incoming call is the platform `dtwo-set-intent` tool hosted by the operator-declared `gateway.intent.server`; `false` for anything else, including lookalike tools from other MCP servers. `false` when intent capture is off. Available to tenant policies for inspection, but see **Closed pipeline** below — the platform already drops customer-policy contributions on the anchored `set_intent`, so this helper is **not** needed to defensively skip a gate. The platform policies use it as an unforgeable anchor. |
 
 **Do not read the intent from `input.context.session.policies` directly**, and do not hand-roll a walk-all-writers read for it. The helper is pinned to the trusted platform intent-capture slot, which tenant policies cannot write; a direct read is spoofable (any policy's own writer slot could supply an intent-shaped value) and couples your policy to internal storage details. Reading intent is the one case where the marker walk-all-writers pattern is the wrong tool.
 
@@ -1062,6 +1062,19 @@ Notes:
 - **Availability — safe to reference on any gateway.** The `dtwo.lib.intent_match` library is shipped into **every** policy bundle unconditionally (independent of the intent flag), so a reference to `data.dtwo.lib.intent_match.*` always resolves and compiles — it will *not* cause an "undefined function" bundle failure when intent capture is off. It only returns real values when intent capture is enabled; with it off there's no captured intent, so `current_intent` is undefined and `category_in` is simply always `false` — meaning a gate like the one above would deny the gated tool on a no-intent gateway. Design the default accordingly (and see the availability gate at the top of this section before surfacing intent behavior at all).
 - **Never echo the intent value into a deny `reason` or a `transform`.** The intent `description` is free text the caller supplied; use the intent for the *decision*, not for output.
 - **A `default allow := false` gate still risks self-lock** if it fronts the DTwo MCP server — keep the non-gated-tool passthrough (as above) so `dtwo-*` management calls are unaffected. See the self-lock pitfall in Common Pitfalls.
+
+### Closed pipeline — your policies do not enforce on `set_intent`
+
+When intent capture is enabled, the platform `set_intent` tool has a **closed pipeline**. Customer policies (both ingress and egress) still evaluate on those calls, but their `allow`, `reasons`, `session_writes`, and `transforms` contributions are dropped before the aggregate. Effect: a default-deny does **not** block `set_intent`, a redaction transform does **not** rewrite the response, and a `session_writes` a customer policy attempted on that call does **not** land.
+
+Why: the platform intent-capture policy commits an authoritative session-state write on `set_intent`. Without the closure, a customer deny on the response would block the response to the client while the session already committed the intent — client and session state would drift out of sync. The closure keeps them in lockstep.
+
+Practical implications for authoring:
+
+- **A "deny by default" gate on the DTwo MCP server won't fire on `set_intent`.** If a tenant is debugging why the deny appears to let one specific DTwo tool through, that is the platform closure — not a bug and not a policy shape issue.
+- **No defensive `not is_platform_set_intent(input)` guard is needed** in a tenant policy. The wrapper handles the skip at the aggregation layer; adding the guard yourself is a no-op.
+- **The closure is anchored** to the deploy-configured `gateway.intent.server` — a lookalike `set_intent` tool from a *different* MCP server does **not** trigger the bypass, so tenant policies enforce on those calls normally. If a tenant needs to block lookalikes, deny by tool name the same way they would for any other MCP server's tool.
+- **`is_platform_set_intent(input)` remains useful for observation.** A non-enforcing egress policy that only writes evidence (say, an audit marker on `set_intent` responses for tenant records) may still identify the call with this helper. The helper is a read, not a lever — because the wrapper drops customer enforcement contributions on the anchored `set_intent`, the helper cannot be used to *deny* that call.
 
 ## Handling Parse and Access Failures
 
