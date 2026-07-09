@@ -1023,6 +1023,7 @@ Authoring the intent-*capture* Rego is off-limits (above), but a tenant policy m
 | `data.dtwo.lib.intent_match.current_intent(input)` | The full intent object (`{category, description, set_at}`); **undefined** when no intent is set. |
 | `data.dtwo.lib.intent_match.current_category(input)` | Just the category FQID (e.g. `internal:debug`); undefined when unset. |
 | `data.dtwo.lib.intent_match.category_in(input, allowed)` | `true` when the current category is in the `allowed` set of FQIDs; `false` otherwise (including when no intent is set). |
+| `data.dtwo.lib.intent_match.is_platform_set_intent(input)` | `true` when the incoming call is the platform `dtwo-set-intent` tool hosted by the operator-declared `gateway.intent.server`; `false` for anything else, including lookalike tools from other MCP servers. `false` when intent capture is off. Use to skip a gate for the platform set_intent call (same reason the platform policies use it) — an exact-match anchor that cannot be forged by tenant configuration. |
 
 **Do not read the intent from `input.context.session.policies` directly**, and do not hand-roll a walk-all-writers read for it. The helper is pinned to the trusted platform intent-capture slot, which tenant policies cannot write; a direct read is spoofable (any policy's own writer slot could supply an intent-shaped value) and couples your policy to internal storage details. Reading intent is the one case where the marker walk-all-writers pattern is the wrong tool.
 

@@ -105,6 +105,7 @@ This subsection is generated from `schema-reference.json` by `scripts/generate-s
 | `gateway.authentication` | Inbound auth from clients to the gateway. `enabled` defaults to `true`; cross-field constraint requires `jwks_info` when enabled. |
 | `gateway.authentication.jwks_info` | Inbound JWT validation parameters. All four fields required when this object is present. |
 | `gateway.ssrf` | SSRF protection overrides. Strict defaults apply when omitted. |
+| `gateway.intent` | Session-intent controls (conditional — feature-gated). Enables platform intent capture / gating; ties the platform policies to a specific `mcp_servers[]` entry. See its subsection below for the availability gate. |
 | `mcp_servers[]` | One entry per upstream MCP server. `name` and `url` required. |
 | `mcp_servers[].authentication` | Discriminated union keyed on `type`; outbound auth from gateway to the upstream server. Seven variants (see table). |
 
@@ -137,6 +138,68 @@ Strict defaults block localhost, private networks, and fail-closed DNS when omit
 | `allow_localhost` | boolean | `false` | Enable only for local development where the MCP server runs on the same host as the gateway; leaving it on in production widens the gateway's outbound attack surface. |
 | `allow_private_networks` | boolean | `false` | Enable only when the gateway and MCP server share a private network (e.g. co-located on one EC2 host); prefer `allowed_networks` with a surgical CIDR allowlist in production, since a blanket private-range allow widens the gateway's outbound attack surface. |
 | `allowed_networks` | array<string> | `[]` | Set to the specific CIDRs your MCP servers live on when the gateway must reach private hosts — prefer this surgical allowlist over the blanket `allow_private_networks=true`, since every range you add widens the gateway's outbound attack surface. |
+
+#### `gateway.intent` — session-intent controls (conditional — feature-gated)
+
+> **Availability gate — read this first.** Session intent capture is not
+> customer-available yet: the `dtwo-*-intent*` MCP tools stay behind the
+> `enable_intent_tools` server flag until registry-driven resolution ships.
+> **Before writing any `gateway.intent` block into a customer config, confirm
+> intent capture is intended for this deployment.** For customer-facing config
+> work today, treat this subsection as inert and do not surface it. It is
+> documented here so agents driving the (currently internal) intent-capture
+> workflow can author the config correctly, and so config validation errors
+> mentioning `gateway.intent.*` have a schema reference.
+
+The `gateway.intent` block turns the platform intent-capture and
+intent-required policies on. Three fields:
+
+| Field | Type | deployDefault | Notes |
+|---|---|---|---|
+| `enabled` | boolean | `false` | Injects the platform egress capture policy. Safe to enable without `required`. |
+| `required` | boolean | `false` | Injects the platform ingress gate that denies non-`set_intent` calls until an intent is set. Requires `enabled: true`. |
+| `server` | string | (none) | The `mcp_servers[].name` of the platform Dtwo MCP server that hosts `dtwo-set-intent`. **Required whenever `enabled: true`.** Constrained to alphanumeric segments joined by single `_` or `-` (no spaces, punctuation, Unicode, repeated separators, or leading/trailing separators). Matches an `mcp_servers[]` entry case-insensitively with `_↔-` interchangeable. |
+
+**Cross-field constraints** (both enforced at parse time):
+
+- `required: true` requires `enabled: true`. Enabling the gate without the
+  capture policy would deny every call forever — parse-time rejection prevents
+  shipping that config.
+- `enabled: true` requires `server`. The platform policies identify the
+  set_intent tool by **exact tool name** (`<server_slug>-set_intent` /
+  `<server_slug>-set-intent`), not by suffix. Without the binding a lookalike
+  customer tool named `*-set_intent` would satisfy the check — the parse-time
+  refine keeps that from shipping.
+
+**Deploy-time validation** (state-machine, on top of parse-time):
+
+- `server` must resolve to an entry in `mcp_servers[]`. Case-insensitive match
+  with `_↔-` treated as equivalent (`server: dtwo` resolves to
+  `mcp_servers[].name: Dtwo`).
+- Ambiguity — two `mcp_servers[]` entries whose names normalize identically
+  (e.g. `Dtwo` and `dtwo`) — is rejected at deploy with a message naming
+  both offending entries. Rename one so the intent target is unambiguous.
+
+**Example:**
+
+```yaml
+gateway:
+  intent:
+    enabled: true
+    required: true
+    server: Dtwo
+mcp_servers:
+  - name: Dtwo                     # must match intent.server under normalization
+    url: http://host.docker.internal:3000/mcp
+    transport_type: streamablehttp
+    authentication:
+      type: none
+```
+
+For the enforcement policies themselves, the intent/marker registries, and the
+Rego library that user policies use to read the captured intent, see the
+Intent Capture section in `dtwo-gateway-policy`. Those surfaces (and their
+availability gate) are outside this skill's scope.
 
 #### `gateway.advanced` and `gateway.log_level`
 
