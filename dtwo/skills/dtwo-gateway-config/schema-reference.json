@@ -114,6 +114,18 @@
           "description": "SSRF protection overrides. Strict defaults apply when omitted."
         },
         {
+          "name": "intent",
+          "required": false,
+          "type": "object",
+          "constraints": [],
+          "enumValues": null,
+          "audience": "internal",
+          "schemaDefault": null,
+          "deployDefault": null,
+          "target": null,
+          "description": "Gateway session-intent controls."
+        },
+        {
           "name": "log_level",
           "required": false,
           "type": "enum",
@@ -142,9 +154,7 @@
           "enumValues": null,
           "audience": "internal",
           "schemaDefault": null,
-          "deployDefault": [
-            "http://localhost:6274"
-          ],
+          "deployDefault": ["http://localhost:6274"],
           "target": "ALLOWED_ORIGINS",
           "description": "CORS allowlist; JSON-encoded array in the env file.",
           "targetKind": "envVar"
@@ -265,9 +275,7 @@
           "name": "sso_generic_scope",
           "required": false,
           "type": "string",
-          "constraints": [
-            "min length: 1"
-          ],
+          "constraints": ["min length: 1"],
           "enumValues": null,
           "audience": "user",
           "schemaDefault": null,
@@ -293,9 +301,7 @@
           "name": "well_known_allow_http",
           "required": false,
           "type": "string",
-          "constraints": [
-            "min length: 1"
-          ],
+          "constraints": ["min length: 1"],
           "enumValues": null,
           "audience": "internal",
           "schemaDefault": null,
@@ -358,9 +364,7 @@
           "name": "jwt_issuer",
           "required": true,
           "type": "string",
-          "constraints": [
-            "min length: 1"
-          ],
+          "constraints": ["min length: 1"],
           "enumValues": null,
           "audience": "user",
           "schemaDefault": null,
@@ -374,9 +378,7 @@
           "name": "jwt_audience",
           "required": true,
           "type": "string",
-          "constraints": [
-            "min length: 1"
-          ],
+          "constraints": ["min length: 1"],
           "enumValues": null,
           "audience": "user",
           "schemaDefault": null,
@@ -459,9 +461,7 @@
           "name": "file_path",
           "required": false,
           "type": "string",
-          "constraints": [
-            "min length: 1"
-          ],
+          "constraints": ["min length: 1"],
           "enumValues": null,
           "audience": "internal",
           "schemaDefault": null,
@@ -494,13 +494,11 @@
           "name": "interval_seconds",
           "required": false,
           "type": "integer",
-          "constraints": [
-            "> 0"
-          ],
+          "constraints": ["> 0"],
           "enumValues": null,
           "audience": "internal",
           "schemaDefault": null,
-          "deployDefault": 60,
+          "deployDefault": 600,
           "target": "PULSE_INTERVAL_SECONDS",
           "description": "Interval between pulses in seconds.",
           "targetKind": "envVar"
@@ -522,9 +520,7 @@
           "name": "debounce_seconds",
           "required": false,
           "type": "integer",
-          "constraints": [
-            "> 0"
-          ],
+          "constraints": ["> 0"],
           "enumValues": null,
           "audience": "internal",
           "schemaDefault": null,
@@ -557,9 +553,7 @@
           "name": "interval_seconds",
           "required": false,
           "type": "integer",
-          "constraints": [
-            "> 0"
-          ],
+          "constraints": ["> 0"],
           "enumValues": null,
           "audience": "internal",
           "schemaDefault": null,
@@ -633,6 +627,46 @@
       ]
     },
     {
+      "path": "gateway.intent",
+      "title": "gateway.intent",
+      "description": "Gateway session-intent controls.",
+      "fields": [
+        {
+          "name": "enabled",
+          "required": false,
+          "type": "boolean",
+          "constraints": [],
+          "enumValues": null,
+          "audience": "user",
+          "schemaDefault": null,
+          "deployDefault": false,
+          "target": "platform.intent.enabled",
+          "description": "Enable session intent capture. Auto-injects an internal MCP server exposing `set_intent` into the gateway and wires the platform intent-capture policy into the egress pipeline. Users declare intent via `set_intent`; policies read it through the `dtwo.lib.intent_match` library.",
+          "rationale": "Turn on when you want intent-aware policies to have real values to read. Capture alone never denies a call — but it arms the egress closed-pipeline gate for `set_intent`: customer egress denies, transforms, and marker writes stop applying to that one tool (needed so a customer deny on the set_intent response cannot block the client while the platform capture policy has already committed the intent to session state). Customer INGRESS policies still govern `set_intent` unless `required: true` is also on. No `mcp_servers[]` configuration is needed — the platform intent server is deployed inside the gateway container and injected automatically.",
+          "targetKind": "platform"
+        },
+        {
+          "name": "required",
+          "required": false,
+          "type": "boolean",
+          "constraints": [],
+          "enumValues": null,
+          "audience": "user",
+          "schemaDefault": null,
+          "deployDefault": false,
+          "target": "platform.intent.required",
+          "description": "Require an intent to be set before any tool call other than `set_intent`. Injects the platform intent-required policy into the ingress pipeline.",
+          "rationale": "Turn on when your intent registry and workflows are settled. Requires `enabled: true` — a gate with no capture policy would deny every call forever. Also arms the INGRESS closed-pipeline gate for `set_intent`: customer ingress denies/throttles/argument-inspection stop applying to that one tool (needed so a customer default-deny cannot AND against intent_required and lock the agent out of `set_intent`). Availability note: while on, the gate fails closed, so an intent-server outage blocks the entire tool surface (only `set_intent` stays reachable). A transient OPA/registry blip self-heals — `set_intent` returns a retryable `registry_unavailable` rather than locking permanently — but to recover from a sustained intent-server outage, set `required: false` and redeploy.",
+          "targetKind": "platform"
+        }
+      ],
+      "crossFieldConstraints": [
+        {
+          "message": "`required: true` requires `enabled: true` (a required gate needs the capture policy to write intent)."
+        }
+      ]
+    },
+    {
       "path": "mcp_servers[]",
       "title": "mcp_servers[]",
       "description": "Each element of `mcp_servers`.",
@@ -641,9 +675,7 @@
           "name": "name",
           "required": true,
           "type": "string",
-          "constraints": [
-            "min length: 1"
-          ],
+          "constraints": ["min length: 1"],
           "enumValues": null,
           "audience": "user",
           "schemaDefault": null,
@@ -657,9 +689,7 @@
           "name": "description",
           "required": false,
           "type": "string",
-          "constraints": [
-            "min length: 1"
-          ],
+          "constraints": ["min length: 1"],
           "enumValues": null,
           "audience": "user",
           "schemaDefault": null,
@@ -688,12 +718,7 @@
           "required": false,
           "type": "enum",
           "constraints": [],
-          "enumValues": [
-            "sse",
-            "streamable_http",
-            "streamablehttp",
-            "http"
-          ],
+          "enumValues": ["sse", "streamable_http", "streamablehttp", "http"],
           "audience": "user",
           "schemaDefault": null,
           "deployDefault": null,
@@ -718,9 +743,7 @@
           "name": "refresh_interval_seconds",
           "required": false,
           "type": "integer",
-          "constraints": [
-            "≥ 60"
-          ],
+          "constraints": ["≥ 60"],
           "enumValues": null,
           "audience": "user",
           "schemaDefault": null,
@@ -735,11 +758,7 @@
           "required": false,
           "type": "enum",
           "constraints": [],
-          "enumValues": [
-            "public",
-            "team",
-            "private"
-          ],
+          "enumValues": ["public", "team", "private"],
           "audience": "user",
           "schemaDefault": null,
           "deployDefault": null,
@@ -773,60 +792,37 @@
         {
           "name": "bearer",
           "path": "mcp_servers[].authentication (bearer)",
-          "requiredFields": [
-            "type",
-            "token"
-          ]
+          "requiredFields": ["type", "token"]
         },
         {
           "name": "basic",
           "path": "mcp_servers[].authentication (basic)",
-          "requiredFields": [
-            "type",
-            "username",
-            "password"
-          ]
+          "requiredFields": ["type", "username", "password"]
         },
         {
           "name": "authheaders",
           "path": "mcp_servers[].authentication (authheaders)",
-          "requiredFields": [
-            "type",
-            "headers"
-          ]
+          "requiredFields": ["type", "headers"]
         },
         {
           "name": "query_param",
           "path": "mcp_servers[].authentication (query_param)",
-          "requiredFields": [
-            "type",
-            "param_key",
-            "param_value"
-          ]
+          "requiredFields": ["type", "param_key", "param_value"]
         },
         {
           "name": "oauth",
           "path": "mcp_servers[].authentication (oauth)",
-          "requiredFields": [
-            "type",
-            "grant_type",
-            "scopes"
-          ]
+          "requiredFields": ["type", "grant_type", "scopes"]
         },
         {
           "name": "cert",
           "path": "mcp_servers[].authentication (cert)",
-          "requiredFields": [
-            "type",
-            "ca_cert"
-          ]
+          "requiredFields": ["type", "ca_cert"]
         },
         {
           "name": "none",
           "path": "mcp_servers[].authentication (none)",
-          "requiredFields": [
-            "type"
-          ]
+          "requiredFields": ["type"]
         }
       ]
     },
@@ -852,9 +848,7 @@
           "name": "token",
           "required": true,
           "type": "string",
-          "constraints": [
-            "min length: 1"
-          ],
+          "constraints": ["min length: 1"],
           "enumValues": null,
           "audience": "user",
           "schemaDefault": null,
@@ -889,9 +883,7 @@
           "name": "username",
           "required": true,
           "type": "string",
-          "constraints": [
-            "min length: 1"
-          ],
+          "constraints": ["min length: 1"],
           "enumValues": null,
           "audience": "user",
           "schemaDefault": null,
@@ -905,9 +897,7 @@
           "name": "password",
           "required": true,
           "type": "string",
-          "constraints": [
-            "min length: 1"
-          ],
+          "constraints": ["min length: 1"],
           "enumValues": null,
           "audience": "user",
           "schemaDefault": null,
@@ -942,9 +932,7 @@
           "name": "headers",
           "required": true,
           "type": "array<object>",
-          "constraints": [
-            "min length: 1"
-          ],
+          "constraints": ["min length: 1"],
           "enumValues": null,
           "audience": "user",
           "schemaDefault": null,
@@ -965,9 +953,7 @@
           "name": "key",
           "required": true,
           "type": "string",
-          "constraints": [
-            "min length: 1"
-          ],
+          "constraints": ["min length: 1"],
           "enumValues": null,
           "audience": "user",
           "schemaDefault": null,
@@ -981,9 +967,7 @@
           "name": "value",
           "required": true,
           "type": "string",
-          "constraints": [
-            "min length: 1"
-          ],
+          "constraints": ["min length: 1"],
           "enumValues": null,
           "audience": "user",
           "schemaDefault": null,
@@ -1018,9 +1002,7 @@
           "name": "param_key",
           "required": true,
           "type": "string",
-          "constraints": [
-            "min length: 1"
-          ],
+          "constraints": ["min length: 1"],
           "enumValues": null,
           "audience": "user",
           "schemaDefault": null,
@@ -1034,9 +1016,7 @@
           "name": "param_value",
           "required": true,
           "type": "string",
-          "constraints": [
-            "min length: 1"
-          ],
+          "constraints": ["min length: 1"],
           "enumValues": null,
           "audience": "user",
           "schemaDefault": null,
@@ -1071,9 +1051,7 @@
           "name": "grant_type",
           "required": true,
           "type": "string",
-          "constraints": [
-            "min length: 1"
-          ],
+          "constraints": ["min length: 1"],
           "enumValues": null,
           "audience": "user",
           "schemaDefault": null,
@@ -1087,9 +1065,7 @@
           "name": "client_id",
           "required": false,
           "type": "string",
-          "constraints": [
-            "min length: 1"
-          ],
+          "constraints": ["min length: 1"],
           "enumValues": null,
           "audience": "user",
           "schemaDefault": null,
@@ -1103,9 +1079,7 @@
           "name": "client_secret",
           "required": false,
           "type": "string",
-          "constraints": [
-            "min length: 1"
-          ],
+          "constraints": ["min length: 1"],
           "enumValues": null,
           "audience": "user",
           "schemaDefault": null,
@@ -1176,9 +1150,7 @@
           "name": "scopes",
           "required": true,
           "type": "array<string>",
-          "constraints": [
-            "min length: 1"
-          ],
+          "constraints": ["min length: 1"],
           "enumValues": null,
           "audience": "user",
           "schemaDefault": null,
@@ -1206,9 +1178,7 @@
           "name": "oauth_quirks",
           "required": false,
           "type": "array<string>",
-          "constraints": [
-            "min length: 1"
-          ],
+          "constraints": ["min length: 1"],
           "enumValues": null,
           "audience": "internal",
           "schemaDefault": null,
@@ -1237,9 +1207,7 @@
           "name": "token_response_path",
           "required": false,
           "type": "string",
-          "constraints": [
-            "min length: 1"
-          ],
+          "constraints": ["min length: 1"],
           "enumValues": null,
           "audience": "internal",
           "schemaDefault": null,
@@ -1252,9 +1220,7 @@
           "name": "scope_param_name",
           "required": false,
           "type": "string",
-          "constraints": [
-            "min length: 1"
-          ],
+          "constraints": ["min length: 1"],
           "enumValues": null,
           "audience": "internal",
           "schemaDefault": null,
@@ -1267,9 +1233,7 @@
           "name": "scope_separator",
           "required": false,
           "type": "string",
-          "constraints": [
-            "min length: 1"
-          ],
+          "constraints": ["min length: 1"],
           "enumValues": null,
           "audience": "internal",
           "schemaDefault": null,
@@ -1282,9 +1246,7 @@
           "name": "token_lifetime_seconds",
           "required": false,
           "type": "integer",
-          "constraints": [
-            "> 0"
-          ],
+          "constraints": ["> 0"],
           "enumValues": null,
           "audience": "internal",
           "schemaDefault": null,
@@ -1322,9 +1284,7 @@
           "name": "ca_cert",
           "required": true,
           "type": "string",
-          "constraints": [
-            "min length: 1"
-          ],
+          "constraints": ["min length: 1"],
           "enumValues": null,
           "audience": "user",
           "schemaDefault": null,
@@ -1376,6 +1336,9 @@
     },
     {
       "key": "CACHE_TYPE"
+    },
+    {
+      "key": "D2_TENANT_ID"
     },
     {
       "key": "DATABASE_URL"

@@ -1,17 +1,16 @@
 ---
 name: "dtwo-policy-rego"
 description: |
-  Generate, modify, explain, and debug Rego policy code for the DTwo MCP Gateway (ingress and egress),
-  including the input schema, allow/deny/transform patterns, debugging techniques, and policy-store
-  catalog contribution structure.
-  TRIGGER when: user asks to write/modify/explain/debug a Rego policy, says "block/allow/redact/transform"
-  a tool call or response, mentions OPA, package paths, `input.payload`, `default allow`, or pastes Rego
-  for review; asks to contribute to `dtwoai/policy-store`, create catalog policy files, or update app,
-  industry, bundle, manifest, or tests files for reusable DTwo policies; also when diagnosing blanket denies
-  or transform conflicts. Pair with dtwo-gateway-policy whenever the resulting Rego must be saved, attached,
-  or deployed.
-  SKIP when: task is policy CRUD or pipeline attachment that does not change Rego (use dtwo-gateway-policy
-  alone); task is general OPA usage outside the MCP Gateway; task is editing gateway YAML (use dtwo-gateway-config).
+  Generate, modify, explain, and debug Rego policy code for the DTwo MCP Gateway (ingress and egress) —
+  input schema, allow/deny/transform patterns, markers/session-state, debugging, and policy-store catalog
+  contribution structure.
+  TRIGGER when: user asks to write/modify/explain/debug a Rego policy; says block/allow/redact/transform a
+  tool call or response; mentions OPA, package paths, input.payload, or default allow; pastes Rego for
+  review; writes a marker writer/reader or session_writes; (only when intent tools are enabled) recognizes
+  the platform intent-capture policies; contributes to the dtwoai/policy-store catalog; or diagnoses blanket
+  denies or transform conflicts. Pair with dtwo-gateway-policy when the resulting Rego must be saved or deployed.
+  SKIP when: policy CRUD or pipeline attachment that does not change Rego (use dtwo-gateway-policy); general
+  OPA usage outside the MCP Gateway; or editing gateway YAML (use dtwo-gateway-config).
 ---
 
 <!-- © 2026 DTwo, Inc. -->
@@ -19,6 +18,15 @@ description: |
 # DTwo Rego Policy Expert
 
 You are a Rego policy expert for the DTwo MCP Gateway. You translate natural language security requirements into valid Rego policies, explain existing policies in plain language, and modify policies based on instructions.
+
+## Where a policy fits
+
+This skill owns the Rego *inside* a policy — the allow / deny / transform / `session_writes` logic for a single tool call. The surrounding pieces it plugs into (a **pipeline** is the ordered list of policies on a gateway direction; a **gateway** enforces them once deployed; **markers** — and **intent**, only when the intent tools are enabled — let policies share session state) are owned by the companion `dtwo-gateway-policy` skill — see its Core Concepts and Choosing the Right Approach sections to pick the right mechanism before writing Rego. A quick orientation for what you write here:
+
+- **Deny / allow** — decide a single call from the call itself (ingress) or its response (egress).
+- **Transform** — rewrite request arguments (ingress) or redact response content (egress).
+- **Marker write / read** — coordinate across calls: one policy stamps a session-state flag (`session_writes`), another reads it (see Session State & Markers).
+- **Intent** *(only when the intent tools are enabled)* — session-purpose capture and gating (see Intent-capture policies, including its availability gate).
 
 ## Companion skills
 
@@ -45,7 +53,7 @@ This skill is typically used alongside others. Invoke them via the `Skill` tool 
 
 - **Keep each policy simple and focused on a single concern.** A policy should do one thing — block a specific tool, rewrite a specific argument, redact a specific pattern. Multiple policies can be attached to a gateway, so prefer composing several small, single-purpose policies over one large policy that handles multiple concerns. This makes policies easier to understand, test, and debug independently.
 - Every policy must declare a `package` name following the convention `<tool>.<direction>.<purpose>` — where `<tool>` is the MCP server (e.g., `jira`, `slack`), `<direction>` is `ingress` or `egress`, and `<purpose>` describes the policy's intent (e.g., `readonly`, `deny_comment`, `pii_redaction`). If the policy is not tool-specific, the tool segment can be omitted (e.g., `egress.pii_redaction`). If the user does not supply a name, choose one based on this convention
-- Policies that **deny or block** requests must default to deny: `default allow := false`. Policies that only **transform** data (e.g., PII redaction, query rewriting) and never deny should use `default allow := true` — this avoids needing explicit allow rules for every unrelated tool
+- Choose the `default allow` value by the policy's **primary job**. An **access-control** policy whose default stance is to block should default to deny (`default allow := false`) and enumerate `allow` rules. A policy that only **transforms** (PII redaction, query rewriting) or that **allows broadly and denies a specific condition** (e.g. a marker/intent reader that blocks one tool when a signal is set) should use `default allow := true` with targeted `allow := false if { ... }` rules — this avoids needing an explicit `allow` for every unrelated tool. Both are valid; see "Valid Rego Patterns (Not Bugs)" for the `default allow := true` + `allow := false if` shape
 - Use **separate top-level rules** for `allow`, `reasons`, `reason`, and `transform` — do NOT return structured decision objects
 - The `allow` rule is a boolean (`true`/`false`), not an object
 - The `reasons` rule is a set that collects human-readable denial messages
@@ -61,101 +69,32 @@ This skill is typically used alongside others. Invoke them via the `Skill` tool 
 - Always return generated or modified policies in a fenced `rego` code block
 - When generating or modifying a policy, include a brief explanation of what the policy does and its direction (ingress/egress)
 - When explaining an existing policy, no code block is needed unless referencing specific rules
-- When contributing to the DTwo Policy Store repository, produce or edit the repository files described in "Policy Store Catalog Contributions" instead of returning only a standalone fenced Rego block.
+- When contributing to the DTwo Policy Store repository, produce or edit the repository files described in [`references/policy-store-catalog.md`](references/policy-store-catalog.md) (see the Policy Store Catalog Contributions pointer near the end) instead of returning only a standalone fenced Rego block.
 
-## Policy Store Catalog Contributions
+## Quick start: the three policy shapes
 
-Use this section when the target is the `dtwoai/policy-store` repository rather than a tenant-local gateway policy. The policy-store catalog is a curated source of reusable policies; this skill still owns Rego correctness, while the repository owns file layout, metadata, tests, and manifest generation.
+Most policies are one of these. Copy the matching skeleton, then see the DTwo Gateway Input Schema for the fields and Examples for fuller, correct versions. Compare tool names case-insensitively against `input.resource.name`.
 
-### Repository layout
-
-```text
-apps/
-  <app>/
-    README.md
-    <policy-slug>/
-      policy.md
-      tests.yaml
-
-industries/
-  <industry>/
-    README.md
-
-bundles/
-  <bundle>/
-    README.md
-
-manifest.json
-schema.json
+**Deny** (block a request/response; default-deny):
+```rego
+package <tool>.<direction>.<purpose>
+import future.keywords.if
+default allow := false
+allow if { lower(input.resource.name) != "<server>-<tool>" }   # pass everything else through
+reason := "why this was blocked" if { not allow }
 ```
 
-- Put canonical policy bodies only under `apps/<app>/<policy-slug>/`.
-- Never duplicate policy bodies under `industries/` or `bundles/`; those directories contain landing pages that link to canonical app policies.
-- Use `<app>` as the lowercase, hyphenated MCP server or SaaS app slug commonly configured on a gateway, such as `slack`, `jira`, `github`, or `postgres`.
-- Use `<policy-slug>` as the lowercase, hyphenated purpose, such as `block-secrets`, `readonly`, or `pii-redaction`.
-- Do not add per-policy `README.md` or `metadata.json` files. Human documentation and all metadata live in `policy.md` frontmatter.
-- Treat `manifest.json` as generated from policy frontmatter. Do not hand-edit it except through the manifest generator.
+**Allow-list** (permit only specific tools; default-deny) — same shape, with an `allow if { lower(input.resource.name) == "<server>-<tool>" }` rule per permitted tool.
 
-### `policy.md`
-
-Each policy directory requires a `policy.md` file with YAML frontmatter followed by one fenced `rego` block.
-
-Frontmatter must include the required schema fields from `schema.json`:
-
-- `name`
-- `tags`
-- `publishedAt`
-- `description`
-- `direction`
-- `apps`
-- `schemaVersion`
-
-Include `industries`, `bundles`, and `minimumGatewayVersion` when they apply. Put the policy's human-facing documentation in `description`: what it does, when to use it, assumptions, limitations, examples, and relevant composition notes.
-
-Catalog policies are stricter than tenant-local examples:
-
-- Use PARC fields for action, resource, and identity: `input.action`, `input.resource`, `input.subject`, and `input.context`.
-- Do not use deprecated legacy aliases in catalog policies: `input.kind`, `input.payload.name`, or `input.user`.
-- Use `input.payload.args` and other hook-specific `input.payload` data for the actual request/response payload when needed.
-- Compare tool names case-insensitively with `lower(input.resource.name)`.
-- Use `object.get(obj, key, default)` for optional fields and missing claims.
-- Use only IdP-supplied claims in `input.subject.claims`; do not authorize on stripped ContextForge-internal claims such as `is_admin`, `teams`, or nested `user`.
-
-### `tests.yaml`
-
-Each policy directory requires a `tests.yaml` file containing a top-level YAML array of test cases. Include at least one positive and one negative case. For deny policies, this usually means one allow case and one deny case; for transform-only policies, use a passthrough case and a transform-applied case.
-
-Each test case uses this shape:
-
-```yaml
-- description: what this case demonstrates
-  input:
-    resource: { ... }
-    action: tool_pre_invoke
-    payload: { ... }
-  output:
-    expectedResult: deny
-    expectedReason: exact reason when relevant
-  transformApplied: true
-  transform: { replacement: "[REDACTED]" }
-  transformedArgsContain: { jql: "project != HR" }
+**Transform** (rewrite a request arg on ingress, or redact a response on egress; never denies):
+```rego
+package <tool>.<direction>.<purpose>
+import future.keywords.if
+default allow := true
+transform := { "redact_patterns": ["..."], "replacement": "[REDACTED]" } if { input.mode == "output" }
 ```
 
-- The runner feeds only each case's `input` object to OPA. Do not nest the PARC decision object under another `input` key inside the test case input.
-- `output.expectedResult` is required and must be `allow` or `deny`.
-- `output.expectedReason`, `transformApplied`, `transform`, and `transformedArgsContain` are optional and should be included only when they assert relevant behavior.
-- For identity-aware policies, document required IdP claim names and missing-claim defaults in the `policy.md` description.
-
-### Registering a policy
-
-1. Create `apps/<app>/<policy-slug>/policy.md` and `tests.yaml`.
-2. Add a row or link to `apps/<app>/README.md`.
-3. If the policy belongs to an industry or bundle, list the slug in `policy.md` frontmatter and add a link from the matching `industries/<industry>/README.md` or `bundles/<bundle>/README.md`.
-4. For new apps, industries, or bundles, create the corresponding directory and `README.md`.
-5. Run `pnpm manifest`, commit the generated `manifest.json`, then run `pnpm manifest:check`.
-6. Run `pnpm test`; it requires the OPA CLI on `PATH` or `OPA_BIN` set.
-
-Do not invent new manifest fields. Match existing policy frontmatter and open an issue first if the schema lacks a needed field.
+Rules of thumb: **ingress** to decide from the request alone, **egress** to inspect the response; `default allow := false` for deny policies, `default allow := true` for transform-only; read optional fields with `object.get(...)`. For cross-call state see Session State & Markers; for the multi-condition deny form see Policy Structure.
 
 ## Handling Ambiguous Requests
 
@@ -168,11 +107,13 @@ This skill has four primary modes:
 - **Generate** — produce a complete Rego policy from a natural language requirement. Before returning, verify all `input.*` paths used in the policy exist in the DTwo Gateway Input Schema below.
 - **Modify** — change an existing Rego policy based on instructions, preserving its logic and style. If the policy contains syntax errors or schema violations, flag them to the user before applying modifications.
 - **Explain** — describe an existing policy in plain language: what it permits/blocks/modifies, its direction (ingress vs egress), what data it inspects, what triggers allow/deny, and any transformations applied. Flag syntax errors or schema violations as part of the explanation.
-- **Contribute** — create or update `dtwoai/policy-store` catalog artifacts (`policy.md`, `tests.yaml`, landing-page links, and generated manifest) using the repository layout and contribution flow above.
+- **Contribute** — create or update `dtwoai/policy-store` catalog artifacts (`policy.md`, `tests.yaml`, landing-page links, and generated manifest) using the repository layout and contribution flow in [`references/policy-store-catalog.md`](references/policy-store-catalog.md).
 
 All modes must follow the Core Rules above.
 
 ## DTwo Policy Structure
+
+> **OPA version & the `if`/`contains`/`in` keywords.** The gateway runs OPA v1.x (currently v1.17). On OPA ≥ 1.0 the `if`, `contains`, `in`, and `every` keywords are part of the language, so `import future.keywords.*` is **optional and a no-op** — it neither helps nor hurts. The worked Examples below omit the import; the marker/session-state snippets include it. Both compile and behave identically on this gateway. Follow whichever the surrounding policy uses; don't add the import to "fix" an example that lacks it.
 
 Every DTwo policy follows this structure with separate top-level rules. Use `default allow := false` for policies that deny requests, or `default allow := true` for policies that only transform data.
 
@@ -227,6 +168,7 @@ transform := {
 | `reasons` | `set<string>` | Collects human-readable denial messages. Multiple reasons can fire. |
 | `reason` | `string` | Joins `reasons` into a single semicolon-delimited string. |
 | `transform` | `object` | Transformation instructions (redaction, payload replacement). |
+| `session_writes` | `object` | Optional. Session-state keys this policy writes (e.g. markers: `session_writes["marker:<ns>:<id>"] := {...}`). Each written key must be declared in the policy's `writableKeySchema`. See Session State & Markers. |
 
 ### Transform Object Fields
 
@@ -332,7 +274,7 @@ Older fields (`input.user`, `input.kind`, `input.payload.name`) are **deprecated
     },
     "payload":          {},           // Hook-specific data (see Payload by Hook Type)
     "tool_metadata":    {} | null,    // Tool definition (name, url, auth_type, gateway_id, input_schema, ...)
-    "context":          {},           // Mirror of top-level fields (correlation_id, payload, tool_metadata, ...)
+    "context":          {},           // Mirror of top-level fields (correlation_id, payload, tool_metadata, ...); additionally carries context.session.policies[<writer_uid>][<key>] (context-only, no top-level equivalent) for reading markers / session state — see Session State & Markers
     "correlation_id":   "<string>",   // Request trace ID
     "request_ip":       "<string>",   // Client IP address or "unknown"
     "headers":          {},           // Filtered HTTP headers (dict<string, string>)
@@ -666,7 +608,7 @@ allow if {
 allow if {
     input.action == "tool_pre_invoke"
     lower(input.resource.name) == "atlassian-editjiraissue"
-    not disallowed_field
+    count(disallowed_fields) == 0
 }
 
 # Extract the fields being edited in the request
@@ -675,8 +617,11 @@ edited_fields := {k |
     k := object.keys(fields)[_]
 }
 
-# Detect if any disallowed field is being modified
-disallowed_field := f if {
+# Collect ALL disallowed fields as a set. This must be a set comprehension, not a
+# complete rule (`disallowed_field := f if { f := edited_fields[_]; ... }`): a
+# complete rule assigns a single value, so editing two disallowed fields makes it
+# derive two values and OPA raises eval_conflict_error instead of denying cleanly.
+disallowed_fields := {f |
     f := edited_fields[_]
     not allowed_fields[f]
 }
@@ -684,7 +629,7 @@ disallowed_field := f if {
 reasons contains msg if {
     input.action == "tool_pre_invoke"
     lower(input.resource.name) == "atlassian-editjiraissue"
-    f := disallowed_field
+    f := disallowed_fields[_]
     msg := sprintf("Editing the field '%s' is not allowed. Only description, labels, priority, environment, and comment may be edited.", [f])
 }
 
@@ -774,7 +719,7 @@ transform := {
     "replacement": "[PROFANITY]",
 } if {
     input.mode == "output"
-    lower(input.tool_metadata.name) == "echo-echo"
+    lower(input.resource.name) == "echo-echo"
 }
 ```
 
@@ -930,6 +875,212 @@ reasons contains reason if {
 - When the aggregator ANDs multiple step policies (`allow if { policy_a.allow; policy_b.allow }`), **all** must evaluate to `true`. If any step policy's package path is wrong, its `allow` is `undefined`, and the AND fails.
 - Transform-only step policies should use `default allow := true` so they don't block requests when their transform doesn't apply.
 
+## Session State & Markers
+
+Beyond allow/deny/transform, a policy can **write to session state** and other policies can **read it** — giving the gateway a shared, tenant- and user-scoped, TTL-bounded "notepad" that survives across tool calls and across upstream MCP servers. The main use is **markers**: session-state flags one policy stamps and another gates on. A marker written during a Slack egress call is visible during a later Jira ingress call for the same user, because markers are scoped by tenant and user (not by server) and persist until their TTL expires.
+
+This lets you compose small single-purpose policies that signal to each other without shared code, instead of one giant policy that observes everything:
+
+- **Writer policy** — inspects the current call (arguments, response text, identity, whatever) and stamps a marker when a condition is met.
+- **Reader policy** — checks whether a marker is set and allows/denies/transforms accordingly. The writer and reader can attach to different tools, different directions, and different upstream servers.
+
+Start with the simplest shape — a **boolean flag** whose *presence* is the whole signal (the PII example below). Value-carrying markers (counters, structured payloads) are more advanced and rarely needed; a self-incrementing counter, for instance, has to read its own prior value and re-emit every call, which keeps refreshing the TTL.
+
+Registering the marker vocabulary, attaching the `writableKeySchema`, and deploying are lifecycle operations owned by the companion `dtwo-gateway-policy` instructions (Managing Markers). This section covers only the **Rego**.
+
+### Marker vs. general session key
+
+`session_writes` can write two flavors of key. Both are the same underlying `session_state_kv` mechanism — same `(tenant, subject, writer_id, key)` scoping, same TTL-from-schema, same read path — so the choice is about **design intent and governance**, not capability:
+
+| | **Marker** (`marker:<namespace>:<id>`) | **General session key** (bare name, e.g. `pipeline_stage`) |
+|---|---|---|
+| Intended for | A **shared, named signal across policies** and a general session-wide indicator — one policy stamps it, *other* policies (different tools/directions/servers) gate on it. | State **targeted to a specific use, isolated to one policy or a coordinated ingress/egress set** — private working state, not a broadcast signal. |
+| Registry | **Required** — register with `dtwo-create-marker`; the deploy validator rejects an unregistered marker key. | **None** — bare keys need no registry entry. |
+| Governance | Discoverable via `dtwo-list-markers`, carries tags + a `minimumTtlSeconds` floor, and (when the intent tools are enabled) can participate in intent/marker compatibility rules. | No registry, tags, TTL floor, or compatibility hooks — lighter-weight, ungoverned. |
+| Declare in `writableKeySchema` | `name: "marker:<ns>:<id>"`, add `"x-d2-is-marker": true` to the `jsonSchema`. | `name: "<bare-key>"`, omit the `marker:` prefix and `x-d2-is-marker`. |
+
+**Rule of thumb:** if another, separate policy is meant to read the signal — or you want it registered, discoverable, and governed — use a **marker**. If the state only coordinates within your own policy or your own ingress/egress pair and doesn't belong in a shared vocabulary, a **general session key** is the lighter choice.
+
+**Two honesty caveats:**
+
+- **Neither is access-isolated.** "Isolated to a policy" is a *design convention*, not an enforcement boundary — any policy in the session can read any key (marker or bare) via `session.policies[writer_uid][key]` if it knows the key. Don't treat a bare key as private/secret storage.
+- **The bare keyspace isn't namespaced.** Two unrelated policies that pick the same bare key name will collide (each writes under its own `writer_id`, but a walk-all-writers read sees both). Markers avoid this by construction via `marker:<namespace>:<id>`. Pick distinctive bare-key names, or use a marker when you need a collision-safe, shared name.
+
+### Writing a marker (`session_writes`)
+
+A writer emits `session_writes["marker:<namespace>:<id>"] := <value>` when its trigger fires. The canonical shape:
+
+- **The value is stored verbatim — there is no envelope.** The object you assign *is* what's persisted for that key. The `writableKeySchema` entry's `jsonSchema` validates that object **at its top level** — it describes the value object directly, not a nested `value`/`data`/`payload` wrapper. So your object's keys must be exactly the properties the schema declares (typically a couple of flat fields like `marked_at` + `source_action`).
+- **The key must be declared** in the policy's `writableKeySchema`, or the gateway drops the write.
+- **TTL comes from the schema, never the value.** The entry's `ttlSeconds` is applied by the gateway as the key's expiry when the write lands; it is metadata attached to the key at runtime, not a field of the value, and there is no way to set expiry from within the Rego.
+
+```rego
+package acme.egress.pii_detector
+
+import future.keywords.if
+import future.keywords.in
+
+default allow := true  # writer only observes and stamps; it does not deny
+
+_email_pattern := `[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}`
+
+_pii_email_found if {
+    some text in input.payload.text
+    is_string(text)
+    regex.match(_email_pattern, text)
+}
+
+# Stamp the marker when PII is observed in the response
+session_writes["marker:acme:pii_detected"] := marker_value if {
+    _pii_email_found
+    marker_value := {
+        "marked_at": time.now_ns(),
+        "source_action": input.resource.name,
+    }
+}
+```
+
+A writer is usually a `default allow := true` policy — it observes and stamps, it does not block. (A single policy *can* both deny and write, but prefer separate concerns.)
+
+**The write only happens when the trigger matches.** The `if { ... }` body gates the write like any other rule, so it uses the same request-matching as the rest of this skill: compare tool names case-insensitively (`lower(input.resource.name) == "<server>-<tool>"`, with the server-name prefix), read args via `object.get(input.payload.args, ...)`, and inspect response content via `input.payload.text` on egress. A writer whose trigger never matches (wrong case, missing server prefix, wrong direction) stamps nothing — and there's no error, just an absent marker. Confirm the exact tool name and payload shape with the dump-input technique (see Debugging Policies) before relying on the trigger.
+
+**Silent-drop trap.** Because the schema is strict (`additionalProperties: false`), slipping any undeclared field into the value fails validation — most commonly a `ttl`/`ttlSeconds`, which belongs on the schema (per the rule above), not the value. With the default `onDrop: "drop"` that failure is **silent**: the marker never lands and readers never see it. If a marker mysteriously isn't being read, check the written value against the schema first.
+
+```rego
+# WRONG — `ttl_seconds` is not a declared schema field, so the entire write silently drops
+session_writes["marker:acme:jira_access"] := {
+    "marked_at": time.now_ns(),
+    "source_action": input.resource.name,
+    "ttl_seconds": 3600,   # ← remove; TTL belongs on the writableKeySchema, not the value
+}
+
+# RIGHT — value carries only the declared fields; TTL is configured on writableKeySchema
+session_writes["marker:acme:jira_access"] := {
+    "marked_at": time.now_ns(),
+    "source_action": input.resource.name,
+}
+```
+
+### Reading a marker
+
+Active session state is exposed to a policy at `input.context.session.policies`, shaped as `policies[<writer_uid>][<key>] = <value>` — an outer object keyed by the UID of the policy that wrote each key, and under each writer the keys it wrote (a marker key `marker:<ns>:<id>` maps to the object the writer emitted). A marker is stored under the **writer policy's UID**, so the read walks all writer slots and treats the key as truthy if any writer set it:
+
+```rego
+package acme.ingress.pii_gate
+
+import future.keywords.if
+
+default allow := true
+
+_pii_active if {
+    some writer_uid
+    input.context.session.policies[writer_uid]["marker:acme:pii_detected"]
+}
+
+# Block outbound Slack sends once PII was seen anywhere in this session
+allow := false if {
+    lower(input.resource.name) == "slack-mcp-slack-send-message"
+    _pii_active
+}
+
+reason := "PII was detected earlier in this session; outbound Slack sends are blocked. Wait for the marker TTL to expire." if {
+    lower(input.resource.name) == "slack-mcp-slack-send-message"
+    _pii_active
+}
+```
+
+- The walk-all-writers pattern (`some writer_uid; input.context.session.policies[writer_uid][key]`) is "present under *any* writer is truthy." To trust only a specific writer, filter on `writer_uid == "<known-uid>"`.
+- **This pattern is for reading *marker* keys only.** Do **not** use it — or any direct `input.context.session.policies` read — to read the platform **intent** (see Intent-capture policies → Reading the session intent). "Present under any writer" is exactly wrong for intent: a tenant policy could stamp an intent-shaped value under its own writer slot and a walk-all-writers read would honour it, spoofing the session intent. Read intent only through the platform helper, which is pinned to the trusted intent-capture slot.
+- Deny reasons are user-visible — explain what to do about the block (e.g. "wait for the marker TTL to expire"). Avoid "start a new session": marker state is scoped to tenant + user and survives reconnecting, so a new session for the same user won't clear it.
+
+### `writableKeySchema` (attached via `dtwo-add-policy` / `dtwo-update-policy`)
+
+The Rego emits the write; the `writableKeySchema` on the policy record tells the gateway what shape the write must have. It is set through the lifecycle tools (see `dtwo-gateway-policy`), not inside the Rego, but the Rego author owns getting the value shape right. Each entry has `name` (the marker key, matching the registry exactly), `jsonSchema` (a stringified JSON object — a JSON Schema — for the value), `ttlSeconds` (should be ≥ the marker's registered `minimumTtlSeconds` — not enforced yet, so keep them in sync manually), and `onDrop` (`"drop"` — silently drop a schema-failing write; `"deny_request"` — hard-deny the tool call).
+
+Marker-key *shape* is validated server-side (the backend on save, and at deploy), not at the MCP tool boundary — so keep the key simple (lowercase alphanumerics with `_`/`-`; avoid dots, slashes, spaces) and reference it identically everywhere; keys are exact-match and never normalized (see `dtwo-gateway-policy` → Managing Markers). The `jsonSchema`, though, *is* checked at the tool boundary — it must parse as a JSON object.
+
+### Marker Rego gotchas
+
+- **`time.now_ns()` must stay an integer.** Use `time.now_ns()` raw for timestamp fields typed `integer` in the schema. Dividing in Rego (e.g. `time.now_ns() / 1000000`) produces a **float**, which fails a `"type": "integer"` schema — and with `onDrop: "deny_request"` that silently-authored bug will block the tool call.
+- **Match the key exactly.** The `session_writes` key, the `writableKeySchema` `name`, and the registered marker FQID must all be the identical `marker:<namespace>:<id>` string. A mismatch drops the write.
+- **Multiple writers land in separate slots.** If two policies declare and emit the same key, each write lands under its own writer UID; the walk-all-writers read finds either. Prefer one canonical writer per marker.
+- **Reads fail open on absent state.** If `input.context.session.policies` is missing or the marker was never written, the `_active` helper simply doesn't match — the reader allows. Structure high-sensitivity gates so the *presence* of the marker is what denies, not its absence (that's the intended semantics: no signal → nothing to block).
+
+## Intent-capture policies (conditional — feature-gated)
+
+> **Availability gate — read this first.** The intent-capture surface only exists when intent is enabled: the `set_intent` tool is auto-injected in-container when the gateway sets `gateway.intent.enabled`, and the intent registry-management tools are registered when the DTwo MCP server is deployed with `enable_intent_tools: true`. Intent capture is **not customer-available yet** (pending product-management usability verification). **Do not present intent-capture policies, `set_intent`, or intent/marker compatibility to the user unless those tools are actually available** — check for `set_intent` / `dtwo-*-intent*` in your tool list, or confirm via the companion `dtwo-gateway-policy` instructions. If they are absent, this section is inert; markers (above) still work fully.
+
+**The intent-capture Rego is platform-managed — do not write or modify it, and do not offer to.** Two policies do the enforcement — an **egress capture** that records the declared intent into session state and denies disallowed transitions or intent/marker incompatibilities, and an optional **intent-required gate** that blocks tool calls until an intent is set. These are owned by the platform (automatically injected when intent capture is enabled via `gateway.intent.enabled`); their bodies and wiring are not user-authored, and the Rego may not be visible to users. If asked to author or change intent-capture Rego, decline and point the user at the platform-managed feature (and the user-facing registry/compatibility tools in `dtwo-gateway-policy` → Intent Capture). This section exists only so you can *recognize and explain* the behavior, not reproduce it.
+
+One behavior worth knowing when explaining them: intent/marker compatibility is **one-directional and set-time only** — the check runs at `set_intent` time; a marker raised *after* an intent is set does not retroactively deny.
+
+### Reading the session intent in a tenant policy
+
+Authoring the intent-*capture* Rego is off-limits (above), but a tenant policy may legitimately **gate a tool on the current session intent** (e.g. "only allow this tool under a `debug` or `explore` intent"). When you do, read the intent **only** through the platform helper library `data.dtwo.lib.intent_match`:
+
+| Helper | Returns |
+|---|---|
+| `data.dtwo.lib.intent_match.current_intent(input)` | The full intent object (`{category, description, set_at}`); **undefined** when no intent is set. |
+| `data.dtwo.lib.intent_match.current_category(input)` | Just the category FQID (e.g. `internal:debug`); undefined when unset. |
+| `data.dtwo.lib.intent_match.category_in(input, allowed)` | `true` when the current category is in the `allowed` set of FQIDs; `false` otherwise (including when no intent is set). |
+| `data.dtwo.lib.intent_match.is_platform_set_intent(input)` | `true` when the incoming call is the platform `set_intent` tool — the intent server auto-injected in-container when `gateway.intent.enabled` is set; `false` for anything else, including lookalike tools from other MCP servers. `false` when intent capture is off. Available to tenant policies for inspection — see **Closed pipeline** below for which direction(s) the platform bypass is armed in (egress with `intent.enabled: true`; ingress additionally with `intent.required: true`). In an armed direction customer contributions are dropped anyway, so this helper is not needed to defensively skip a gate there; in a non-armed direction (typically ingress under `enabled: true, required: false`) it can be used to observe `set_intent` calls without contradicting the closure. The platform policies use it as an unforgeable anchor. |
+
+**Do not read the intent from `input.context.session.policies` directly**, and do not hand-roll a walk-all-writers read for it. The helper is pinned to the trusted platform intent-capture slot, which tenant policies cannot write; a direct read is spoofable (any policy's own writer slot could supply an intent-shaped value) and couples your policy to internal storage details. Reading intent is the one case where the marker walk-all-writers pattern is the wrong tool.
+
+The category values you compare against are the intent **FQIDs** — the `name` field returned by `dtwo-list-intents` (e.g. `internal:default`, `internal:debug`, `internal:explore`), **not** the short form echoed in the `set_intent` response. Pull the registry to confirm the exact FQIDs rather than guessing.
+
+Example — an ingress policy that permits one tool only under low-risk intents, and passes every other tool through untouched:
+
+```rego
+package echo.ingress.intent_gate
+
+import future.keywords.if
+
+default allow := false
+
+# Intent FQIDs (from dtwo-list-intents `name`) permitted to call the gated tool.
+_allowed_intents := {"internal:default", "internal:debug", "internal:explore"}
+
+# This policy only gates one tool — everything else passes through.
+allow if {
+    lower(input.resource.name) != "echo-echo"
+}
+
+allow if {
+    lower(input.resource.name) == "echo-echo"
+    data.dtwo.lib.intent_match.category_in(input, _allowed_intents)
+}
+
+reason := "This tool is only permitted under the 'default', 'debug', or 'explore' intents. Declare one with set_intent and retry." if {
+    lower(input.resource.name) == "echo-echo"
+    not data.dtwo.lib.intent_match.category_in(input, _allowed_intents)
+}
+```
+
+Notes:
+
+- **Availability — safe to reference on any gateway.** The `dtwo.lib.intent_match` library is shipped into **every** policy bundle unconditionally (independent of the intent flag), so a reference to `data.dtwo.lib.intent_match.*` always resolves and compiles — it will *not* cause an "undefined function" bundle failure when intent capture is off. It only returns real values when intent capture is enabled; with it off there's no captured intent, so `current_intent` is undefined and `category_in` is simply always `false` — meaning a gate like the one above would deny the gated tool on a no-intent gateway. Design the default accordingly (and see the availability gate at the top of this section before surfacing intent behavior at all).
+- **Never echo the intent value into a deny `reason` or a `transform`.** The intent `description` is free text the caller supplied; use the intent for the *decision*, not for output.
+- **A `default allow := false` gate still risks self-lock** if it fronts the DTwo MCP server — keep the non-gated-tool passthrough (as above) so `dtwo-*` management calls are unaffected. See the self-lock pitfall in Common Pitfalls.
+
+### Closed pipeline — your policies may not enforce on `set_intent`
+
+The platform `set_intent` tool has a **closed pipeline** in the directions where a platform enforcement policy is present. Customer policies (both ingress and egress) still evaluate on those calls, but their `allow`, `reasons`, `session_writes`, and `transforms` contributions are dropped before the aggregate whenever the closure is armed for that direction. Effect in an armed direction: a default-deny does **not** block `set_intent`, a redaction transform does **not** rewrite the response, and a `session_writes` a customer policy attempted on that call does **not** land.
+
+The closure follows the platform policy per direction — it is only armed when the corresponding platform enforcement is on:
+
+- **Egress closure** — armed when `gateway.intent.enabled: true` (platform `intent_capture` is on egress). Why: `intent_capture` commits an authoritative session-state write, and the substrate applies `session_writes` regardless of the unified decision. Without the closure a customer deny on the response would block the response to the client while the session already committed the intent — client and session state would drift out of sync. The closure keeps them in lockstep.
+- **Ingress closure** — armed when `gateway.intent.required: true` (platform `intent_required` is on ingress). Why: `intent_required` allows `set_intent` unconditionally so the agent can bootstrap an intent, but a customer default-deny would AND against that and lock the agent out. The closure keeps `set_intent` reachable under the required gate.
+- **Under `enabled: true, required: false`** the ingress closure is NOT armed. No substrate hazard on ingress (writes only happen on egress) and no deadlock hazard (no `intent_required` in the pipeline). Customer ingress policies **can** and **do** govern `set_intent` — authz on scopes, rate-limiting, inspecting the `description` argument for oversized/malformed content. The egress closure remains armed as long as capture is on.
+
+Practical implications for authoring:
+
+- **A "deny by default" gate on the DTwo MCP server** will still fire on `set_intent` **on ingress** as long as `intent.required: false`. If a tenant is debugging why their default-deny appears to let `set_intent` through, check whether the gateway has `intent.required: true` (ingress closure armed) — that IS the platform closure, not a policy-shape issue.
+- **The egress closure is always armed with `enabled: true`.** A tenant redaction transform on `set_intent` responses, or a tenant egress deny on the response body, has no effect on `set_intent` — those calls flow through platform egress alone.
+- **No defensive `not is_platform_set_intent(input)` guard is needed** in a tenant policy in the armed direction. The wrapper handles the skip at the aggregation layer; adding the guard yourself is a no-op.
+- **The closure is anchored** to the platform intent server auto-injected in-container (when `gateway.intent.enabled` is set) — a lookalike `set_intent` tool from a *different* MCP server does **not** trigger the bypass in either direction, so tenant policies enforce on those calls normally. If a tenant needs to block lookalikes, deny by tool name the same way they would for any other MCP server's tool.
+- **`is_platform_set_intent(input)` remains useful for observation.** A non-enforcing egress policy that only writes evidence (say, an audit marker on `set_intent` responses for tenant records) may still identify the call with this helper. The helper is a read, not a lever — in the armed direction, customer enforcement contributions are dropped anyway.
+
 ## Handling Parse and Access Failures
 
 Rego rules fail **silently** — if any expression in a rule body fails (e.g., `json.unmarshal` on non-JSON text, or accessing a missing key), the entire rule body does not match. No error is raised. This means the policy's behavior on bad data depends on how the rules are structured.
@@ -1018,11 +1169,11 @@ When a policy isn't behaving as expected, use these techniques to inspect what t
 
 ### Finding the Correct Tool Name
 
-Tool names in `input.payload.name` are constructed as `<server-name>-<tool-name>`, where `<server-name>` is the name given to the MCP server when it was configured on the gateway. For example, if an Atlassian MCP server is named `atlassian-jira-mcp` on the gateway, its `getjiraissue` tool appears as `atlassian-jira-mcp-getjiraissue`. A Slack server named `slack-mcp` would have tools like `slack-mcp-slack-send-message`.
+Tool names appear in `input.resource.name` (PARC; the legacy alias `input.payload.name` carries the same value) and are constructed as `<server-name>-<tool-name>`, where `<server-name>` is the name given to the MCP server when it was configured on the gateway. For example, if an Atlassian MCP server is named `atlassian-jira-mcp` on the gateway, its `getjiraissue` tool appears as `atlassian-jira-mcp-getjiraissue`. A Slack server named `slack-mcp` would have tools like `slack-mcp-slack-send-message`.
 
 The client may display a different name (e.g., `mcp__dtwo__atlassian-jira-mcp-getjiraissue` in Claude Code) — the gateway prefix is stripped, but the server name prefix is preserved.
 
-> Note: this is the gateway-to-OPA name (what `input.payload.name` contains inside a Rego policy), **not** the MCP client invocation name you call as a tool. The latter is covered in the companion `dtwo-gateway-config` and `dtwo-gateway-policy` instructions.
+> Note: this is the gateway-to-OPA name (what `input.resource.name` contains inside a Rego policy), **not** the MCP client invocation name you call as a tool. The latter is covered in the companion `dtwo-gateway-config` and `dtwo-gateway-policy` instructions.
 
 **Do not guess tool names.** The server name is configured by the gateway admin and is not standardized. Use a debug policy to discover the exact name the gateway passes, or follow the tool-discovery guidance in the companion `dtwo-gateway-policy` instructions to discover tool names and argument schemas via the DTwo MCP server when available.
 
@@ -1036,13 +1187,13 @@ allow := false if {
     true
 }
 
-reasons contains sprintf("Debug - name: %s, args: %v", [input.payload.name, input.payload.args]) if {
+reasons contains sprintf("Debug - name: %s, args: %v", [input.resource.name, input.payload.args]) if {
     true
 }
 # --- END DEBUG RULES ---
 ```
 
-This blocks all tool calls and returns the tool name and arguments in the denial message.
+This blocks all tool calls and returns the tool name and arguments in the denial message. (`input.resource.name` is the PARC field; the legacy alias `input.payload.name` holds the same value if you see it in older policies. Arguments stay at `input.payload.args`.)
 
 To inspect **identity** (the `subject` block and the JWT-derived claims), add:
 
@@ -1056,23 +1207,23 @@ reasons contains sprintf("Debug - user: %s, subject.sub: %s, claims: %v", [
 
 Use this to confirm what specific claim *values* are present in `input.subject.claims` for the current caller. To enumerate just the *names* the tenant has observed (across all callers, without attaching a policy), prefer `dtwo-list-claims` from the DTwo MCP server — tenant-wide by default, optionally scoped with `gatewayUid`.
 
-> **Self-lock warning.** An always-deny dump policy attached to a gateway will block **every** tool call on that gateway, including any DTwo MCP tools your client routes through it. If you manage policies via an MCP client that goes through the same gateway, you will lock yourself out and have to detach the policy from the DTwo web UI (or another client/gateway) to recover. Attach to a gateway you are **not** using for policy management, or be prepared to detach via the UI.
+> **Self-lock warning.** An always-deny dump policy blocks **every** call on that gateway — including the `dtwo-*` management tools if your client routes through it — so you can lock yourself out. Attach it to a gateway you are *not* managing through, or be ready to detach via the DTwo web UI. Full mechanism and the management-bypass pattern: see Common Pitfalls → "Self-locking with an always-deny ingress policy".
 
 To scope the debug to a specific tool pattern (e.g., only Atlassian tools):
 
 ```rego
 # --- TEMPORARY DEBUG RULES — remove after debugging ---
 allow := false if {
-    startswith(lower(input.payload.name), "atlassian-")
+    startswith(lower(input.resource.name), "atlassian-")
 }
 
-reasons contains sprintf("Debug - name: %s, args: %v", [input.payload.name, input.payload.args]) if {
-    startswith(lower(input.payload.name), "atlassian-")
+reasons contains sprintf("Debug - name: %s, args: %v", [input.resource.name, input.payload.args]) if {
+    startswith(lower(input.resource.name), "atlassian-")
 }
 # --- END DEBUG RULES ---
 ```
 
-For **egress** policies, the input structure is different — use `input.tool_metadata.name` and `input.payload.text` instead:
+For **egress** policies the tool output is in `input.payload.text`; the tool name is still `input.resource.name` (PARC populates it on egress too — the legacy `input.tool_metadata.name` holds the same value):
 
 ```rego
 # --- TEMPORARY EGRESS DEBUG RULES — remove after debugging ---
@@ -1080,7 +1231,7 @@ allow := false if {
     true
 }
 
-reasons contains sprintf("Debug - tool: %s, text: %v", [input.tool_metadata.name, input.payload.text]) if {
+reasons contains sprintf("Debug - tool: %s, text: %v", [input.resource.name, input.payload.text]) if {
     true
 }
 # --- END EGRESS DEBUG RULES ---
@@ -1102,7 +1253,7 @@ If all tool calls are being denied (including tools on unrelated MCP servers), t
 
 ### Debugging Checklist
 
-1. **Verify tool names:** Use the debug policy above to confirm `input.payload.name`
+1. **Verify tool names:** Use the debug policy above to confirm `input.resource.name`
 2. **Verify argument keys:** Check the exact keys in `input.payload.args` (e.g., `issueIdOrKey` vs `issueKey`)
 3. **Check compilation:** Ensure every `.rego` file has valid syntax and a `package` declaration
 4. **Check package paths:** Ensure step policy packages match the aggregator's `data.*` references
@@ -1121,7 +1272,7 @@ default allow := true
 
 # This is NOT a conflict — the default only fires when the condition below doesn't match
 allow := false if {
-    input.payload.name == "some-tool"
+    input.resource.name == "some-tool"
     some_blocking_condition
 }
 ```
@@ -1140,8 +1291,8 @@ Policies often contain hardcoded values like transition IDs, project keys, or to
 - **Assuming fields are always present:** External APIs don't always return the same fields. For example, Jira may expose `emailAddress` for some users but not others depending on privacy settings. Always use `object.get(obj, key, default)` and consider fallback checks (e.g., matching on `displayName` when `emailAddress` is missing).
 - **Forgetting the `default allow` declaration:** Without a default, `allow` is `undefined` when no rule matches, which OPA treats differently than `false`. Always include `default allow := false` (for deny policies) or `default allow := true` (for transform-only policies).
 - **Direct key access on optional fields:** `input.payload.args.someField` will cause the rule to silently fail if `someField` doesn't exist. Use `object.get(input.payload.args, "someField", "")` instead.
-- **Guessing tool names:** Tool names in `input.payload.name` are prefixed with the MCP server name as configured on the gateway (e.g., `atlassian-jira-mcp-getjiraissue`, not just `atlassian-getjiraissue`). Examples in this skill use shortened names for readability, but real policies must match the exact name the gateway sends. Use the debug policy technique to confirm.
-- **Case-sensitive tool name comparisons:** By default, compare tool names case-insensitively using `lower(input.payload.name) == "..."` (or `lower(input.tool_metadata.name)` for egress). Tool names are strings configured on the gateway, and a case mismatch will silently cause the policy to not match — which is a hard bug to debug. Use case-sensitive comparisons only when the user has an explicit reason to do so.
+- **Guessing tool names:** Tool names in `input.resource.name` (legacy alias `input.payload.name`) are prefixed with the MCP server name as configured on the gateway (e.g., `atlassian-jira-mcp-getjiraissue`, not just `atlassian-getjiraissue`). Examples in this skill use shortened names for readability, but real policies must match the exact name the gateway sends. Use the debug policy technique to confirm.
+- **Case-sensitive tool name comparisons:** By default, compare tool names case-insensitively using `lower(input.resource.name) == "..."` (works for both ingress and egress). Tool names are strings configured on the gateway, and a case mismatch will silently cause the policy to not match — which is a hard bug to debug. Use case-sensitive comparisons only when the user has an explicit reason to do so.
 - **Direct access on `subject.claims`:** `input.subject.claims.org_id` silently fails if the claim isn't present, making the entire rule body fail to match — easy to mistake for a different bug. Always use `object.get(input.subject.claims, "<claim>", "<default>")`. Choose the default carefully so a missing claim produces a clean deny (e.g., `""` for string compares, `[]` for `some x in ...`).
 - **Assuming standard JWT claims are in `subject.claims`:** `aud`, `exp`, `iat`, `nbf`, `jti`, `azp`, `nonce`, and other validation-layer/OIDC claims are stripped before they reach the policy — Rego is not meant to be a parallel JWT validator. `iss` is the documented exception. See Identity (Subject and Claims) for the full strip set.
 - **Using `is_admin`, `teams`, or `user` from `subject.claims` for authorization:** These claims are stripped because they are ContextForge-internal RBAC plumbing minted by CF's own JWT issuer, not upstream IdP assertions. A policy that does `input.subject.claims.is_admin == true` is *always* false. For role-based authorization, use IdP-supplied claims like `groups`, `roles`, or namespaced custom claims.
@@ -1159,6 +1310,15 @@ Policies often contain hardcoded values like transition IDs, project keys, or to
   ```
 
   Place this near the top of your policy, before the deny conditions. If your gateway also fronts a different management surface, add similar passthroughs for that prefix. Recovery if you skip the bypass and lock yourself out: detach the policy via the DTwo web UI, or via an MCP client that goes through a different gateway.
+
+## Policy Store Catalog Contributions
+
+Contributing reusable policies to the **`dtwoai/policy-store`** repo (repository layout, `policy.md`/`tests.yaml`
+frontmatter, landing-page links, manifest generation, and the registration flow) is a separate, lower-frequency
+workflow. To keep this skill lean it lives in a reference file: before doing any policy-store contribution work,
+read [`references/policy-store-catalog.md`](references/policy-store-catalog.md) (bundled alongside this skill; if the
+relative path doesn't resolve, read `${CLAUDE_SKILL_DIR}/references/policy-store-catalog.md`). Rego correctness for those catalog
+policies still follows the rules in this skill (use PARC fields, compare tool names with `lower(input.resource.name)`, etc.).
 
 ## Limitations
 
