@@ -20,6 +20,7 @@ This skill is typically used alongside others. Invoke them via the `Skill` tool 
 
 - **dtwo-gateway-policy** — load when the task also involves attaching/detaching policies on a pipeline or managing policy lifecycle (e.g., add a new MCP server and attach a policy in the same session).
 - **dtwo-policy-rego** — load when the task also requires writing or modifying Rego; typically loaded via `dtwo-gateway-policy` rather than directly alongside this skill.
+- **setup** (the guided first-time setup skill, invoked as `/dtwo:setup`) — for a first-time user standing up their first gateway from scratch; it orchestrates the full onboarding journey and hands the config-editing step back to this skill.
 
 ## Prerequisites
 

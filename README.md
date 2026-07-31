@@ -15,6 +15,7 @@ plugins/
 │   │   └── plugin.json       # plugin manifest (name, version, metadata)
 │   ├── .mcp.json             # MCP servers this plugin contributes (dtwo, HTTP + OAuth)
 │   ├── skills/               # auto-discovered skills (each in its own dir with SKILL.md)
+│   │   ├── setup/SKILL.md
 │   │   ├── dtwo-gateway-config/SKILL.md
 │   │   ├── dtwo-gateway-policy/SKILL.md
 │   │   └── dtwo-policy-rego/SKILL.md
@@ -49,7 +50,7 @@ Each plugin in turn is a directory laid out like this:
 
 Auto-discovery scans these default paths automatically. Custom paths can be set in `plugin.json` but aren't needed for the standard layout.
 
-The `dtwo` plugin uses only `skills/` and `.mcp.json` — everything else is omitted.
+The `dtwo` plugin uses only `skills/` and `.mcp.json` — the other optional paths (`commands/`, `agents/`, `hooks/`) are omitted.
 
 ## Adding another plugin to this marketplace
 

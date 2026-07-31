@@ -1,6 +1,6 @@
 # DTwo plugin for Claude Code
 
-A Claude Code plugin that bundles the DTwo MCP server connection together with three skills for managing DTwo gateways, policies, and Rego.
+A Claude Code plugin that bundles the DTwo MCP server connection together with skills for managing DTwo gateways, policies, and Rego — including a guided first-time setup skill you invoke as `/dtwo:setup`.
 
 ## Install
 
@@ -12,6 +12,12 @@ In Claude Code:
 ```
 
 That's it. Restart your Claude Code session — the skills are auto-discovered and the `dtwo` MCP server is registered. On the first DTwo tool call, your browser opens to complete the Auth0 OAuth flow.
+
+## First step: `/dtwo:setup`
+
+New to DTwo? Run `/dtwo:setup` (the guided setup skill). It walks you through standing up your first gateway end to end — creating it, choosing where it runs, configuring authentication, adding the MCP servers you want behind it, attaching starter policies, deploying, and printing ready-to-paste instructions for connecting Claude Code or Cursor. It's conversational and confirms before anything goes live.
+
+Already have a gateway and just want to make a change? Skip setup and ask directly — the skills below load on demand for focused edits.
 
 ## Working with Claude Cowork
 
@@ -39,6 +45,7 @@ Naming the connector `dtwo` is required — it has to match the plugin's MCP ser
 
 | Skill                 | Use when                                                                               |
 | --------------------- | -------------------------------------------------------------------------------------- |
+| `setup`               | Guided first-time onboarding — invoked as `/dtwo:setup`; orchestrates the whole create → configure → deploy → connect journey. |
 | `dtwo-gateway-config` | Editing gateway YAML, adding/removing MCP servers, publishing or rolling back configs. |
 | `dtwo-gateway-policy` | Creating, attaching, publishing, deploying, or verifying policies and pipelines; managing markers (and the intent registry when those tools are enabled). |
 | `dtwo-policy-rego`    | Authoring, modifying, explaining, or debugging Rego policy code for the DTwo Gateway, including marker writer/reader policies.  |
