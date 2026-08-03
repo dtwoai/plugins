@@ -63,12 +63,11 @@ The `dtwo` plugin uses only `skills/` and `.mcp.json` — the other optional pat
    {
      "name": "dtwo-foo",
      "source": "./dtwo-foo",
-     "description": "...",
-     "version": "0.1.0"
+     "description": "..."
    }
    ```
 
-   The `source` string must start with `./` and point at a subdirectory — bare `"."` is rejected by the schema.
+   The `source` string must start with `./` and point at a subdirectory — bare `"."` is rejected by the schema. Leave `version` out of the marketplace entry; it belongs in the plugin's own `plugin.json` (see [Releases](#releases)).
 
 Customers will then install it alongside the existing plugin with `/plugin install dtwo-foo@dtwo`.
 
@@ -96,7 +95,7 @@ The generator is dependency-free (Node ESM, single file, ~280 LOC) so it runs an
 
 ## Releases
 
-Installs are **version-gated**: `/plugin update` and fresh installs only pick up changes when the version number changes. So **any change to distributed plugin content (a `SKILL.md`, `.mcp.json`, etc.) must bump the `version`** — and it must be bumped in **both** the marketplace entry (`.claude-plugin/marketplace.json`) and the plugin manifest (`<plugin>/.claude-plugin/plugin.json`), kept equal. Changes to non-distributed paths only (`skill-harness/`, `scripts/`, docs, CI) don't need a bump. Tag the release commit (e.g. `dtwo-v0.2.0`) so customers can pin to a specific version when needed. See [`CLAUDE.md`](CLAUDE.md) for the agent-facing version of this rule.
+Installs are **version-gated**: `/plugin update` and fresh installs only pick up changes when the version number changes. So **any change to distributed plugin content (a `SKILL.md`, `.mcp.json`, etc.) must bump the `version`** in the plugin manifest (`<plugin>/.claude-plugin/plugin.json`). The version lives only there — don't add one to the marketplace entry, since Claude Code always prefers the `plugin.json` value and a stale marketplace copy would silently mask it. Changes to non-distributed paths only (`skill-harness/`, `scripts/`, docs, CI) don't need a bump. Tag the release commit (e.g. `dtwo-v0.2.0`) so customers can pin to a specific version when needed. See [`CLAUDE.md`](CLAUDE.md) for the agent-facing version of this rule.
 
 ## Local development
 
