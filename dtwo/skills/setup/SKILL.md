@@ -39,11 +39,11 @@ Setup-specific tools (may be newer — see Graceful degradation if any are missi
 
 | Tool | Purpose |
 |------|---------|
-| `dtwo-create-gateway` | Create a draft gateway with an empty config. Input `{ name, tags?, deploymentType? }` where `deploymentType` is `hostedAws` \| `standard` \| `localHttp`. For `hostedAws` it also queues AWS provisioning; errors clearly if a hosted gateway already exists (one per tenant) |
+| `dtwo-create-gateway` | Create a draft gateway with an empty config. Input `{ name, tags?, deploymentType?, allowAdditionalHosted? }` where `deploymentType` is `hostedAws` \| `standard` \| `localHttp`. For `hostedAws` it also queues AWS provisioning. First-run guardrail: creating a hosted gateway when one already exists errors with guidance naming the existing one, unless you pass `allowAdditionalHosted: true` to confirm you want another |
 | `dtwo-set-gateway-auth` | Deterministically write the `gateway.authentication` block into the draft config. Input `{ uid, mode, customFields? }` where `mode` is `dtwo_default` \| `custom` \| `disabled` \| `removed`. `dtwo_default` uses the DTwo-managed Auth0 IdP (recommended default for `localHttp`). `customFields` carries `jwt_algorithm`, `jwt_jwks_uri`, `jwt_issuer`, `jwt_audience`, `sso_issuer` when `mode: custom` |
 | `dtwo-get-gateway-connection-info` | Fetch client connection details. Input `{ uid }` → `{ mcpUrl, clientId?, audience, issuer, jwksUri, callbackPort: 33418 }`. For hosted gateways `mcpUrl` is `https://<hostname>/mcp`; may be unavailable for `standard` until you supply the hostname |
-| `dtwo-get-gateway-activation` | Fetch the activation bundle for a **self-hosted** gateway. Input `{ uid }` → `{ activationId, activationCode, activationExpiresAt, composeText, composeFileName, activationCommand }`. Errors for `hostedAws` (nothing to activate — provisioning is managed) |
-| `dtwo-refresh-gateway-activation` | Issue a fresh activation pair when the previous one has expired. Input `{ uid }` |
+| `dtwo-get-gateway-activation` | Fetch the activation bundle for a **self-hosted** gateway. Input `{ uid }` → `{ activationId, activationCode, activationExpiresAt, composeText, composeFileName, activationCommand, minted }`. Returns the current activation while it is still valid, and otherwise mints a fresh pair automatically (which invalidates any previously issued one); the `minted` flag tells you which happened. Call it once per activation attempt. Errors for `hostedAws` (nothing to activate — provisioning is managed) |
+| `dtwo-refresh-gateway-activation` | Force a fresh activation pair. Input `{ uid }` → the same full bundle as `dtwo-get-gateway-activation` (`composeText`, `composeFileName`, `activationCommand`, and the activation fields), so a refresh on its own is enough to activate |
 
 Existing lifecycle tools this skill leans on (documented in the companion skills):
 
@@ -77,7 +77,7 @@ Call `dtwo-list-gateways`.
 
 Explain the three options in one line each, then ask which they want:
 
-- **hostedAws** — DTwo runs the gateway for you in the cloud. Zero local infrastructure. One hosted gateway per tenant.
+- **hostedAws** — DTwo runs the gateway for you in the cloud. Zero local infrastructure. Most tenants run a single hosted gateway; creating another when one exists asks for explicit confirmation.
 - **localHttp** — runs on your machine via Docker. The quickest way to try DTwo with local MCP clients.
 - **standard** — you self-host on your own infrastructure over HTTPS. Most control, most setup.
 
@@ -88,7 +88,7 @@ Then ask for a **gateway name** (short and memorable). Optionally ask for tags.
 Call `dtwo-create-gateway` with `{ name, tags?, deploymentType }`. Capture the returned `uid` — you'll carry it through every later phase.
 
 - For **hostedAws**, creation also queues AWS provisioning; note that so the user knows something is happening in the background.
-- **Hosted-already-exists error.** If `deploymentType: hostedAws` fails because a hosted gateway already exists (one per tenant), tell the user plainly and offer to either (a) reuse the existing hosted gateway (switch to managing it via the companion skills, or continue this flow against its `uid`), or (b) create a `localHttp` or `standard` gateway instead. Re-run `dtwo-create-gateway` with their choice.
+- **Hosted-already-exists guardrail.** If `deploymentType: hostedAws` fails because a hosted gateway already exists, the error names the existing one. Tell the user plainly and offer three options: (a) reuse the existing hosted gateway (switch to managing it via the companion skills, or continue this flow against its `uid`), (b) create a `localHttp` or `standard` gateway instead, or (c) confirm they really do want an additional hosted gateway, in which case re-run `dtwo-create-gateway` with `allowAdditionalHosted: true`. Re-run with their choice.
 
 ### Phase 4 — Authentication
 
@@ -147,7 +147,9 @@ For **localHttp / standard**, call `dtwo-get-gateway-activation` `{ uid }` to ge
 - **Shell available (e.g. Claude Code with Bash).** Offer to do it for the user. If they agree: ask where to put the file, write `composeText` to `composeFileName` in that directory, then run `activationCommand` (it pulls and starts the gateway container, e.g. a `docker compose pull` / `up`). Stream the result back and confirm the container came up.
 - **Shell NOT available (e.g. claude.ai / Claude Desktop without a local shell).** Present `composeText` as a copyable code block (named `composeFileName`) and the `activationCommand` as a copyable command, with a one-line explanation of each. Then wait for the user to confirm they've run it before continuing.
 
-**Expired activation.** If `activationExpiresAt` has passed (or the activation command reports an expired/invalid code), call `dtwo-refresh-gateway-activation` `{ uid }` to get a fresh pair, then present/run the new one.
+**Expired or missing credentials are handled for you.** `dtwo-get-gateway-activation` returns the current activation while it is still valid and otherwise mints a fresh pair automatically, so there is nothing to do about expiry up front. Only reach for `dtwo-refresh-gateway-activation` `{ uid }` if the activation command itself reports an invalid or expired code at run time; it returns the same full bundle, so present or run the new one the same way.
+
+**Fetch the activation once.** Do not call `dtwo-get-gateway-activation` again after you have written the file and started the container. A re-fetch can mint a new pair and invalidate the one you just used. Fetch once, activate, then move on to Phase 10.
 
 ### Phase 10 — Deploy
 
