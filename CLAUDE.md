@@ -8,24 +8,15 @@ A **Claude Code plugin marketplace**. It ships one plugin today — `dtwo` — w
 
 Layout: `.claude-plugin/marketplace.json` (marketplace manifest) at the root; the plugin lives under `dtwo/` (`.claude-plugin/plugin.json`, `.mcp.json`, `skills/<name>/SKILL.md`); `skill-harness/` holds tests/fixtures; `scripts/` holds generators.
 
-## Bump the version on every distributed-content change — BOTH files, in lockstep
+## Bump the `plugin.json` version on every distributed-content change
 
-Installs are **version-gated**: if the version doesn't change, `/plugin update` and fresh installs will **not** pick up the new content, even though the files changed. So any PR that changes distributed plugin content (a `SKILL.md`, `.mcp.json`, or anything else customers install) MUST bump the version in **both** places:
+Installs are **version-gated**: if the version doesn't change, `/plugin update` and fresh installs will **not** pick up the new content, even though the files changed. So any PR that changes distributed plugin content (a `SKILL.md`, `.mcp.json`, or anything else customers install) MUST bump `"version"` in `dtwo/.claude-plugin/plugin.json`.
 
-- `dtwo/.claude-plugin/plugin.json` → top-level `"version"`
-- `.claude-plugin/marketplace.json` → the plugin entry's `"version"`
-
-They must stay equal. It is easy to bump `plugin.json` and forget `marketplace.json` — don't. Verify both with:
-
-```bash
-grep -n '"version"' dtwo/.claude-plugin/plugin.json .claude-plugin/marketplace.json
-```
-
-Precedent: #15 (1.0.0→1.0.1) and #16 (1.0.1→1.0.2) each bumped both files together; #18 added Entra guidance and bumped both to 1.0.3.
+The version lives **only** in `plugin.json`. Do not add a `version` to the plugin's entry in `.claude-plugin/marketplace.json`: Claude Code resolves the version as `plugin.json` → marketplace entry → git SHA, and the official docs warn that setting both lets a stale value silently mask the real one (`plugin.json` always wins without warning).
 
 **When NOT to bump:** changes that touch only non-distributed paths — `skill-harness/`, `scripts/`, `README.md`, this file, CI config — do not ship to customers, so they don't need a version bump (see #19, a skill-harness dependency patch that correctly skipped it). The rule is: *bump when the installed plugin's content changes.*
 
-If you add a second plugin to the marketplace later, the same lockstep applies to that plugin's own `plugin.json` and its `marketplace.json` entry.
+If you add a second plugin to the marketplace later, the same rule applies: version in that plugin's own `plugin.json` only.
 
 ## Skills load `SKILL.md` only — keep grounding inline
 
