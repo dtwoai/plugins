@@ -6,7 +6,7 @@
  * ---------------
  * The `dtwo-gateway-config` skill is authored against a set of `dtwo-*`
  * MCP tools. When the bench runs with no MCP tools mounted, Claude often
- * refuses with "please connect the DTwo MCP server." That's the skill's
+ * refuses with "please connect the Dtwo MCP server." That's the skill's
  * prerequisite check firing correctly — but it blocks us from
  * measuring its production behavior.
  *

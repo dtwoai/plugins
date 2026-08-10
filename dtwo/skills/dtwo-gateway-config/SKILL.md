@@ -1,18 +1,18 @@
 ---
 name: "dtwo-gateway-config"
 description: |
-  Manage DTwo gateway YAML configuration and MCP server definitions: edit, validate, save draft, publish, deploy, and roll back.
+  Manage Dtwo gateway YAML configuration and MCP server definitions: edit, validate, save draft, publish, deploy, and roll back.
   TRIGGER when: user says "add/remove/edit MCP server", "gateway config/YAML", "change gateway auth/JWKS/SSRF/CORS",
   "publish/revert gateway config", "deploy gateway" after a config change; or wants to inspect/list gateway versions.
   SKIP when: task is writing or explaining Rego (use dtwo-policy-rego); task is attaching/detaching policies
   on a pipeline or pinning policy versions (use dtwo-gateway-policy).
 ---
 
-<!-- © 2026 DTwo, Inc. -->
+<!-- © 2026 Dtwo, Inc. -->
 
-# DTwo Gateway & MCP Server Configuration
+# Dtwo Gateway & MCP Server Configuration
 
-You manage DTwo gateway configuration and MCP server definitions through the DTwo MCP server. You handle the full configuration lifecycle: editing gateway YAML, adding/modifying MCP server entries, validating and publishing configuration, deploying gateways, and rolling back.
+You manage Dtwo gateway configuration and MCP server definitions through the Dtwo MCP server. You handle the full configuration lifecycle: editing gateway YAML, adding/modifying MCP server entries, validating and publishing configuration, deploying gateways, and rolling back.
 
 ## Companion skills
 
@@ -24,11 +24,11 @@ This skill is typically used alongside others. Invoke them via the `Skill` tool 
 
 ## Prerequisites
 
-This skill requires the DTwo MCP server to be connected (`dtwo-*` tools must be loaded). If the tools are not available, ask the user to connect the DTwo MCP server first.
+This skill requires the Dtwo MCP server to be connected (`dtwo-*` tools must be loaded). If the tools are not available, ask the user to connect the Dtwo MCP server first.
 
-The tools listed below reflect the initial set. The DTwo MCP server may add new tools over time — if you discover `dtwo-*` tools not listed here, use them where appropriate. Prefer newer, more specific tools over workarounds when available.
+The tools listed below reflect the initial set. The Dtwo MCP server may add new tools over time — if you discover `dtwo-*` tools not listed here, use them where appropriate. Prefer newer, more specific tools over workarounds when available.
 
-**Tool naming note:** This skill refers to the DTwo MCP tools by their short names (e.g., `dtwo-list-gateways`). In Claude Code, that short name is what you call directly — the `mcp__dtwo__` server prefix is stripped automatically. In other MCP clients you may see the fully-qualified name `mcp__dtwo__dtwo-list-gateways`; both refer to the same tool. This is **separate** from the per-tool name that appears inside Rego policies (`input.payload.name`) — see the companion `dtwo-policy-rego` instructions for that.
+**Tool naming note:** This skill refers to the Dtwo MCP tools by their short names (e.g., `dtwo-list-gateways`). In Claude Code, that short name is what you call directly — the `mcp__dtwo__` server prefix is stripped automatically. In other MCP clients you may see the fully-qualified name `mcp__dtwo__dtwo-list-gateways`; both refer to the same tool. This is **separate** from the per-tool name that appears inside Rego policies (`input.payload.name`) — see the companion `dtwo-policy-rego` instructions for that.
 
 ## Workflow
 
@@ -71,9 +71,9 @@ The tools listed below reflect the initial set. The DTwo MCP server may add new 
 
 ### Deletion (not supported via MCP)
 
-The DTwo MCP server does not expose a `delete-gateway` tool. `revert-gateway-config` restores a prior version — it does **not** delete.
+The Dtwo MCP server does not expose a `delete-gateway` tool. `revert-gateway-config` restores a prior version — it does **not** delete.
 
-Deleting a gateway must be done via the **DTwo web UI**. If a `dtwo-delete-gateway` tool later appears (see the tool-discovery note under Prerequisites), prefer it over the UI.
+Deleting a gateway must be done via the **Dtwo web UI**. If a `dtwo-delete-gateway` tool later appears (see the tool-discovery note under Prerequisites), prefer it over the UI.
 
 ## Identifying the Target Gateway
 
@@ -307,6 +307,6 @@ After deploying a gateway with configuration changes:
 
 - This skill cannot author or modify Rego policies — see the companion `dtwo-policy-rego` instructions
 - This skill cannot attach/detach policies on a pipeline, pin policy versions, or manage policy lifecycle — see the companion `dtwo-gateway-policy` instructions
-- This skill cannot delete a gateway via the MCP surface — deletion must be done in the DTwo web UI
+- This skill cannot delete a gateway via the MCP surface — deletion must be done in the Dtwo web UI
 - This skill cannot validate or auto-complete keys inside the `advanced` section — those keys are passed through verbatim, so the user is responsible for correctness
 - This skill cannot enumerate the MCP tools a server exposes until after the server is deployed and introspected — for tool discovery, see the companion `dtwo-gateway-policy` instructions

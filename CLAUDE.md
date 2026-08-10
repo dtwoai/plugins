@@ -4,7 +4,7 @@ Guidance for Claude Code (and other agents) working in this repo. See [`README.m
 
 ## What this repo is
 
-A **Claude Code plugin marketplace**. It ships one plugin today — `dtwo` — which bundles the DTwo MCP server connection and the gateway/policy/Rego skills. Customers add the marketplace with `/plugin marketplace add dtwoai/plugins` and install with `/plugin install dtwo@dtwo`.
+A **Claude Code plugin marketplace**. It ships one plugin today — `dtwo` — which bundles the Dtwo MCP server connection and the gateway/policy/Rego skills. Customers add the marketplace with `/plugin marketplace add dtwoai/plugins` and install with `/plugin install dtwo@dtwo`.
 
 Layout: `.claude-plugin/marketplace.json` (marketplace manifest) at the root; the plugin lives under `dtwo/` (`.claude-plugin/plugin.json`, `.mcp.json`, `skills/<name>/SKILL.md`); `skill-harness/` holds tests/fixtures; `scripts/` holds generators.
 

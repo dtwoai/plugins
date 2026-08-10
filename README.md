@@ -1,6 +1,6 @@
 # plugins
 
-This repo is a **Claude Code plugin marketplace**. Today it ships one plugin — `dtwo` — which bundles the DTwo MCP server connection and the gateway/policy/Rego skills for managing DTwo gateways.
+This repo is a **Claude Code plugin marketplace**. Today it ships one plugin — `dtwo` — which bundles the Dtwo MCP server connection and the gateway/policy/Rego skills for managing Dtwo gateways.
 
 If you're a customer looking to install or use the plugin, jump to [`dtwo/README.md`](dtwo/README.md). The rest of this README documents the **layout and conventions** of the repo for maintainers and anyone adding another plugin to the marketplace.
 

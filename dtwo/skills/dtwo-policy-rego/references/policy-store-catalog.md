@@ -1,4 +1,4 @@
-<!-- © 2026 DTwo, Inc. -->
+<!-- © 2026 Dtwo, Inc. -->
 
 # Policy Store Catalog Contributions (reference)
 

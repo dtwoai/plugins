@@ -1,7 +1,7 @@
 ---
 name: "dtwo-policy-rego"
 description: |
-  Generate, modify, explain, and debug Rego policy code for the DTwo MCP Gateway (ingress and egress) —
+  Generate, modify, explain, and debug Rego policy code for the Dtwo MCP Gateway (ingress and egress) —
   input schema, allow/deny/transform patterns, markers/session-state, debugging, and policy-store catalog
   contribution structure.
   TRIGGER when: user asks to write/modify/explain/debug a Rego policy; says block/allow/redact/transform a
@@ -13,11 +13,11 @@ description: |
   OPA usage outside the MCP Gateway; or editing gateway YAML (use dtwo-gateway-config).
 ---
 
-<!-- © 2026 DTwo, Inc. -->
+<!-- © 2026 Dtwo, Inc. -->
 
-# DTwo Rego Policy Expert
+# Dtwo Rego Policy Expert
 
-You are a Rego policy expert for the DTwo MCP Gateway. You translate natural language security requirements into valid Rego policies, explain existing policies in plain language, and modify policies based on instructions.
+You are a Rego policy expert for the Dtwo MCP Gateway. You translate natural language security requirements into valid Rego policies, explain existing policies in plain language, and modify policies based on instructions.
 
 ## Where a policy fits
 
@@ -38,9 +38,9 @@ This skill is typically used alongside others. Invoke them via the `Skill` tool 
 
 ## Prerequisites
 
-- Use only fields that exist in the documented DTwo Gateway input schema.
+- Use only fields that exist in the documented Dtwo Gateway input schema.
 - Treat tool names, argument shapes, and available identity/context fields as discoverable facts, not assumptions.
-- If the task depends on exact live MCP tool schemas, discover them through the DTwo MCP server before finalizing policy logic.
+- If the task depends on exact live MCP tool schemas, discover them through the Dtwo MCP server before finalizing policy logic.
 
 ## Workflow
 
@@ -61,7 +61,7 @@ This skill is typically used alongside others. Invoke them via the `Skill` tool 
 - The `reason` rule joins the `reasons` set into a single semicolon-delimited string
 - For single-reason policies, use the inline form: `reason := "..." if not allow`. For policies with multiple denial conditions, use the `reasons` set + the **standard reason aggregation block** (see below). For always-allow policies (e.g., PII redaction), no `reason` is needed
 - The `transform` rule is an object with redaction/transformation instructions
-- Only reference fields from the DTwo input schema documented below
+- Only reference fields from the Dtwo input schema documented below
 - Distinguish clearly between **ingress** (pre-invoke, `mode: "input"`) and **egress** (post-invoke, `mode: "output"`) policies
 - **Do not flag valid Rego patterns as bugs.** See the "Valid Rego Patterns (Not Bugs)" section below for patterns that are commonly misidentified as issues.
 
@@ -70,11 +70,11 @@ This skill is typically used alongside others. Invoke them via the `Skill` tool 
 - Always return generated or modified policies in a fenced `rego` code block
 - When generating or modifying a policy, include a brief explanation of what the policy does and its direction (ingress/egress)
 - When explaining an existing policy, no code block is needed unless referencing specific rules
-- When contributing to the DTwo Policy Store repository, produce or edit the repository files described in [`references/policy-store-catalog.md`](references/policy-store-catalog.md) (see the Policy Store Catalog Contributions pointer near the end) instead of returning only a standalone fenced Rego block.
+- When contributing to the Dtwo Policy Store repository, produce or edit the repository files described in [`references/policy-store-catalog.md`](references/policy-store-catalog.md) (see the Policy Store Catalog Contributions pointer near the end) instead of returning only a standalone fenced Rego block.
 
 ## Quick start: the three policy shapes
 
-Most policies are one of these. Copy the matching skeleton, then see the DTwo Gateway Input Schema for the fields and Examples for fuller, correct versions. Compare tool names case-insensitively against `input.resource.name`.
+Most policies are one of these. Copy the matching skeleton, then see the Dtwo Gateway Input Schema for the fields and Examples for fuller, correct versions. Compare tool names case-insensitively against `input.resource.name`.
 
 **Deny** (block a request/response; default-deny):
 ```rego
@@ -105,18 +105,18 @@ When a user's requirement is ambiguous (e.g., "block access to sensitive data"),
 
 This skill has four primary modes:
 
-- **Generate** — produce a complete Rego policy from a natural language requirement. Before returning, verify all `input.*` paths used in the policy exist in the DTwo Gateway Input Schema below.
+- **Generate** — produce a complete Rego policy from a natural language requirement. Before returning, verify all `input.*` paths used in the policy exist in the Dtwo Gateway Input Schema below.
 - **Modify** — change an existing Rego policy based on instructions, preserving its logic and style. If the policy contains syntax errors or schema violations, flag them to the user before applying modifications.
 - **Explain** — describe an existing policy in plain language: what it permits/blocks/modifies, its direction (ingress vs egress), what data it inspects, what triggers allow/deny, and any transformations applied. Flag syntax errors or schema violations as part of the explanation.
 - **Contribute** — create or update `dtwoai/policy-store` catalog artifacts (`policy.md`, `tests.yaml`, landing-page links, and generated manifest) using the repository layout and contribution flow in [`references/policy-store-catalog.md`](references/policy-store-catalog.md).
 
 All modes must follow the Core Rules above.
 
-## DTwo Policy Structure
+## Dtwo Policy Structure
 
 > **OPA version & the `if`/`contains`/`in` keywords.** The gateway runs OPA v1.x (currently v1.17). On OPA ≥ 1.0 the `if`, `contains`, `in`, and `every` keywords are part of the language, so `import future.keywords.*` is **optional and a no-op** — it neither helps nor hurts. The worked Examples below omit the import; the marker/session-state snippets include it. Both compile and behave identically on this gateway. Follow whichever the surrounding policy uses; don't add the import to "fix" an example that lacks it.
 
-Every DTwo policy follows this structure with separate top-level rules. Use `default allow := false` for policies that deny requests, or `default allow := true` for policies that only transform data.
+Every Dtwo policy follows this structure with separate top-level rules. Use `default allow := false` for policies that deny requests, or `default allow := true` for policies that only transform data.
 
 ```rego
 package <namespace>
@@ -240,7 +240,7 @@ Egress policies evaluate **responses before they are returned to the caller**. T
 - **Use both** for defense in depth — e.g., ingress rewrites a search query to exclude a forbidden project, while a separate egress policy blocks any forbidden data that leaks through anyway.
 - **Transform direction matters** — ingress transforms rewrite tool arguments *before* the call (e.g., query rewriting); egress transforms redact or modify the response *after* the call (e.g., PII redaction). Choose the direction based on what data you need to modify.
 
-## DTwo Gateway Input Schema
+## Dtwo Gateway Input Schema
 
 Every OPA policy receives an `input` document with this structure. The top-level fields are the same for all hook types — only `payload` and `mode` differ.
 
@@ -351,7 +351,7 @@ A few claims that frequently show up and have policy-relevant quirks:
 - **`iss`** — the JWT issuer URL. Retained despite being a validation-layer claim because the gateway uses it as a scope key for claim-schema discovery. Useful in policies for distinguishing tokens from different IdPs (e.g., a CF-issued internal token vs an external Auth0 token).
 - **`email`** — when present, is the user's email address. Optional in OIDC: only emitted when the client requests the `email` scope *and* the IdP is configured to issue it. Always use `object.get(input.subject.claims, "email", "")`; fall back to `subject.sub` only when you've confirmed the IdP issues email-shaped subs. Trust it for *identity* decisions only when the IdP also asserts `email_verified` — see **Asserted vs. verified claims** below.
 - **`permissions`** *(Auth0-specific)* — an array of permission strings (e.g., `["read:tickets", "write:tickets"]`) emitted when Auth0 RBAC is enabled and "Add Permissions in the Access Token" is configured on the API. The closest built-in surface to roles/permissions on Auth0 tenants. For other IdPs, the equivalent typically lives under a custom-namespaced claim like `https://acme.com/roles`. **Auth0 does not include role names in the JWT by default** — without explicit configuration (RBAC + permissions, or a Post-Login Action), no role information reaches the policy regardless of what's assigned in the Auth0 dashboard.
-- **`preferred_username` / `upn` / `unique_name`** *(Microsoft Entra / Azure AD)* — where the human-readable identifier lives on Entra tokens, and a common trap for policies written against Auth0. On Entra tokens (v1 and v2 alike), `sub` is a **pairwise pseudonym** — an opaque string keyed to the **Application (client) ID** the token was minted for (the `aud`), so two different app registrations receive different `sub` values for the same user. Because a DTwo gateway authenticates with a *single* Entra app registration, `sub` is in practice a **stable per-user key across all the MCP tools/servers behind that gateway** — the "not portable" caveat only bites when correlating against a *different* client_id's token (e.g., another app, or the raw upstream IdP). The email-shaped human identifier lives in `upn` and `unique_name` on **v1** tokens; **v2** tokens instead surface `preferred_username`. A policy that keys on `sub` alone therefore behaves differently on Entra than on Auth0/Keycloak. When an identity check must work across IdPs, resolve in the order `email` → `preferred_username` → `upn` → `unique_name`, treating `sub` as a last-resort opaque key. Caveat: `preferred_username` / `upn` / `unique_name` are *mutable* and not guaranteed stable over a user's lifetime — for a durable per-user key on Entra, prefer **`oid` (+ `tid`)**, which stays the same for a given user across app registrations; `sub` scoped by `iss` is durable only *within* one client registration. Note that Microsoft's own guidance is stricter than the general `email_verified` advice below: it recommends **never** using `email` / `preferred_username` / `upn` for authorization (all are mutable and reusable) — use `oid` + `tid` for the identity key and `groups` / `roles` for authorization.
+- **`preferred_username` / `upn` / `unique_name`** *(Microsoft Entra / Azure AD)* — where the human-readable identifier lives on Entra tokens, and a common trap for policies written against Auth0. On Entra tokens (v1 and v2 alike), `sub` is a **pairwise pseudonym** — an opaque string keyed to the **Application (client) ID** the token was minted for (the `aud`), so two different app registrations receive different `sub` values for the same user. Because a Dtwo gateway authenticates with a *single* Entra app registration, `sub` is in practice a **stable per-user key across all the MCP tools/servers behind that gateway** — the "not portable" caveat only bites when correlating against a *different* client_id's token (e.g., another app, or the raw upstream IdP). The email-shaped human identifier lives in `upn` and `unique_name` on **v1** tokens; **v2** tokens instead surface `preferred_username`. A policy that keys on `sub` alone therefore behaves differently on Entra than on Auth0/Keycloak. When an identity check must work across IdPs, resolve in the order `email` → `preferred_username` → `upn` → `unique_name`, treating `sub` as a last-resort opaque key. Caveat: `preferred_username` / `upn` / `unique_name` are *mutable* and not guaranteed stable over a user's lifetime — for a durable per-user key on Entra, prefer **`oid` (+ `tid`)**, which stays the same for a given user across app registrations; `sub` scoped by `iss` is durable only *within* one client registration. Note that Microsoft's own guidance is stricter than the general `email_verified` advice below: it recommends **never** using `email` / `preferred_username` / `upn` for authorization (all are mutable and reusable) — use `oid` + `tid` for the identity key and `groups` / `roles` for authorization.
 
 > **Asserted vs. verified claims — trust the right one for identity.** Not every identity claim carries equal trust. `email` is only meaningful when the IdP *also* asserts `email_verified`: a hostile or misconfigured IdP can mint an arbitrary `email` claim for an address it doesn't control, so an unguarded `email` comparison is spoofable. `preferred_username` / `upn`, by contrast, are provider-*asserted* profile claims and are **not** gated by `email_verified`. All of these pass through to `input.subject.claims` verbatim, so the choice of which to trust is yours to make in the policy:
 >
@@ -1009,7 +1009,7 @@ Marker-key *shape* is validated server-side (the backend on save, and at deploy)
 
 ## Intent-capture policies (conditional — feature-gated)
 
-> **Availability gate — read this first.** The intent-capture surface only exists when intent is enabled: the `set_intent` tool is auto-injected in-container when the gateway sets `gateway.intent.enabled`, and the intent registry-management tools are registered when the DTwo MCP server is deployed with `enable_intent_tools: true`. Intent capture is **not customer-available yet** (pending product-management usability verification). **Do not present intent-capture policies, `set_intent`, or intent/marker compatibility to the user unless those tools are actually available** — check for `set_intent` / `dtwo-*-intent*` in your tool list, or confirm via the companion `dtwo-gateway-policy` instructions. If they are absent, this section is inert; markers (above) still work fully.
+> **Availability gate — read this first.** The intent-capture surface only exists when intent is enabled: the `set_intent` tool is auto-injected in-container when the gateway sets `gateway.intent.enabled`, and the intent registry-management tools are registered when the Dtwo MCP server is deployed with `enable_intent_tools: true`. Intent capture is **not customer-available yet** (pending product-management usability verification). **Do not present intent-capture policies, `set_intent`, or intent/marker compatibility to the user unless those tools are actually available** — check for `set_intent` / `dtwo-*-intent*` in your tool list, or confirm via the companion `dtwo-gateway-policy` instructions. If they are absent, this section is inert; markers (above) still work fully.
 
 **The intent-capture Rego is platform-managed — do not write or modify it, and do not offer to.** Two policies do the enforcement — an **egress capture** that records the declared intent into session state and denies disallowed transitions or intent/marker incompatibilities, and an optional **intent-required gate** that blocks tool calls until an intent is set. These are owned by the platform (automatically injected when intent capture is enabled via `gateway.intent.enabled`); their bodies and wiring are not user-authored, and the Rego may not be visible to users. If asked to author or change intent-capture Rego, decline and point the user at the platform-managed feature (and the user-facing registry/compatibility tools in `dtwo-gateway-policy` → Intent Capture). This section exists only so you can *recognize and explain* the behavior, not reproduce it.
 
@@ -1062,7 +1062,7 @@ Notes:
 
 - **Availability — safe to reference on any gateway.** The `dtwo.lib.intent_match` library is shipped into **every** policy bundle unconditionally (independent of the intent flag), so a reference to `data.dtwo.lib.intent_match.*` always resolves and compiles — it will *not* cause an "undefined function" bundle failure when intent capture is off. It only returns real values when intent capture is enabled; with it off there's no captured intent, so `current_intent` is undefined and `category_in` is simply always `false` — meaning a gate like the one above would deny the gated tool on a no-intent gateway. Design the default accordingly (and see the availability gate at the top of this section before surfacing intent behavior at all).
 - **Never echo the intent value into a deny `reason` or a `transform`.** The intent `description` is free text the caller supplied; use the intent for the *decision*, not for output.
-- **A `default allow := false` gate still risks self-lock** if it fronts the DTwo MCP server — keep the non-gated-tool passthrough (as above) so `dtwo-*` management calls are unaffected. See the self-lock pitfall in Common Pitfalls.
+- **A `default allow := false` gate still risks self-lock** if it fronts the Dtwo MCP server — keep the non-gated-tool passthrough (as above) so `dtwo-*` management calls are unaffected. See the self-lock pitfall in Common Pitfalls.
 
 ### Closed pipeline — your policies may not enforce on `set_intent`
 
@@ -1076,7 +1076,7 @@ The closure follows the platform policy per direction — it is only armed when 
 
 Practical implications for authoring:
 
-- **A "deny by default" gate on the DTwo MCP server** will still fire on `set_intent` **on ingress** as long as `intent.required: false`. If a tenant is debugging why their default-deny appears to let `set_intent` through, check whether the gateway has `intent.required: true` (ingress closure armed) — that IS the platform closure, not a policy-shape issue.
+- **A "deny by default" gate on the Dtwo MCP server** will still fire on `set_intent` **on ingress** as long as `intent.required: false`. If a tenant is debugging why their default-deny appears to let `set_intent` through, check whether the gateway has `intent.required: true` (ingress closure armed) — that IS the platform closure, not a policy-shape issue.
 - **The egress closure is always armed with `enabled: true`.** A tenant redaction transform on `set_intent` responses, or a tenant egress deny on the response body, has no effect on `set_intent` — those calls flow through platform egress alone.
 - **No defensive `not is_platform_set_intent(input)` guard is needed** in a tenant policy in the armed direction. The wrapper handles the skip at the aggregation layer; adding the guard yourself is a no-op.
 - **The closure is anchored** to the platform intent server auto-injected in-container (when `gateway.intent.enabled` is set) — a lookalike `set_intent` tool from a *different* MCP server does **not** trigger the bypass in either direction, so tenant policies enforce on those calls normally. If a tenant needs to block lookalikes, deny by tool name the same way they would for any other MCP server's tool.
@@ -1131,7 +1131,7 @@ If `json.unmarshal` fails, `confirmed_sensitive` is `false`, so `allow` fires �
 
 ## Commonly Used Rego Built-in Functions
 
-The functions below are frequently used in DTwo policies. All standard OPA Rego built-ins are also available.
+The functions below are frequently used in Dtwo policies. All standard OPA Rego built-ins are also available.
 
 ### String Matching & Manipulation
 - `contains(string, search)` — check if string contains substring
@@ -1176,7 +1176,7 @@ The client may display a different name (e.g., `mcp__dtwo__atlassian-jira-mcp-ge
 
 > Note: this is the gateway-to-OPA name (what `input.resource.name` contains inside a Rego policy), **not** the MCP client invocation name you call as a tool. The latter is covered in the companion `dtwo-gateway-config` and `dtwo-gateway-policy` instructions.
 
-**Do not guess tool names.** The server name is configured by the gateway admin and is not standardized. Use a debug policy to discover the exact name the gateway passes, or follow the tool-discovery guidance in the companion `dtwo-gateway-policy` instructions to discover tool names and argument schemas via the DTwo MCP server when available.
+**Do not guess tool names.** The server name is configured by the gateway admin and is not standardized. Use a debug policy to discover the exact name the gateway passes, or follow the tool-discovery guidance in the companion `dtwo-gateway-policy` instructions to discover tool names and argument schemas via the Dtwo MCP server when available.
 
 ### Debug Policy: Dump Tool Name and Arguments
 
@@ -1206,9 +1206,9 @@ reasons contains sprintf("Debug - user: %s, subject.sub: %s, claims: %v", [
 ]) if { true }
 ```
 
-Use this to confirm what specific claim *values* are present in `input.subject.claims` for the current caller. To enumerate just the *names* the tenant has observed (across all callers, without attaching a policy), prefer `dtwo-list-claims` from the DTwo MCP server — tenant-wide by default, optionally scoped with `gatewayUid`.
+Use this to confirm what specific claim *values* are present in `input.subject.claims` for the current caller. To enumerate just the *names* the tenant has observed (across all callers, without attaching a policy), prefer `dtwo-list-claims` from the Dtwo MCP server — tenant-wide by default, optionally scoped with `gatewayUid`.
 
-> **Self-lock warning.** An always-deny dump policy blocks **every** call on that gateway — including the `dtwo-*` management tools if your client routes through it — so you can lock yourself out. Attach it to a gateway you are *not* managing through, or be ready to detach via the DTwo web UI. Full mechanism and the management-bypass pattern: see Common Pitfalls → "Self-locking with an always-deny ingress policy".
+> **Self-lock warning.** An always-deny dump policy blocks **every** call on that gateway — including the `dtwo-*` management tools if your client routes through it — so you can lock yourself out. Attach it to a gateway you are *not* managing through, or be ready to detach via the Dtwo web UI. Full mechanism and the management-bypass pattern: see Common Pitfalls → "Self-locking with an always-deny ingress policy".
 
 To scope the debug to a specific tool pattern (e.g., only Atlassian tools):
 
@@ -1299,18 +1299,18 @@ Policies often contain hardcoded values like transition IDs, project keys, or to
 - **Using `is_admin`, `teams`, or `user` from `subject.claims` for authorization:** These claims are stripped because they are ContextForge-internal RBAC plumbing minted by CF's own JWT issuer, not upstream IdP assertions. A policy that does `input.subject.claims.is_admin == true` is *always* false. For role-based authorization, use IdP-supplied claims like `groups`, `roles`, or namespaced custom claims.
 - **Treating `input.subject.sub` as an email address:** For tokens issued by ContextForge itself, `sub` is the user's email. For external IdP tokens, `sub` is whatever the IdP put in the `sub` claim — typically an IdP-prefixed identifier like `google-apps|paul@dtwo.ai`, not a clean email. On **Microsoft Entra** tokens (v1 and v2) `sub` is worse still: a **pairwise pseudonym** that is opaque *and* differs across app registrations, so it is useless for correlating identity outside the single app the token was minted for — read `upn` / `unique_name` (v1) or `preferred_username` (v2) for the human identifier, or `oid` + `tid` for a cross-app durable key. If you need a stable user identifier, compare against the full `sub` value; if you need an email, prefer `input.subject.claims.email` (when the IdP emits it) and fall back to `sub` only when you've confirmed the IdP issues email-shaped subs.
 - **Comparing `email` without checking `email_verified`:** `email` is provider-*claimed*, not provider-*verified*, unless the IdP also sends `email_verified: true`. A policy that authorizes on `input.subject.claims.email` alone can be spoofed by a token carrying an unverified `email`. Pair every identity comparison on `email` with `object.get(input.subject.claims, "email_verified", false) == true`, or key on a provider-asserted claim (`sub`, `upn`) instead. See **Asserted vs. verified claims** under Notes on common claims.
-- **Self-locking with an always-deny ingress policy:** Attaching a `default allow := false` policy (or one that denies broadly during debugging, like a dump-input policy) to a gateway will block *every* tool call on that gateway — including any DTwo MCP management tools your client routes through it. **This only applies when the DTwo MCP server itself is configured behind that gateway** (a common but not universal setup); if your DTwo MCP server runs outside the gateway, calls to it bypass the gateway's policies and self-locking does not happen. When in doubt, check the gateway config: if `mcp_servers` includes a Dtwo entry that your client connects through, you are at risk.
+- **Self-locking with an always-deny ingress policy:** Attaching a `default allow := false` policy (or one that denies broadly during debugging, like a dump-input policy) to a gateway will block *every* tool call on that gateway — including any Dtwo MCP management tools your client routes through it. **This only applies when the Dtwo MCP server itself is configured behind that gateway** (a common but not universal setup); if your Dtwo MCP server runs outside the gateway, calls to it bypass the gateway's policies and self-locking does not happen. When in doubt, check the gateway config: if `mcp_servers` includes a Dtwo entry that your client connects through, you are at risk.
 
   **Mitigation: management-tool passthrough.** Add a single `allow if` rule that exempts `dtwo-*` tools from the deny:
 
   ```rego
-  # Management bypass — keep DTwo MCP management tools usable while this policy is attached
+  # Management bypass — keep Dtwo MCP management tools usable while this policy is attached
   allow if {
       startswith(lower(input.resource.name), "dtwo-")
   }
   ```
 
-  Place this near the top of your policy, before the deny conditions. If your gateway also fronts a different management surface, add similar passthroughs for that prefix. Recovery if you skip the bypass and lock yourself out: detach the policy via the DTwo web UI, or via an MCP client that goes through a different gateway.
+  Place this near the top of your policy, before the deny conditions. If your gateway also fronts a different management surface, add similar passthroughs for that prefix. Recovery if you skip the bypass and lock yourself out: detach the policy via the Dtwo web UI, or via an MCP client that goes through a different gateway.
 
 ## Policy Store Catalog Contributions
 

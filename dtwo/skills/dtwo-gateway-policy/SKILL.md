@@ -1,7 +1,7 @@
 ---
 name: "dtwo-gateway-policy"
 description: |
-  Create, validate, attach, publish, deploy, verify, and roll back DTwo policies and their pipeline
+  Create, validate, attach, publish, deploy, verify, and roll back Dtwo policies and their pipeline
   attachments — the system-of-record skill for policy lifecycle (create/update/publish/revert), pipeline
   lifecycle (attach/deploy/verify), the session-state marker registry, and (when intent tools are enabled)
   the intent registry.
@@ -13,11 +13,11 @@ description: |
   or editing gateway YAML / MCP server entries (use dtwo-gateway-config).
 ---
 
-<!-- © 2026 DTwo, Inc. -->
+<!-- © 2026 Dtwo, Inc. -->
 
-# DTwo Policy & Pipeline Manager
+# Dtwo Policy & Pipeline Manager
 
-You manage DTwo policies and their attachment to gateway pipelines through the DTwo MCP server. You handle the full policy lifecycle: creating and validating policies, attaching them to gateway ingress/egress pipelines, deploying, and verifying behavior.
+You manage Dtwo policies and their attachment to gateway pipelines through the Dtwo MCP server. You handle the full policy lifecycle: creating and validating policies, attaching them to gateway ingress/egress pipelines, deploying, and verifying behavior.
 
 ## Companion skills
 
@@ -78,11 +78,11 @@ For markers, session state, or (feature-gated) intent gating, see Managing Marke
 
 ## Prerequisites
 
-This skill requires the DTwo MCP server to be connected (`dtwo-*` tools must be loaded). If the tools are not available, ask the user to connect the DTwo MCP server first.
+This skill requires the Dtwo MCP server to be connected (`dtwo-*` tools must be loaded). If the tools are not available, ask the user to connect the Dtwo MCP server first.
 
-The tools listed below reflect the initial set. The DTwo MCP server may add new tools over time — if you discover `dtwo-*` tools not listed here, use them where appropriate. Prefer newer, more specific tools over workarounds when available.
+The tools listed below reflect the initial set. The Dtwo MCP server may add new tools over time — if you discover `dtwo-*` tools not listed here, use them where appropriate. Prefer newer, more specific tools over workarounds when available.
 
-**Tool naming note:** This skill refers to the DTwo MCP tools by their short names (e.g., `dtwo-list-gateways`). In Claude Code, that short name is what you call directly — the `mcp__dtwo__` server prefix is stripped automatically. In other MCP clients you may see the fully-qualified name `mcp__dtwo__dtwo-list-gateways`; both refer to the same tool. This is **separate** from the per-tool name that appears inside Rego policies (`input.payload.name`) — see the companion `dtwo-policy-rego` instructions for that.
+**Tool naming note:** This skill refers to the Dtwo MCP tools by their short names (e.g., `dtwo-list-gateways`). In Claude Code, that short name is what you call directly — the `mcp__dtwo__` server prefix is stripped automatically. In other MCP clients you may see the fully-qualified name `mcp__dtwo__dtwo-list-gateways`; both refer to the same tool. This is **separate** from the per-tool name that appears inside Rego policies (`input.payload.name`) — see the companion `dtwo-policy-rego` instructions for that.
 
 ## High-level workflow
 
@@ -94,7 +94,7 @@ See **Quick start** above for the create→attach→deploy path and **Creating a
 - Prefer testing draft policies before publishing and pinning versions.
 - Treat pipeline changes as non-live until a deploy completes successfully.
 - Do not treat `revert-policy` as deletion; detach first if the user wants removal from runtime behavior.
-- Before authoring a policy for a gateway that fronts the DTwo MCP server (a `Dtwo` entry in `mcp_servers`), plan a `dtwo-*` passthrough into the Rego. Without it, the deploy locks management calls out — see Deploying → Self-lock risk.
+- Before authoring a policy for a gateway that fronts the Dtwo MCP server (a `Dtwo` entry in `mcp_servers`), plan a `dtwo-*` passthrough into the Rego. Without it, the deploy locks management calls out — see Deploying → Self-lock risk.
 
 ## Available Tools
 
@@ -115,7 +115,7 @@ See **Quick start** above for the create→attach→deploy path and **Creating a
 
 ### Marker Registry Tools
 
-Markers are session-state flags that one policy writes and other policies read to gate on (see Managing Markers). These tools are **always registered** on the DTwo MCP server — they do not depend on any feature flag.
+Markers are session-state flags that one policy writes and other policies read to gate on (see Managing Markers). These tools are **always registered** on the Dtwo MCP server — they do not depend on any feature flag.
 
 | Tool | Purpose |
 |------|---------|
@@ -127,11 +127,11 @@ Markers are session-state flags that one policy writes and other policies read t
 
 ### Intent Registry Tools (conditional — feature-gated)
 
-> **Availability gate — read this before surfacing anything about intents.** The intent tools below are only registered when the DTwo MCP server is deployed with `enable_intent_tools: true`. **Marker tools (above) are always available; intent tools are not.** Before mentioning intent capture, intent registries, transitions, or intent/marker compatibility to the user, confirm the relevant `dtwo-*-intent*` tools are actually present in your available tool list. **If they are absent, the server is not configured for intent capture — do not present intent capture, the intent registry, transitions, or compatibility to the user, and do not attempt to call these tools.** Treat this subsection and the "Intent Capture" section below as inert in that case. Markers work fully without intent capture, so continue to use them normally.
+> **Availability gate — read this before surfacing anything about intents.** The intent tools below are only registered when the Dtwo MCP server is deployed with `enable_intent_tools: true`. **Marker tools (above) are always available; intent tools are not.** Before mentioning intent capture, intent registries, transitions, or intent/marker compatibility to the user, confirm the relevant `dtwo-*-intent*` tools are actually present in your available tool list. **If they are absent, the server is not configured for intent capture — do not present intent capture, the intent registry, transitions, or compatibility to the user, and do not attempt to call these tools.** Treat this subsection and the "Intent Capture" section below as inert in that case. Markers work fully without intent capture, so continue to use them normally.
 
 When present, these tools manage the intent vocabulary and the rules that govern it. See the Intent Capture section for the workflow.
 
-> **Customer-created intents are not customer-available yet.** Session intent is declared through the platform `set_intent` tool, which the gateway **auto-injects in-container** when `gateway.intent.enabled` is set — it is **not** a DTwo MCP tool (and these registry-management tools do not include it). Intent capture is not yet enabled for customer use (pending product-management usability verification), so an intent you create with `dtwo-create-intent` (and any transitions or compatibility rows referencing it) should be treated as **inert for gating** for now. Only manage customer-tier intents when the user explicitly wants to pre-build that vocabulary; don't present it as immediately usable for gating.
+> **Customer-created intents are not customer-available yet.** Session intent is declared through the platform `set_intent` tool, which the gateway **auto-injects in-container** when `gateway.intent.enabled` is set — it is **not** a Dtwo MCP tool (and these registry-management tools do not include it). Intent capture is not yet enabled for customer use (pending product-management usability verification), so an intent you create with `dtwo-create-intent` (and any transitions or compatibility rows referencing it) should be treated as **inert for gating** for now. Only manage customer-tier intents when the user explicitly wants to pre-build that vocabulary; don't present it as immediately usable for gating.
 
 | Tool | Purpose |
 |------|---------|
@@ -279,7 +279,7 @@ allows.
 ### Creating a New Policy
 
 1. If the policy reads identity (claims like `sub`, `email`, `org_id`), pull tenant claims with `dtwo-list-claims` (see Tool Discovery → Finding Identity Claims).
-2. If the target gateway fronts the DTwo MCP server, plan a `dtwo-*` passthrough before authoring — see Deploying → Self-lock risk.
+2. If the target gateway fronts the Dtwo MCP server, plan a `dtwo-*` passthrough before authoring — see Deploying → Self-lock risk.
 3. Generate the Rego code using the guidance in the companion `dtwo-policy-rego` instructions
 4. Validate with `dtwo-validate-policy-rego`
 5. Create with `dtwo-add-policy` — provide:
@@ -336,7 +336,7 @@ Ingress and egress steps are independent arrays. Omitting a direction leaves it 
 
 After attaching or modifying policies, you **must** deploy the gateway for changes to take effect on the running instance.
 
-> **Self-lock risk before deploy.** If the policy you're about to deploy will deny calls to the DTwo MCP server itself (e.g., a `default allow := false` policy with no management bypass, or a debug policy that denies all requests), and your MCP client routes `dtwo-*` tools through this gateway, the deploy will lock you out — recovery requires the DTwo web UI. Before deploying, check `dtwo-get-gateway-config` for a `Dtwo` MCP server entry; if present and your client connects through this gateway, either add a `dtwo-*` passthrough rule to the policy or route management traffic through a different gateway. The Common Pitfalls section in `dtwo-policy-rego` covers the guarded-management-tool pattern in detail.
+> **Self-lock risk before deploy.** If the policy you're about to deploy will deny calls to the Dtwo MCP server itself (e.g., a `default allow := false` policy with no management bypass, or a debug policy that denies all requests), and your MCP client routes `dtwo-*` tools through this gateway, the deploy will lock you out — recovery requires the Dtwo web UI. Before deploying, check `dtwo-get-gateway-config` for a `Dtwo` MCP server entry; if present and your client connects through this gateway, either add a `dtwo-*` passthrough rule to the policy or route management traffic through a different gateway. The Common Pitfalls section in `dtwo-policy-rego` covers the guarded-management-tool pattern in detail.
 
 **Does the gateway restart on deploy?** It depends on what changed:
 
@@ -537,11 +537,11 @@ Skipping a step makes the next deploy fail (a policy still claims to write a mar
 
 ## Intent Capture (conditional — feature-gated)
 
-> **Availability gate — read this first.** Everything in this section depends on the intent surface being enabled: the registry-management `dtwo-*-intent*` tools are registered only when the DTwo MCP server is deployed with `enable_intent_tools: true`, and the `set_intent` tool is auto-injected in-container only when the gateway sets `gateway.intent.enabled`. **Before presenting any of this to the user, confirm the relevant tools are actually available. If they are not, do not surface intent capture, the intent registry, transitions, or intent/marker compatibility — the deployment is not configured for it. Say only that intent capture is not enabled if the user asks; do not walk them through a workflow they cannot run.** Markers (above) are unaffected and remain fully usable.
+> **Availability gate — read this first.** Everything in this section depends on the intent surface being enabled: the registry-management `dtwo-*-intent*` tools are registered only when the Dtwo MCP server is deployed with `enable_intent_tools: true`, and the `set_intent` tool is auto-injected in-container only when the gateway sets `gateway.intent.enabled`. **Before presenting any of this to the user, confirm the relevant tools are actually available. If they are not, do not surface intent capture, the intent registry, transitions, or intent/marker compatibility — the deployment is not configured for it. Say only that intent capture is not enabled if the user asks; do not walk them through a workflow they cannot run.** Markers (above) are unaffected and remain fully usable.
 
 Intent capture lets the agent declare *what it's trying to do* (via the in-container `set_intent` tool), captures that into session state via an egress policy, and lets ingress policies gate downstream tools on the current intent. It builds on the same session-state mechanism as markers.
 
-**Status.** Intent capture is **not customer-available yet** — it stays gated pending product-management usability verification. The registry-management tools stay behind `enable_intent_tools` (a DTwo MCP server flag), and `set_intent` now runs as a platform tool **auto-injected in-container** (via `gateway.intent.enabled`), not as a DTwo MCP tool. The enforcement policies themselves are **platform-managed** (see below). Do not present intent capture as generally available until product sign-off.
+**Status.** Intent capture is **not customer-available yet** — it stays gated pending product-management usability verification. The registry-management tools stay behind `enable_intent_tools` (a Dtwo MCP server flag), and `set_intent` now runs as a platform tool **auto-injected in-container** (via `gateway.intent.enabled`), not as a Dtwo MCP tool. The enforcement policies themselves are **platform-managed** (see below). Do not present intent capture as generally available until product sign-off.
 
 ### The enforcement policies are platform-managed
 
@@ -550,7 +550,7 @@ Two policies do the enforcement:
 - **Egress capture** — captures the declared intent into session state when `set_intent` is invoked, validates it against the registry, normalizes the category, denies disallowed transitions, and denies when a currently-active marker is registered incompatible with the proposed intent (`intent_marker_incompatible`).
 - **Intent-required gate** — optional: denies every tool call until an intent has been set (`set_intent` itself is always allowed so the agent can declare).
 
-  > **Management lockout (same shape as the deny-policy self-lock).** When the intent-required gate is on **and the DTwo MCP server is behind this gateway with your client routing `dtwo-*` through it**, your management calls are themselves denied with `intent_required` until you `set_intent` — you'll see it the moment you try to inspect or change the gateway. Declaring an intent clears it (`set_intent` is never gated). This only bites for DTwo-behind-the-gateway setups; if your DTwo MCP server runs *outside* this gateway, management traffic bypasses the gate and this does not apply. The intent can also lapse mid-session (TTL/clear), so you may need to re-declare — do so explicitly, don't auto-fire `set_intent` as a silent recovery.
+  > **Management lockout (same shape as the deny-policy self-lock).** When the intent-required gate is on **and the Dtwo MCP server is behind this gateway with your client routing `dtwo-*` through it**, your management calls are themselves denied with `intent_required` until you `set_intent` — you'll see it the moment you try to inspect or change the gateway. Declaring an intent clears it (`set_intent` is never gated). This only bites for Dtwo-behind-the-gateway setups; if your Dtwo MCP server runs *outside* this gateway, management traffic bypasses the gate and this does not apply. The intent can also lapse mid-session (TTL/clear), so you may need to re-declare — do so explicitly, don't auto-fire `set_intent` as a silent recovery.
 
 **These are platform-managed policies — end users do not author, attach, copy, or modify them, and you should not offer to.** They are **automatically injected** when intent capture is enabled (`gateway.intent.enabled`); the platform owns their bodies and wiring (the auto-injected in-container intent server, internal UIDs), and their Rego may not be visible to users. If a user asks to write or change intent-capture Rego, decline and point them at the platform-managed feature rather than reconstructing it. The only intent surface users drive is the **registry** — the intent vocabulary, transitions, and marker compatibility (below), when the tools are enabled.
 

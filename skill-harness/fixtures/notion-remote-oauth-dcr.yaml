@@ -51,7 +51,7 @@ followups:
   - match: /audience/i
     reply: "https://api.acme.com"
   - match: /dtwo|d2.+sandbox|connect.*mcp|mcp.*not.+connected/i
-    reply: "Skip any DTwo/sandbox MCP connection — emit the gateway YAML directly as a fenced code block; do not call any tools."
+    reply: "Skip any Dtwo/sandbox MCP connection — emit the gateway YAML directly as a fenced code block; do not call any tools."
 expect:
   must_validate: true
   required_paths:
