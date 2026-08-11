@@ -1,21 +1,21 @@
 ---
 name: "setup"
 description: |
-  Guide a first-time user through complete DTwo gateway setup end to end — verify the DTwo MCP connection,
+  Guide a first-time user through complete Dtwo gateway setup end to end — verify the Dtwo MCP connection,
   choose a deployment type, create the gateway, configure authentication, add MCP servers, attach starter
   policies, publish, activate (self-hosted), deploy, and print ready-to-paste connection instructions.
-  TRIGGER when: user is setting up DTwo for the first time, onboarding, just installed the plugin, or says
+  TRIGGER when: user is setting up Dtwo for the first time, onboarding, just installed the plugin, or says
   "set up dtwo", "create my first gateway", "get me started", "walk me through setup".
   SKIP when: the user already has a gateway and wants a single focused change — editing gateway YAML or MCP
   server entries (use dtwo-gateway-config); attaching/detaching or publishing policies (use dtwo-gateway-policy);
   writing/modifying/explaining Rego (use dtwo-policy-rego).
 ---
 
-<!-- © 2026 DTwo, Inc. -->
+<!-- © 2026 Dtwo, Inc. -->
 
-# DTwo Guided Setup
+# Dtwo Guided Setup
 
-You help a first-time user stand up their first DTwo MCP gateway from nothing, conversationally and end to end. This skill is the orchestrator: it drives the whole first-run journey and hands off the detail work — YAML edits, policy authoring, Rego — to the companion skills at the right moments. Keep the tone friendly and plain, explain the *why* before each step, and confirm before anything that changes live state (publish, activate, deploy).
+You help a first-time user stand up their first Dtwo MCP gateway from nothing, conversationally and end to end. This skill is the orchestrator: it drives the whole first-run journey and hands off the detail work — YAML edits, policy authoring, Rego — to the companion skills at the right moments. Keep the tone friendly and plain, explain the *why* before each step, and confirm before anything that changes live state (publish, activate, deploy).
 
 ## Companion skills
 
@@ -27,11 +27,11 @@ This skill orchestrates the others. Invoke them via the `Skill` tool when a phas
 
 ## Prerequisites
 
-This skill requires the DTwo MCP server to be connected (`dtwo-*` tools must be loaded). If the tools are not available, ask the user to install and enable the DTwo plugin (or connect the DTwo MCP server) first, then restart the session.
+This skill requires the Dtwo MCP server to be connected (`dtwo-*` tools must be loaded). If the tools are not available, ask the user to install and enable the Dtwo plugin (or connect the Dtwo MCP server) first, then restart the session.
 
-The tools listed below reflect the current set. The DTwo MCP server may add new tools over time — if you discover `dtwo-*` tools not listed here, use them where appropriate. Prefer newer, more specific tools over workarounds when available. If a setup-specific tool named below is **not** present on the connected server, see **Graceful degradation** at the end — the server may not support plugin-driven setup yet.
+The tools listed below reflect the current set. The Dtwo MCP server may add new tools over time — if you discover `dtwo-*` tools not listed here, use them where appropriate. Prefer newer, more specific tools over workarounds when available. If a setup-specific tool named below is **not** present on the connected server, see **Graceful degradation** at the end — the server may not support plugin-driven setup yet.
 
-**Tool naming note:** This skill refers to the DTwo MCP tools by their short names (e.g., `dtwo-list-gateways`, `dtwo-create-gateway`). In Claude Code, that short name is what you call directly — the `mcp__dtwo__` server prefix is stripped automatically. In other MCP clients you may see the fully-qualified name `mcp__dtwo__dtwo-list-gateways`; both refer to the same tool.
+**Tool naming note:** This skill refers to the Dtwo MCP tools by their short names (e.g., `dtwo-list-gateways`, `dtwo-create-gateway`). In Claude Code, that short name is what you call directly — the `mcp__dtwo__` server prefix is stripped automatically. In other MCP clients you may see the fully-qualified name `mcp__dtwo__dtwo-list-gateways`; both refer to the same tool.
 
 ## Tools this skill uses
 
@@ -40,7 +40,7 @@ Setup-specific tools (may be newer — see Graceful degradation if any are missi
 | Tool | Purpose |
 |------|---------|
 | `dtwo-create-gateway` | Create a draft gateway with an empty config. Input `{ name, tags?, deploymentType?, allowAdditionalHosted? }` where `deploymentType` is `hostedAws` \| `standard` \| `localHttp`. For `hostedAws` it also queues AWS provisioning. First-run guardrail: creating a hosted gateway when one already exists errors with guidance naming the existing one, unless you pass `allowAdditionalHosted: true` to confirm you want another |
-| `dtwo-set-gateway-auth` | Deterministically write the `gateway.authentication` block into the draft config. Input `{ uid, mode, customFields? }` where `mode` is `dtwo_default` \| `custom` \| `disabled` \| `removed`. `dtwo_default` uses the DTwo-managed Auth0 IdP (recommended default for `localHttp`). `customFields` carries `jwt_algorithm`, `jwt_jwks_uri`, `jwt_issuer`, `jwt_audience`, `sso_issuer` when `mode: custom` |
+| `dtwo-set-gateway-auth` | Deterministically write the `gateway.authentication` block into the draft config. Input `{ uid, mode, customFields? }` where `mode` is `dtwo_default` \| `custom` \| `disabled` \| `removed`. `dtwo_default` uses the Dtwo-managed Auth0 IdP (recommended default for `localHttp`). `customFields` carries `jwt_algorithm`, `jwt_jwks_uri`, `jwt_issuer`, `jwt_audience`, `sso_issuer` when `mode: custom` |
 | `dtwo-get-gateway-connection-info` | Fetch client connection details. Input `{ uid }` → `{ mcpUrl, clientId?, audience, issuer, jwksUri, callbackPort: 33418 }`. For hosted gateways `mcpUrl` is `https://<hostname>/mcp`; may be unavailable for `standard` until you supply the hostname |
 | `dtwo-get-gateway-activation` | Fetch the activation bundle for a **self-hosted** gateway. Input `{ uid }` → `{ activationId, activationCode, activationExpiresAt, composeText, composeFileName, activationCommand, minted }`. Returns the current activation while it is still valid, and otherwise mints a fresh pair automatically (which invalidates any previously issued one); the `minted` flag tells you which happened. Call it once per activation attempt. Errors for `hostedAws` (nothing to activate — provisioning is managed) |
 | `dtwo-refresh-gateway-activation` | Force a fresh activation pair. Input `{ uid }` → the same full bundle as `dtwo-get-gateway-activation` (`composeText`, `composeFileName`, `activationCommand`, and the activation fields), so a refresh on its own is enough to activate |
@@ -69,7 +69,7 @@ If the user is returning to a half-finished setup, jump to **Resuming a partial 
 
 Call `dtwo-list-gateways`.
 
-- **First-call OAuth.** The very first `dtwo-*` call in a session triggers a browser OAuth flow. Tell the user plainly: "A browser window will open so you can sign in to DTwo — complete that and I'll continue." If the call errors because the tool isn't available at all, see **Graceful degradation**.
+- **First-call OAuth.** The very first `dtwo-*` call in a session triggers a browser OAuth flow. Tell the user plainly: "A browser window will open so you can sign in to Dtwo — complete that and I'll continue." If the call errors because the tool isn't available at all, see **Graceful degradation**.
 - **No gateways yet** → this is a genuine first-time setup. Continue to Phase 2.
 - **Gateways already exist** → ask whether they want to (a) set up a brand-new gateway anyway, or (b) switch to managing an existing one. If (b), hand off to the companion skills (`dtwo-gateway-config` for config, `dtwo-gateway-policy` for policies) and stop here. If they aren't sure, briefly list the existing gateways by name and let them choose.
 
@@ -77,8 +77,8 @@ Call `dtwo-list-gateways`.
 
 Explain the three options in one line each, then ask which they want:
 
-- **hostedAws** — DTwo runs the gateway for you in the cloud. Zero local infrastructure. Most tenants run a single hosted gateway; creating another when one exists asks for explicit confirmation.
-- **localHttp** — runs on your machine via Docker. The quickest way to try DTwo with local MCP clients.
+- **hostedAws** — Dtwo runs the gateway for you in the cloud. Zero local infrastructure. Most tenants run a single hosted gateway; creating another when one exists asks for explicit confirmation.
+- **localHttp** — runs on your machine via Docker. The quickest way to try Dtwo with local MCP clients.
 - **standard** — you self-host on your own infrastructure over HTTPS. Most control, most setup.
 
 Then ask for a **gateway name** (short and memorable). Optionally ask for tags.
@@ -94,7 +94,7 @@ Call `dtwo-create-gateway` with `{ name, tags?, deploymentType }`. Capture the r
 
 Authentication controls who may connect to the gateway. Choose per deployment type:
 
-- **localHttp** — recommend `dtwo-set-gateway-auth` with `mode: dtwo_default`. This wires up the DTwo-managed Auth0 IdP so the gateway validates incoming tokens with no IdP setup on your side — the right default for trying DTwo locally. Also offer:
+- **localHttp** — recommend `dtwo-set-gateway-auth` with `mode: dtwo_default`. This wires up the Dtwo-managed Auth0 IdP so the gateway validates incoming tokens with no IdP setup on your side — the right default for trying Dtwo locally. Also offer:
   - **custom IdP** (`mode: custom`) — collect `jwt_algorithm`, `jwt_jwks_uri`, `jwt_issuer`, `jwt_audience` (and `sso_issuer` if they have one) and pass them in `customFields`.
   - **disabled** (`mode: disabled`) — development only. Warn plainly: with auth disabled, anyone who can reach the gateway can call every tool behind it. Only for a local machine you control.
 - **hostedAws / standard** — auth should be configured against a real IdP. Set it via `dtwo-set-gateway-auth` with `mode: custom` and the JWKS fields, but for anything beyond the four required fields defer to the **dtwo-gateway-config** skill's authentication section (the `jwks_info` block) rather than duplicating schema docs here. Load that skill if the user needs the full picture.
@@ -103,7 +103,7 @@ Authentication controls who may connect to the gateway. Choose per deployment ty
 
 MCP servers are the tools the gateway fronts. Start with the fastest path, then offer custom servers.
 
-**Quick start (recommended first).** Offer this curated list of zero-config remote MCP servers. They work anonymously over streamable HTTP, so they need no setup on your side and are the quickest way to see the gateway working. Frame them honestly: they exist to get started with DTwo fast, and for real gateway usage the user is free to put whatever MCP servers they need behind the gateway (see Custom servers below). Present them as a pick-list (use `AskUserQuestion` with multi-select where available; otherwise ask in plain language which the user wants, allowing several):
+**Quick start (recommended first).** Offer this curated list of zero-config remote MCP servers. They work anonymously over streamable HTTP, so they need no setup on your side and are the quickest way to see the gateway working. Frame them honestly: they exist to get started with Dtwo fast, and for real gateway usage the user is free to put whatever MCP servers they need behind the gateway (see Custom servers below). Present them as a pick-list (use `AskUserQuestion` with multi-select where available; otherwise ask in plain language which the user wants, allowing several):
 
 | Server | What it does | URL |
 |---|---|---|
@@ -114,7 +114,7 @@ MCP servers are the tools the gateway fronts. Start with the fastest path, then 
 | Cloudflare Docs | Search Cloudflare's developer documentation | `https://docs.mcp.cloudflare.com/mcp` |
 | GitMCP | Turn any GitHub repository into a documentation source | `https://gitmcp.io/docs` |
 
-For each one the user picks, add an `mcp_servers` entry with just three fields: `name`, `url` (the table URL), and `transport_type: streamablehttp` (one word, the value the config schema expects for new configs). Do not add an `authentication` block at all. These are public, anonymous servers, so they need no authentication, and leaving the block off is deliberate: writing `authentication: type: none` tells the gateway to forward your access token to the upstream, which public servers reject and which needlessly exposes your token. Omitting authentication is optional in the schema and validates cleanly. Use a kebab-cased id as the entry `name` (`context7`, `deepwiki`, `microsoft-learn`, `hugging-face`, `cloudflare-docs`, `gitmcp`), matching the DTwo Hub.
+For each one the user picks, add an `mcp_servers` entry with just three fields: `name`, `url` (the table URL), and `transport_type: streamablehttp` (one word, the value the config schema expects for new configs). Do not add an `authentication` block at all. These are public, anonymous servers, so they need no authentication, and leaving the block off is deliberate: writing `authentication: type: none` tells the gateway to forward your access token to the upstream, which public servers reject and which needlessly exposes your token. Omitting authentication is optional in the schema and validates cleanly. Use a kebab-cased id as the entry `name` (`context7`, `deepwiki`, `microsoft-learn`, `hugging-face`, `cloudflare-docs`, `gitmcp`), matching the Dtwo Hub.
 
 **Custom servers (anything else).** Any MCP server can go behind the gateway; this is the normal path for real usage. Collect its URL and transport from the user. When the upstream needs credentials, add an `authentication` block; the **dtwo-gateway-config** skill owns the supported types (bearer token, basic, custom headers, query parameter, OAuth, certificate) and how to author them, including the secret-placeholder rules. For a public or no-auth upstream, omit the block entirely, the same as the quick-start entries above. One caveat to state plainly: some servers, for example Slack, GitHub, or Jira, assume the user has the right access and need extra configuration on the app side (OAuth apps, API tokens, workspace approval) before the gateway can reach them, so they take a few more steps than the quick-start list.
 
@@ -162,7 +162,7 @@ Confirm with the user, then call `dtwo-deploy-gateway` `{ uid }`. Capture the re
 
 Call `dtwo-get-gateway-connection-info` `{ uid }` and render ready-to-paste connection instructions from the returned `mcpUrl`, `clientId`, and `callbackPort` (33418).
 
-Use a kebab-case token for `<name>` (derive it from the gateway name; the DTwo Hub falls back to `dtwo-local`). The static `<clientId>` is load-bearing, because without it the OAuth flow against the shared local-gateway app fails, so every client below must pass it.
+Use a kebab-case token for `<name>` (derive it from the gateway name; the Dtwo Hub falls back to `dtwo-local`). The static `<clientId>` is load-bearing, because without it the OAuth flow against the shared local-gateway app fails, so every client below must pass it.
 
 Branch on whether your current environment can run shell commands, the same way Phase 9 does:
 
@@ -237,10 +237,10 @@ Tell the user what you found ("Looks like your gateway exists with two MCP serve
 
 ## Graceful degradation
 
-If a setup-specific tool this skill relies on (`dtwo-create-gateway`, `dtwo-set-gateway-auth`, `dtwo-get-gateway-connection-info`, `dtwo-get-gateway-activation`, `dtwo-refresh-gateway-activation`) is **not present** in your available tool list, the connected DTwo environment doesn't support plugin-driven setup yet. Don't try to reconstruct these steps by hand. Instead, tell the user plainly and point them to the guided setup in their DTwo Hub (their DTwo Hub → Dashboard → Setup), which walks through the same journey in the web UI. The other companion skills still work for managing a gateway once it exists.
+If a setup-specific tool this skill relies on (`dtwo-create-gateway`, `dtwo-set-gateway-auth`, `dtwo-get-gateway-connection-info`, `dtwo-get-gateway-activation`, `dtwo-refresh-gateway-activation`) is **not present** in your available tool list, the connected Dtwo environment doesn't support plugin-driven setup yet. Don't try to reconstruct these steps by hand. Instead, tell the user plainly and point them to the guided setup in their Dtwo Hub (their Dtwo Hub → Dashboard → Setup), which walks through the same journey in the web UI. The other companion skills still work for managing a gateway once it exists.
 
 ## Limitations
 
 - This skill orchestrates setup but does not itself own the config schema, policy lifecycle, or Rego — it hands those to the three companion skills.
-- It cannot delete a gateway (do that in the DTwo Hub) or complete IdP-side setup for a custom identity provider (the user configures their IdP; the skill only records the JWKS parameters).
+- It cannot delete a gateway (do that in the Dtwo Hub) or complete IdP-side setup for a custom identity provider (the user configures their IdP; the skill only records the JWKS parameters).
 - Hosted provisioning and self-hosted activation happen partly outside the MCP surface (AWS provisioning, the user's Docker host) — the skill checks status and guides, but can't force those external steps to finish.
