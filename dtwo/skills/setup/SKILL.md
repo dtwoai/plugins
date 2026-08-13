@@ -3,7 +3,8 @@ name: "setup"
 description: |
   Guide a first-time user through complete Dtwo gateway setup end to end — verify the Dtwo MCP connection,
   choose a deployment type, create the gateway, configure authentication, add MCP servers, attach starter
-  policies, publish, activate (self-hosted), deploy, and print ready-to-paste connection instructions.
+  policies, publish, activate (self-hosted), deploy, print ready-to-paste connection instructions, and
+  finish by authenticating to the gateway and testing the attached policies.
   TRIGGER when: user is setting up Dtwo for the first time, onboarding, just installed the plugin, or says
   "set up dtwo", "create my first gateway", "get me started", "walk me through setup".
   SKIP when: the user already has a gateway and wants a single focused change — editing gateway YAML or MCP
@@ -220,7 +221,25 @@ Cursor, an HTTP MCP server entry in `~/.cursor/mcp.json` (or a project-local `.c
 
 If `mcpUrl` isn't available yet (e.g. a `standard` gateway still needs its hostname, or hosted provisioning is mid-flight), say so and tell the user how to get it (re-run `dtwo-get-gateway-connection-info` once provisioning completes / the hostname is set).
 
-Close by telling them what they can do next: make a real tool call *through* the gateway to confirm enforcement works, and manage config and policies going forward with the companion skills (`dtwo-gateway-config`, `dtwo-gateway-policy`, `dtwo-policy-rego`).
+Once the connection is registered, move on to Phase 12 — setup isn't finished until the user has authenticated to the gateway and seen a policy do its job.
+
+### Phase 12 — Authenticate and test the policies
+
+**Authenticate to the gateway MCP.** In Claude Code, offer both routes:
+
+- The direct route: just ask the agent to use the new server (e.g. "authenticate to `<name>`" or "list the tools on `<name>`") — the first call triggers the OAuth flow in the browser.
+- The manual route: run `/mcp`, select the newly added gateway server in the list, and choose **Authenticate**. If the server doesn't show up in the list, run `/reload-plugins` and check `/mcp` again.
+
+In clients without those commands (e.g. Claude Desktop), the first use of the connector triggers the auth flow in the browser instead.
+
+**Test the attached policies.** Pick one of the policies attached in Phase 7 and trigger the behavior it governs *through* the gateway, using one of the MCP servers added in Phase 5, then confirm the enforcement in the response:
+
+- For a **redaction/transform policy**, make a call whose result would contain the redacted data and confirm it comes back transformed. Example: with an email-redaction policy attached, use one of the added MCP servers in a way that would return email addresses (say, searching a docs or repository server for maintainer contact info) and confirm the addresses come back redacted.
+- For a **blocking/deny policy**, attempt the call the policy blocks and confirm the deny message.
+
+If the user skipped policies in Phase 6, skip the test and remind them the gateway is currently a pass-through — nothing is enforced until a policy is attached.
+
+Close by telling them how to manage config and policies going forward with the companion skills (`dtwo-gateway-config`, `dtwo-gateway-policy`, `dtwo-policy-rego`).
 
 ---
 
@@ -231,7 +250,7 @@ Setup can be interrupted. Before starting from scratch, infer what's already don
 1. `dtwo-list-gateways` / `dtwo-get-gateway` — does the gateway exist? What's its `deploymentType` and provisioning/heartbeat state? (Exists → Phases 1–3 done.)
 2. `dtwo-get-gateway-config` — is `gateway.authentication` set (Phase 4)? Are there `mcp_servers` entries (Phase 5)?
 3. `dtwo-get-gateway-pipelines` — are policies attached (Phases 6–7)?
-4. Published version present and a completed deployment (`dtwo-get-gateway-deployments`)? → Phases 8–10 done; likely just needs **Connect** (Phase 11).
+4. Published version present and a completed deployment (`dtwo-get-gateway-deployments`)? → Phases 8–10 done; likely just needs **Connect** (Phase 11) and **Authenticate and test** (Phase 12).
 
 Tell the user what you found ("Looks like your gateway exists with two MCP servers but no policies attached yet — want to pick up at the policies step?") and continue from there rather than redoing completed work.
 
