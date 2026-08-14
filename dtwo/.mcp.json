@@ -7,6 +7,14 @@
         "clientId": "EleONdxmthzCtATDyGkHW4w9TIct7qRO",
         "callbackPort": 33418
       }
+    },
+    "dtwo-staging": {
+      "type": "http",
+      "url": "https://mcp.stg1.staging.dtwo.ai/mcp",
+      "oauth": {
+        "clientId": "mNUGctRXP2CMgPgn8QVRkO2wE5PeQ1ys",
+        "callbackPort": 33418
+      }
     }
   }
 }
