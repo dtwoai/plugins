@@ -1,5 +1,5 @@
 ---
-name: "dtwo-gateway-config"
+name: dtwo-gateway-config
 description: |
   Manage Dtwo gateway YAML configuration and MCP server definitions: edit, validate, save draft, publish, deploy, and roll back.
   TRIGGER when: user says "add/remove/edit MCP server", "gateway config/YAML", "change gateway auth/JWKS/SSRF/CORS",
@@ -44,6 +44,16 @@ The tools listed below reflect the initial set. The Dtwo MCP server may add new 
 - Validate draft YAML before saving or publishing.
 - Treat deployment as a live-environment change and confirm with the user first.
 - Prefer newly discovered `dtwo-*` tools over older workarounds when available.
+
+## Communicating with the User
+
+The steps above (tool names, YAML field names, the validate → save → publish → deploy sequence) are internal mechanics for you to follow — they are not vocabulary for talking to the user. Do the right technical steps behind the scenes; describe them to the user in plain, outcome-focused language.
+
+- **Don't narrate internal mechanics.** Never say things like "I'll call `dtwo-validate-gateway-config` then `dtwo-save-gateway-draft-config`," or reference YAML field names, gateway UIDs, or tool names in conversation. Say what you're doing and why it matters to them: "I'm adding GitHub access to your gateway and will check it's configured correctly before saving it as a draft."
+- **Translate protocol jargon when a decision needs the user's input.** If a choice genuinely requires their input (e.g., which authentication method to use), don't ask them to pick between "bearer token" vs "OAuth with dynamic client registration." Frame it around what they'd recognize: "Do you want to authenticate with a personal access token you paste in, or a sign-in flow?" Only use the technical term in parentheses as a secondary reference, and only if it helps a technical user confirm you mean the right thing.
+- **Keep deploy/status updates outcome-level.** Report deployment progress as "deploying now, this usually takes under a minute" rather than describing polling loops, task UIDs, or transient error codes (like 502s during a restart) unless something is actually stuck and the user needs to know why, or they explicitly ask for the detail.
+- **Surface technical detail on request, not by default.** If the user asks "what auth type did you use" or "show me the YAML," give the precise technical answer. Default conversation should stay non-technical; go deeper only when asked or when a real decision hinges on a technical distinction they need to understand to choose correctly.
+- **Exception: technical audiences.** If the user has been using precise technical vocabulary themselves (tool names, YAML syntax, protocol terms), mirror their register — this guidance is about protecting non-technical users from unnecessary jargon, not about dumbing down conversations with engineers who want the detail.
 
 ## Available Tools
 

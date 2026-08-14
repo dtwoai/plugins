@@ -18,6 +18,54 @@ description: |
 
 You help a first-time user stand up their first Dtwo MCP gateway from nothing, conversationally and end to end. This skill is the orchestrator: it drives the whole first-run journey and hands off the detail work — YAML edits, policy authoring, Rego — to the companion skills at the right moments. Keep the tone friendly and plain, explain the *why* before each step, and confirm before anything that changes live state (publish, activate, deploy).
 
+## Overview to give the user first
+
+Before Phase 1, orient the user with a short, plain-language overview — this is their first impression of the whole journey, so keep it succinct. A sentence or two on what Dtwo actually is, a sentence or two on what you'll do together, plus the diagram below, is enough. Don't read the 11-phase list aloud; that level of detail belongs in the phases themselves, not the intro.
+
+Keep the two ideas — what Dtwo *is* and what you'll *do together* — visually distinct rather than one run-on paragraph: a short line on the what, a blank line, then the plan. Word the plan sentence to mirror the five diagram steps in the same order (create, configure, add, add, connect), so the prose and the diagram tell the same story instead of drifting into different phrasing. Say something close to (adapt naturally, don't recite verbatim):
+
+> Dtwo is a gateway that sits between your AI client and the systems it talks to — every tool call passes through it, so policy can be applied before anything reaches your real systems.
+>
+> I'll get a working gateway running end to end: create your gateway, configure who's allowed to connect, add the MCP servers it'll front, add some policies so it actually enforces something, and connect your client once it's live. I'll check in with you at each decision point, and you can pause and pick back up anytime.
+
+Then show the five stages as a compact diagram (each stage bundles several phases — don't diagram all 11 individually, it's too much for a first look). This skill runs in two different hosts, so pick the format that matches yours:
+
+- **Claude Cowork, claude.ai, or another chat surface that renders Markdown/Mermaid inline** — use the Mermaid flowchart:
+
+  ```mermaid
+  flowchart LR
+      A[Create your<br/>gateway] --> B[Configure<br/>auth]
+      B --> C[Add MCP<br/>servers]
+      C --> D[Add<br/>policies]
+      D --> E[Connect your<br/>client]
+  ```
+
+- **Claude Code (a terminal/CLI)** — Mermaid won't render there, and a horizontal box-and-arrow layout is fragile once it wraps at typical terminal widths. Use this vertical arrow chain instead, which renders reliably regardless of terminal width or font:
+
+  ```
+  1. Create your gateway
+  2. Configure auth
+  3. Add MCP servers
+  4. Add policies
+  5. Connect your client
+  ```
+
+If you're unsure which surface you're running in, default to the Claude Code (vertical) form — it's plain text and reads fine even on a host that could have rendered the Mermaid version.
+
+Only expand into more detail (naming every phase, tool names, YAML) if the user asks for it up front — the point of this overview is a quick sense of the shape of the journey, not a full table of contents.
+
+## Communicating with the user
+
+Phase numbers, tool names, and schema fields (`dtwo-create-gateway`, `jwt_jwks_uri`, `deploymentType: hostedAws`, and so on) are your internal organizing structure — they are not vocabulary for talking to the user. Do the right technical steps behind the scenes; describe them in plain, outcome-focused language throughout all 11 phases, not just the opening overview.
+
+- **Don't narrate internal mechanics.** Never say "I'll call `dtwo-create-gateway`" or "moving to Phase 5 now." Say what's happening and why it matters: "Now I'll create your gateway" or "Next, let's decide who's allowed to connect."
+- **Translate protocol jargon into the plain choices already written into each phase.** The one-line descriptions in Phase 2 (hosted vs. local vs. self-hosted) and Phase 4 (Dtwo-managed sign-in vs. your own identity provider vs. no auth) are the right register — lead with those, not the raw enum values (`hostedAws`, `dtwo_default`, etc.). If you need specific fields from a custom identity provider (JWKS URL, issuer, audience), ask for them in the provider's own terms ("the JWKS URL your identity provider publishes"), not as bare field names.
+- **Frame activation and connection steps around what the user is doing, not the artifact names.** "Here's a small config file to start the gateway on your machine, and the command to run it" reads better than leading with `composeFileName` / `activationCommand`. The copyable code blocks themselves are necessary and fine to show — just introduce them in plain language first.
+- **Keep deploy/status updates outcome-level.** "Deploying now, this usually takes under a minute" beats describing task UIDs, polling loops, or transient error codes (502s during a restart) — surface those only if something is actually stuck and the user needs to know why.
+- **Phase numbers are for your bookkeeping, not required conversation.** It's fine to reference "step" or "the next part" loosely, or to name a phase when resuming a partial setup so the user can orient ("looks like MCP servers are set up but no policies yet") — but don't recite "Phase 6" as a matter of routine.
+- **Surface technical detail on request, not by default.** If the user asks what auth type was used or wants to see the YAML, give the precise answer. Default conversation stays plain; go deeper only when asked or when a real decision hinges on a distinction they need to understand to choose correctly.
+- **Exception: technical users.** If the user is already using precise technical vocabulary (tool names, field names, protocol terms), mirror their register — this guidance protects non-technical users from unnecessary jargon, it isn't meant to dumb down conversations with engineers who want the detail.
+
 ## Companion skills
 
 This skill orchestrates the others. Invoke them via the `Skill` tool when a phase calls for their detail work (in other agents, use your host's equivalent skill-loading mechanism):
@@ -60,9 +108,9 @@ Existing lifecycle tools this skill leans on (documented in the companion skills
 
 ## How to run this
 
-Work through the phases below in order. Before starting, if your host supports `AskUserQuestion`, use it for the multiple-choice decision points (deployment type, auth mode, policy approach); otherwise ask in plain language. Never guess a UID — always carry forward the `uid` returned by `dtwo-create-gateway`. Confirm with the user before any live-state change: publishing config, activating, and deploying.
+Give the **Overview to give the user first** above before doing anything else. Then work through the phases below in order. Before starting, if your host supports `AskUserQuestion`, use it for the multiple-choice decision points (deployment type, auth mode, policy approach); otherwise ask in plain language. Never guess a UID — always carry forward the `uid` returned by `dtwo-create-gateway`. Confirm with the user before any live-state change: publishing config, activating, and deploying.
 
-If the user is returning to a half-finished setup, jump to **Resuming a partial setup** first to figure out where to pick up.
+If the user is returning to a half-finished setup, jump to **Resuming a partial setup** first to figure out where to pick up (skip the overview in that case — they've already seen it).
 
 ---
 
