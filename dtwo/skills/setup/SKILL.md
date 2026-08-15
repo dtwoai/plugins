@@ -22,13 +22,13 @@ You help a first-time user stand up their first Dtwo MCP gateway from nothing, c
 
 Before Phase 1, orient the user with a short, plain-language overview — this is their first impression of the whole journey, so keep it succinct. A sentence or two on what Dtwo actually is, a sentence or two on what you'll do together, plus the diagram below, is enough. Don't read the 11-phase list aloud; that level of detail belongs in the phases themselves, not the intro.
 
-Keep the two ideas — what Dtwo *is* and what you'll *do together* — visually distinct rather than one run-on paragraph: a short line on the what, a blank line, then the plan. Word the plan sentence to mirror the five diagram steps in the same order (create, configure, add, add, connect), so the prose and the diagram tell the same story instead of drifting into different phrasing. Say something close to (adapt naturally, don't recite verbatim):
+Keep the two ideas — what Dtwo *is* and what you'll *do together* — visually distinct rather than one run-on paragraph: a short line on the what, a blank line, then the plan. Word the plan sentence to mirror the six diagram steps in the same order (create, configure, add, add, connect, test), so the prose and the diagram tell the same story instead of drifting into different phrasing. Say something close to (adapt naturally, don't recite verbatim):
 
 > Dtwo is a gateway that sits between your AI client and the systems it talks to — every tool call passes through it, so policy can be applied before anything reaches your real systems.
 >
-> I'll get a working gateway running end to end: create your gateway, configure who's allowed to connect, add the MCP servers it'll front, add some policies so it actually enforces something, and connect your client once it's live. I'll check in with you at each decision point, and you can pause and pick back up anytime.
+> I'll get a working gateway running end to end: create your gateway, configure who's allowed to connect, add the MCP servers it'll front, add some policies so it actually enforces something, connect your AI client once it's live, and test that the policies actually work. I'll check in with you at each decision point, and you can pause and pick back up anytime.
 
-Then show the five stages as a compact diagram (each stage bundles several phases — don't diagram all 11 individually, it's too much for a first look). This skill runs in two different hosts, so pick the format that matches yours:
+Then show the six stages as a compact diagram (each stage bundles several phases — don't diagram all 11 individually, it's too much for a first look). This skill runs in two different hosts, so pick the format that matches yours:
 
 - **Claude Cowork, claude.ai, or another chat surface that renders Markdown/Mermaid inline** — use the Mermaid flowchart:
 
@@ -37,7 +37,8 @@ Then show the five stages as a compact diagram (each stage bundles several phase
       A[Create your<br/>gateway] --> B[Configure<br/>auth]
       B --> C[Add MCP<br/>servers]
       C --> D[Add<br/>policies]
-      D --> E[Connect your<br/>client]
+      D --> E[Connect<br/>AI client]
+      E --> F[Test<br/>policies]
   ```
 
 - **Claude Code (a terminal/CLI)** — Mermaid won't render there, and a horizontal box-and-arrow layout is fragile once it wraps at typical terminal widths. Use this vertical arrow chain instead, which renders reliably regardless of terminal width or font:
@@ -47,19 +48,65 @@ Then show the five stages as a compact diagram (each stage bundles several phase
   2. Configure auth
   3. Add MCP servers
   4. Add policies
-  5. Connect your client
+  5. Connect AI client
+  6. Test policies
   ```
 
 If you're unsure which surface you're running in, default to the Claude Code (vertical) form — it's plain text and reads fine even on a host that could have rendered the Mermaid version.
 
 Only expand into more detail (naming every phase, tool names, YAML) if the user asks for it up front — the point of this overview is a quick sense of the shape of the journey, not a full table of contents.
 
+## Showing progress
+
+There are **six separate checkpoints** below, one per stage. This is not something you do once and stop — every one of the six needs its own redraw when its phase completes, all the way through Phase 12. Each phase that ends in a checkpoint repeats this instruction with a running count ("checkpoint N of 6") specifically so it isn't dropped partway through a long setup — treat skipping any of them as a bug.
+
+Redraw the six-step diagram from the overview at each checkpoint, so the user can see how far they've gotten. Reuse the same format (Mermaid or vertical list) you used the first time. Mark progress the way that fits each format:
+
+- **Vertical list** — prefix each finished step with a checkmark (`✅ `); leave steps not yet done as plain text.
+- **Mermaid** — leave the step labels as plain text and color the finished nodes instead. Add `classDef done fill:#2ecc71,stroke:#1e8449,color:#ffffff` right after the `flowchart LR` line, then tag each finished node with `:::done`. Don't add checkmark text inside Mermaid nodes.
+
+Show it once per checkpoint, right after the phase work that completes it — don't hold everything back and redraw retroactively at the end.
+
+Checkpoints:
+
+- After **Phase 3** (gateway created) → check off **Create your gateway**.
+- After **Phase 4** (authentication configured) → also check off **Configure auth**.
+- After **Phase 5** (MCP servers saved) → also check off **Add MCP servers**.
+- After **Phase 10** (deploy completes) → also check off **Add policies** (this step bundles Phases 6–10: choosing/creating policies, attaching them, publishing, activating, and deploying).
+- After **Phase 11** (client connection registered) → also check off **Connect AI client**.
+- After **Phase 12** (policy test confirmed) → also check off **Test policies** — all six are now checked, so say something short marking setup as complete instead of describing what's next.
+
+Example, Mermaid form with the first three steps done:
+
+```mermaid
+flowchart LR
+    classDef done fill:#2ecc71,stroke:#1e8449,color:#ffffff
+    A[Create your<br/>gateway]:::done --> B[Configure<br/>auth]:::done
+    B --> C[Add MCP<br/>servers]:::done
+    C --> D[Add<br/>policies]
+    D --> E[Connect<br/>AI client]
+    E --> F[Test<br/>policies]
+```
+
+Example, vertical list form with the same three done:
+
+```
+1. ✅ Create your gateway
+2. ✅ Configure auth
+3. ✅ Add MCP servers
+4. Add policies
+5. Connect AI client
+6. Test policies
+```
+
+Keep the redraw brief: the diagram itself plus one short line about what's next (or, on the last checkpoint, that setup is complete) — don't re-explain steps already covered in the overview.
+
 ## Communicating with the user
 
 Phase numbers, tool names, and schema fields (`dtwo-create-gateway`, `jwt_jwks_uri`, `deploymentType: hostedAws`, and so on) are your internal organizing structure — they are not vocabulary for talking to the user. Do the right technical steps behind the scenes; describe them in plain, outcome-focused language throughout all 11 phases, not just the opening overview.
 
 - **Don't narrate internal mechanics.** Never say "I'll call `dtwo-create-gateway`" or "moving to Phase 5 now." Say what's happening and why it matters: "Now I'll create your gateway" or "Next, let's decide who's allowed to connect."
-- **Translate protocol jargon into the plain choices already written into each phase.** The one-line descriptions in Phase 2 (hosted vs. local vs. self-hosted) and Phase 4 (Dtwo-managed sign-in vs. your own identity provider vs. no auth) are the right register — lead with those, not the raw enum values (`hostedAws`, `dtwo_default`, etc.). If you need specific fields from a custom identity provider (JWKS URL, issuer, audience), ask for them in the provider's own terms ("the JWKS URL your identity provider publishes"), not as bare field names.
+- **Translate protocol jargon into the plain choices already written into each phase.** The one-line descriptions in Phase 2 (hosted vs. local vs. self-hosted) and Phase 4 (Dtwo-managed sign-in vs. your own identity provider) are the right register — lead with those, not the raw enum values (`hostedAws`, `dtwo_default`, etc.). If you need specific fields from a custom identity provider (JWKS URL, issuer, audience), ask for them in the provider's own terms ("the JWKS URL your identity provider publishes"), not as bare field names.
 - **Frame activation and connection steps around what the user is doing, not the artifact names.** "Here's a small config file to start the gateway on your machine, and the command to run it" reads better than leading with `composeFileName` / `activationCommand`. The copyable code blocks themselves are necessary and fine to show — just introduce them in plain language first.
 - **Keep deploy/status updates outcome-level.** "Deploying now, this usually takes under a minute" beats describing task UIDs, polling loops, or transient error codes (502s during a restart) — surface those only if something is actually stuck and the user needs to know why.
 - **Phase numbers are for your bookkeeping, not required conversation.** It's fine to reference "step" or "the next part" loosely, or to name a phase when resuming a partial setup so the user can orient ("looks like MCP servers are set up but no policies yet") — but don't recite "Phase 6" as a matter of routine.
@@ -124,11 +171,34 @@ Call `dtwo-list-gateways`.
 
 ### Phase 2 — Choose a deployment type and name
 
-Explain the three options in one line each, then ask which they want:
+Show this table in your message, unmodified, before asking anything — this is the guaranteed way the user actually sees the descriptions, regardless of whether your host renders per-option descriptions on a multiple-choice widget:
 
-- **hostedAws** — Dtwo runs the gateway for you in the cloud. Zero local infrastructure. Most tenants run a single hosted gateway; creating another when one exists asks for explicit confirmation.
-- **localHttp** — runs on your machine via Docker. The quickest way to try Dtwo with local MCP clients.
-- **standard** — you self-host on your own infrastructure over HTTPS. Most control, most setup.
+| Deployment type | Description |
+|---|---|
+| Dtwo hosted | Dtwo runs the gateway for you in the cloud. Zero local infrastructure. |
+| Local | Runs on your machine via Docker over HTTP. The quickest way to try Dtwo with local MCP clients. |
+| Self-hosted | You self-host on your own infrastructure over HTTPS. Most control, most setup. |
+
+Then ask which they want:
+
+- If your host supports `AskUserQuestion`, still populate each option's `description` field verbatim from the table (some hosts do render it, and it costs nothing to include), but never rely on it alone — the table above is what actually guarantees the user sees the description. Match this shape (adjust only the wording, not the structure):
+
+  ```json
+  {
+    "questions": [{
+      "question": "Which deployment type do you want?",
+      "header": "Deployment",
+      "multiSelect": false,
+      "options": [
+        { "label": "Dtwo hosted", "description": "Dtwo runs the gateway for you in the cloud. Zero local infrastructure." },
+        { "label": "Local", "description": "Runs on your machine via Docker over HTTP. The quickest way to try Dtwo with local MCP clients." },
+        { "label": "Self-hosted", "description": "You self-host on your own infrastructure over HTTPS. Most control, most setup." }
+      ]
+    }]
+  }
+  ```
+
+- If `AskUserQuestion` isn't available at all, just ask in plain language which one they want — the table above already carries the descriptions, so there's no need to repeat them in the question itself.
 
 Then ask for a **gateway name** (short and memorable). Optionally ask for tags.
 
@@ -139,14 +209,24 @@ Call `dtwo-create-gateway` with `{ name, tags?, deploymentType }`. Capture the r
 - For **hostedAws**, creation also queues AWS provisioning; note that so the user knows something is happening in the background.
 - **Hosted-already-exists guardrail.** If `deploymentType: hostedAws` fails because a hosted gateway already exists, the error names the existing one. Tell the user plainly and offer three options: (a) reuse the existing hosted gateway (switch to managing it via the companion skills, or continue this flow against its `uid`), (b) create a `localHttp` or `standard` gateway instead, or (c) confirm they really do want an additional hosted gateway, in which case re-run `dtwo-create-gateway` with `allowAdditionalHosted: true`. Re-run with their choice.
 
+**Show progress — checkpoint 1 of 6, do this now.** Redraw the six-step diagram with only **Create your gateway** checked off. Five more checkpoints still need their own redraw later: Configure auth (Phase 4), Add MCP servers (Phase 5), Add policies (Phase 10), Connect AI client (Phase 11), Test policies (Phase 12) — don't stop doing this after this first one.
+
 ### Phase 4 — Authentication
 
-Authentication controls who may connect to the gateway. Choose per deployment type:
+Authentication controls who may connect to the gateway. Don't apply a default without asking, even the recommended one.
 
-- **localHttp** — recommend `dtwo-set-gateway-auth` with `mode: dtwo_default`. This wires up the Dtwo-managed Auth0 IdP so the gateway validates incoming tokens with no IdP setup on your side — the right default for trying Dtwo locally. Also offer:
-  - **custom IdP** (`mode: custom`) — collect `jwt_algorithm`, `jwt_jwks_uri`, `jwt_issuer`, `jwt_audience` (and `sso_issuer` if they have one) and pass them in `customFields`.
-  - **disabled** (`mode: disabled`) — development only. Warn plainly: with auth disabled, anyone who can reach the gateway can call every tool behind it. Only for a local machine you control.
-- **hostedAws / standard** — auth should be configured against a real IdP. Set it via `dtwo-set-gateway-auth` with `mode: custom` and the JWKS fields, but for anything beyond the four required fields defer to the **dtwo-gateway-config** skill's authentication section (the `jwks_info` block) rather than duplicating schema docs here. Load that skill if the user needs the full picture.
+For **localHttp**, show this table in your message before asking — same reasoning as Phase 2: it's the guaranteed way the user sees the descriptions, regardless of whether your host renders per-option descriptions on a multiple-choice widget:
+
+| Auth method | Description |
+|---|---|
+| Dtwo-managed sign-in (recommended) | The Dtwo-managed Auth0 IdP validates incoming tokens with no IdP setup on your side. |
+| Your own identity provider | Collect your JWKS URL, issuer, audience, and algorithm, and the gateway validates against your IdP instead. |
+
+Then ask which one — still populate `AskUserQuestion` option descriptions from this table if your host supports it (`mode: dtwo_default` for the recommended sign-in, `mode: custom` for their own identity provider, collecting `jwt_algorithm`, `jwt_jwks_uri`, `jwt_issuer`, `jwt_audience`, and `sso_issuer` if they have one, into `customFields`), but the table above is what actually guarantees the description is shown, not the widget field.
+
+For **hostedAws / standard**, auth should be configured against a real IdP. Set it via `dtwo-set-gateway-auth` with `mode: custom` and the JWKS fields, but for anything beyond the four required fields defer to the **dtwo-gateway-config** skill's authentication section (the `jwks_info` block) rather than duplicating schema docs here. Load that skill if the user needs the full picture.
+
+**Show progress — checkpoint 2 of 6, do this now.** Redraw the diagram with **Create your gateway** and **Configure auth** both checked off. Still to come: Add MCP servers (Phase 5), Add policies (Phase 10), Connect AI client (Phase 11), Test policies (Phase 12).
 
 ### Phase 5 — Add MCP servers
 
@@ -168,6 +248,8 @@ For each one the user picks, add an `mcp_servers` entry with just three fields: 
 **Custom servers (anything else).** Any MCP server can go behind the gateway; this is the normal path for real usage. Collect its URL and transport from the user. When the upstream needs credentials, add an `authentication` block; the **dtwo-gateway-config** skill owns the supported types (bearer token, basic, custom headers, query parameter, OAuth, certificate) and how to author them, including the secret-placeholder rules. For a public or no-auth upstream, omit the block entirely, the same as the quick-start entries above. One caveat to state plainly: some servers, for example Slack, GitHub, or Jira, assume the user has the right access and need extra configuration on the app side (OAuth apps, API tokens, workspace approval) before the gateway can reach them, so they take a few more steps than the quick-start list.
 
 Offer to add more than one server, from either group. Load the **dtwo-gateway-config** skill and follow its flow to edit `mcp_servers`, then `dtwo-save-gateway-draft-config` + `dtwo-validate-gateway-config`. Do not restate the config schema here, that skill owns it (including transport type, outbound auth variants, and secret-placeholder rules). If the user has no server in mind yet, it's fine to save an empty `mcp_servers` and add one later, but tell them the gateway won't front anything until a server is added.
+
+**Show progress — checkpoint 3 of 6, do this now.** Redraw the diagram with **Create your gateway**, **Configure auth**, and **Add MCP servers** checked off. Still to come: Add policies (Phase 10), Connect AI client (Phase 11), Test policies (Phase 12).
 
 ### Phase 6 — Policies
 
@@ -207,6 +289,8 @@ Confirm with the user, then call `dtwo-deploy-gateway` `{ uid }`. Capture the re
 - Follow the polling and transient-error guidance in **dtwo-gateway-config** / **dtwo-gateway-policy** (a config deploy briefly restarts the gateway; a `502` during the restart window is expected and recovers, while `"MCP server is not connected"` means the user must reconnect).
 - **On failure**, surface the task error message plainly and offer concrete fixes (e.g. a config validation problem → back to Phase 5; provisioning not finished for hosted → wait and re-check `dtwo-get-gateway`; activation not completed for self-hosted → back to Phase 9).
 
+**Show progress — checkpoint 4 of 6, do this now.** Redraw the diagram with **Create your gateway**, **Configure auth**, **Add MCP servers**, and **Add policies** checked off. Still to come: Connect AI client (Phase 11), Test policies (Phase 12).
+
 ### Phase 11 — Connect
 
 Call `dtwo-get-gateway-connection-info` `{ uid }` and render ready-to-paste connection instructions from the returned `mcpUrl`, `clientId`, and `callbackPort` (33418).
@@ -226,6 +310,13 @@ claude mcp add --transport http \
 After it succeeds, tell the user the server is registered, that the OAuth flow completes in the browser on first use, and that they may need a new or reloaded session before the server shows up. Mention that other client options (the `.mcp.json` form, or Cursor) are available if they want to connect a different client, and show those only if they ask.
 
 **Shell NOT available (e.g. Claude Desktop).** Present all the connection options as copyable blocks for the user to apply themselves.
+
+Claude Desktop (Cowork), through the connector settings UI — walk them through the click path since there's no config file to hand them:
+
+1. Go to **Customize → Connectors → Add custom connector** (the exact wording may vary slightly by version — look for "Add connector" or similar under Connectors settings if that path doesn't match).
+2. Name the connector `<name>` (the kebab-case token described above).
+3. Set the server URL to `<mcpUrl>`.
+4. Save, then complete the OAuth sign-in in the browser when prompted.
 
 Claude Code, a CLI add plus an `.mcp.json` snippet:
 
@@ -269,7 +360,11 @@ Cursor, an HTTP MCP server entry in `~/.cursor/mcp.json` (or a project-local `.c
 
 If `mcpUrl` isn't available yet (e.g. a `standard` gateway still needs its hostname, or hosted provisioning is mid-flight), say so and tell the user how to get it (re-run `dtwo-get-gateway-connection-info` once provisioning completes / the hostname is set).
 
-Once the connection is registered, move on to Phase 12 — setup isn't finished until the user has authenticated to the gateway and seen a policy do its job.
+Wait for the user to actually confirm the connection is registered before doing the following — don't assume it's done just because you presented the instructions, especially on the Claude Desktop / manual-config paths where you have no way to verify it yourself:
+
+**Show progress — checkpoint 5 of 6, do this now.** Redraw the diagram with every step checked off except **Test policies**. One checkpoint left, at Phase 12.
+
+Then move on to Phase 12 — setup isn't finished until the user has authenticated to the gateway and seen a policy do its job.
 
 ### Phase 12 — Authenticate and test the policies
 
@@ -280,12 +375,16 @@ Once the connection is registered, move on to Phase 12 — setup isn't finished 
 
 In clients without those commands (e.g. Claude Desktop), the first use of the connector triggers the auth flow in the browser instead.
 
-**Test the attached policies.** Pick one of the policies attached in Phase 7 and trigger the behavior it governs *through* the gateway, using one of the MCP servers added in Phase 5, then confirm the enforcement in the response:
+**Test the attached policies.** Pick one of the policies attached in Phase 7 and trigger the behavior it governs *through* the gateway, using one of the MCP servers added in Phase 5. Show the user the gateway's actual response verbatim — not just your summary of it — so they see the enforcement with their own eyes, then add your own one-line confirmation on top:
 
-- For a **redaction/transform policy**, make a call whose result would contain the redacted data and confirm it comes back transformed. Example: with an email-redaction policy attached, use one of the added MCP servers in a way that would return email addresses (say, searching a docs or repository server for maintainer contact info) and confirm the addresses come back redacted.
-- For a **blocking/deny policy**, attempt the call the policy blocks and confirm the deny message.
+- For a **redaction/transform policy**, make a call whose result would contain the redacted data. Quote the relevant part of the response back exactly as the gateway returned it (including markers like `[REDACTED]`), then confirm in your own words that the sensitive data came back transformed. Example: with an email-redaction policy attached, use one of the added MCP servers in a way that would return email addresses (say, searching a docs or repository server for maintainer contact info), show the returned text with the redaction marker in place, and confirm the addresses were removed.
+- For a **blocking/deny policy**, attempt the call the policy blocks and show the gateway's deny message verbatim, then confirm that's the policy doing its job.
+
+Don't paraphrase or describe the redaction/deny output in place of showing it — the point of this phase is for the user to see the gateway actually intercept the call, not just take your word for it.
 
 If the user skipped policies in Phase 6, skip the test and remind them the gateway is currently a pass-through — nothing is enforced until a policy is attached.
+
+**Show progress — checkpoint 6 of 6, final one.** Redraw the diagram with all six steps checked off, and say something short marking setup as complete rather than describing what's next.
 
 Close by telling them how to manage config and policies going forward with the companion skills (`dtwo-gateway-config`, `dtwo-gateway-policy`, `dtwo-policy-rego`).
 
