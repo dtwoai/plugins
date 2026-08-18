@@ -19,8 +19,16 @@
  *
  * Determinism: output is a pure function of the input artifact. Running
  * twice on the same input produces byte-identical SKILL.md content.
+ *
+ * Coverage: `assertDigestCoverage` runs before write-out AND before the
+ * `--check` comparison, so a user-audience field whose `target` never makes
+ * it into the rendered digest fails the generator rather than silently
+ * disappearing. It keys on `target` (unique across the artifact) rather than
+ * on field name (which collides across sections), and matches the
+ * backtick-delimited form (several targets are proper substrings of others).
  */
 
+import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -114,20 +122,139 @@ function renderConstraints(constraints) {
     .join('\n>\n');
 }
 
+function constraintHeading(constraints) {
+  const n = Array.isArray(constraints) ? constraints.length : 0;
+  return `**Cross-field constraint${n === 1 ? '' : 's'}** (verbatim from artifact):`;
+}
+
+function typeCell(field) {
+  return field.enumValues ? `enum: ${enumList(field)}` : field.type;
+}
+
+/**
+ * Default cell for the generic field tables.
+ *
+ * Load-bearing: when both `schemaDefault` and `deployDefault` are null the
+ * cell says `gateway-owned`, never `—`. The promoted security-posture
+ * booleans (`jwt_issuer_verification` and friends) are exactly this case, and
+ * "no default" would be a dangerous thing to imply about them — the gateway
+ * does apply a default, it just does not travel in the artifact.
+ */
+function defaultCell(field) {
+  if (field.schemaDefault !== null && field.schemaDefault !== undefined) {
+    return `\`${JSON.stringify(field.schemaDefault)}\` (schema)`;
+  }
+  if (field.deployDefault !== null && field.deployDefault !== undefined) {
+    return `\`${JSON.stringify(field.deployDefault)}\` (deploy)`;
+  }
+  return '`gateway-owned`';
+}
+
+/** Shared generic table over every (already audience-filtered) field. */
+function fieldTableLines(section) {
+  const rows = section.fields.map(f => {
+    const req = f.required ? 'yes' : 'no';
+    const target = f.target ? `\`${f.target}\`` : '—';
+    const guidance = escapePipe(tickQuotes(f.rationale ?? f.description ?? ''));
+    return `| \`${f.name}\` | ${req} | ${escapePipe(typeCell(f))} | ${defaultCell(f)} | ${target} | ${guidance} |`;
+  });
+  return [
+    '| Field | Required | Type | Default | Target | Guidance (from artifact) |',
+    '|---|---|---|---|---|---|',
+    ...rows,
+  ];
+}
+
+/** Generic section block: heading, artifact description, table, constraints. */
+function renderGenericSection(filtered, path, heading) {
+  const section = findSection(filtered, path);
+  const lines = [heading, ''];
+  if (section.description) {
+    lines.push(String(section.description).replace(/\r?\n/g, ' '), '');
+  }
+  lines.push(...fieldTableLines(section), '');
+  const constraintBlock = renderConstraints(section.crossFieldConstraints);
+  if (constraintBlock) {
+    lines.push(constraintHeading(section.crossFieldConstraints), constraintBlock, '');
+  }
+  return lines.join('\n');
+}
+
+function jwksAllRequired(jwks) {
+  return jwks.fields.length > 0 && jwks.fields.every(f => f.required);
+}
+
+// --- section synopses ------------------------------------------------------
+
+/**
+ * Notes for the `mcp_servers[].authentication` variant table. Same idiom as
+ * `SECTION_SYNOPSIS`: an override map carrying judgement the artifact does not
+ * encode, with a `console.warn` fallback when a new variant appears.
+ */
+const VARIANT_NOTES = {
+  bearer: 'Static bearer token in `Authorization` header.',
+  basic: 'HTTP basic auth.',
+  authheaders: 'Array of `{key, value}` header pairs; each pair both required.',
+  query_param: 'Auth via URL query parameter.',
+  oauth: 'See the cross-field constraint below — `issuer`-OR-trio rule.',
+  cert: 'PEM-encoded CA cert; used for custom-CA / mTLS / self-signed.',
+  none: 'Explicitly disabled auth.',
+};
+
+/**
+ * Handwritten synopses for the sections-at-a-glance table, keyed by section
+ * path. These carry judgement the artifact's own `description` does not (and
+ * six variant sections have `description: null` outright). Anything not listed
+ * here falls back to the artifact description; anything with neither warns.
+ *
+ * Values may be a string or a `(section) => string` for the rows that derive a
+ * count from the artifact rather than hardcoding one.
+ */
+const SECTION_SYNOPSIS = {
+  gateway: 'Gateway-wide settings (auth, SSRF, logging). Carries the `advanced` escape hatch and `log_level`.',
+  'gateway.authentication':
+    'Inbound auth from clients to the gateway. `enabled` defaults to `true`; cross-field constraint requires `jwks_info` when enabled.',
+  'gateway.authentication.jwks_info': section =>
+    jwksAllRequired(section)
+      ? `Inbound JWT validation parameters. All ${section.fields.length} fields required when this object is present.`
+      : 'Inbound JWT validation parameters. See the Required column for which fields are required.',
+  'gateway.ssrf': 'SSRF protection overrides. Strict defaults apply when omitted.',
+  'mcp_servers[]': 'One entry per upstream MCP server. `name` and `url` required.',
+  'mcp_servers[].authentication': section =>
+    `Discriminated union keyed on \`type\`; outbound auth from gateway to the upstream server. ${(section.variants ?? []).length} variants (see table).`,
+  'mcp_servers[].authentication (bearer)': 'Fields for `type: bearer`. Static bearer token in the `Authorization` header.',
+  'mcp_servers[].authentication (basic)': 'Fields for `type: basic`. HTTP basic auth.',
+  'mcp_servers[].authentication (authheaders)': 'Fields for `type: authheaders`. Array of `{key, value}` header pairs.',
+  'mcp_servers[].authentication (query_param)': 'Fields for `type: query_param`. Auth via a URL query parameter.',
+  'mcp_servers[].authentication (oauth)':
+    'Fields for `type: oauth`. Governed by the `issuer`-OR-trio cross-field rule.',
+  'mcp_servers[].authentication (cert)': 'Fields for `type: cert`. PEM-encoded CA cert; custom-CA / mTLS / self-signed.',
+};
+
 // --- renderers (Design C structure) ----------------------------------------
 
-function renderSectionsAtAGlance() {
+function renderSectionsAtAGlance(filtered) {
+  const rows = filtered.sections
+    .filter(s => s.path !== '' && (s.fields.length > 0 || (s.variants ?? []).length > 0))
+    .map(s => {
+      const override = SECTION_SYNOPSIS[s.path];
+      let synopsis;
+      if (typeof override === 'function') synopsis = override(s);
+      else if (typeof override === 'string') synopsis = override;
+      else if (s.description) synopsis = s.description;
+      else {
+        console.warn(`Warning: no synopsis and no artifact description for section "${s.path}"; rendering a stub.`);
+        synopsis = `(see schema artifact at \`${s.path}\`)`;
+      }
+      return `| \`${s.path}\` | ${escapePipe(synopsis)} |`;
+    });
+
   return [
     '#### Sections at a glance',
     '',
     '| Section path | Synopsis |',
     '|---|---|',
-    '| `gateway` | Gateway-wide settings (auth, SSRF, logging). Carries the `advanced` escape hatch and `log_level`. |',
-    '| `gateway.authentication` | Inbound auth from clients to the gateway. `enabled` defaults to `true`; cross-field constraint requires `jwks_info` when enabled. |',
-    '| `gateway.authentication.jwks_info` | Inbound JWT validation parameters. All four fields required when this object is present. |',
-    '| `gateway.ssrf` | SSRF protection overrides. Strict defaults apply when omitted. |',
-    '| `mcp_servers[]` | One entry per upstream MCP server. `name` and `url` required. |',
-    '| `mcp_servers[].authentication` | Discriminated union keyed on `type`; outbound auth from gateway to the upstream server. Seven variants (see table). |',
+    ...rows,
     '',
   ].join('\n');
 }
@@ -146,7 +273,11 @@ function renderGatewayAuthentication(filtered) {
     `- **\`sso_issuer\`** — optional \`${ssoIssuer.type}\`. Metadata-only; does NOT validate tokens by itself. Target: \`${ssoIssuer.target}\`.`,
     `- **\`sso_generic_scope\`** — optional \`${ssoScope.type}\`. Ignored unless \`sso_issuer\` is set. Target: \`${ssoScope.target}\`.`,
     '',
-    '**Cross-field constraint** (verbatim from artifact):',
+    'Every field in this section, with the artifact\'s own guidance. A `gateway-owned` default means the gateway applies one at boot; the artifact does not declare it, so it is **not** the same as having no default.',
+    '',
+    ...fieldTableLines(auth),
+    '',
+    constraintHeading(auth.crossFieldConstraints),
     constraintBlock,
     '',
   ].join('\n');
@@ -156,17 +287,19 @@ function renderJwksInfo(filtered) {
   const jwks = findSection(filtered, 'gateway.authentication.jwks_info');
   const rows = ['jwt_algorithm', 'jwt_jwks_uri', 'jwt_issuer', 'jwt_audience'].map(n => {
     const f = fieldByName(jwks, n);
-    const typeCell = f.enumValues ? `enum: ${enumList(f)}` : f.type;
-    return `| \`${f.name}\` | ${escapePipe(typeCell)} | \`${f.target}\` | ${escapePipe(f.rationale ?? f.description)} |`;
+    return `| \`${f.name}\` | ${f.required ? 'yes' : 'no'} | ${escapePipe(typeCell(f))} | \`${f.target}\` | ${escapePipe(f.rationale ?? f.description)} |`;
   });
+  const lead = jwksAllRequired(jwks)
+    ? `All ${jwks.fields.length} fields are required when this object is present.`
+    : 'Not every field here is required — read the Required column.';
 
   return [
     '#### `gateway.authentication.jwks_info` — inbound JWT validation',
     '',
-    'All four fields are required when this object is present. These govern the **inbound** leg (clients → gateway), independent of any `mcp_servers[].authentication` block which governs the **outbound** leg (gateway → upstream MCP server). Populate `jwks_info` whenever the prompt supplies an IdP tenant + audience, even when the upstream server uses OAuth/DCR or "does not accept bearer tokens" — those statements describe the outbound leg only.',
+    `${lead} These govern the **inbound** leg (clients → gateway), independent of any \`mcp_servers[].authentication\` block which governs the **outbound** leg (gateway → upstream MCP server). Populate \`jwks_info\` whenever the prompt supplies an IdP tenant + audience, even when the upstream server uses OAuth/DCR or "does not accept bearer tokens" — those statements describe the outbound leg only.`,
     '',
-    '| Field | Type | Target env | Rationale (from artifact) |',
-    '|---|---|---|---|',
+    '| Field | Required | Type | Target env | Rationale (from artifact) |',
+    '|---|---|---|---|---|',
     ...rows,
     '',
   ].join('\n');
@@ -178,7 +311,8 @@ function renderSsrf(filtered) {
     const def = f.deployDefault !== null && f.deployDefault !== undefined
       ? `\`${JSON.stringify(f.deployDefault)}\``
       : '—';
-    return `| \`${f.name}\` | ${escapePipe(f.type)} | ${def} | ${escapePipe(f.rationale ?? f.description)} |`;
+    const target = f.target ? `\`${f.target}\`` : '—';
+    return `| \`${f.name}\` | ${escapePipe(f.type)} | ${def} | ${target} | ${escapePipe(f.rationale ?? f.description)} |`;
   });
 
   return [
@@ -186,8 +320,8 @@ function renderSsrf(filtered) {
     '',
     'Strict defaults block localhost, private networks, and fail-closed DNS when omitted.',
     '',
-    '| Field | Type | deployDefault | Rationale (from artifact) |',
-    '|---|---|---|---|',
+    '| Field | Type | deployDefault | Target | Rationale (from artifact) |',
+    '|---|---|---|---|---|',
     ...rows,
     '',
   ].join('\n');
@@ -214,10 +348,9 @@ function renderMcpServersTop(filtered) {
   const mcp = findSection(filtered, 'mcp_servers[]');
   const rows = mcp.fields.map(f => {
     const req = f.required ? 'yes' : 'no';
-    const typeCell = f.enumValues ? `enum: ${enumList(f)}` : f.type;
     const target = f.target ? `\`${f.target}\`` : '—';
     const notes = f.rationale ?? f.description ?? '';
-    return `| \`${f.name}\` | ${req} | ${escapePipe(typeCell)} | ${target} | ${escapePipe(notes)} |`;
+    return `| \`${f.name}\` | ${req} | ${escapePipe(typeCell(f))} | ${target} | ${escapePipe(notes)} |`;
   });
 
   return [
@@ -232,18 +365,9 @@ function renderMcpServersTop(filtered) {
 
 function renderAuthVariants(filtered) {
   const auth = findSection(filtered, 'mcp_servers[].authentication');
-  const variantNotes = {
-    bearer: 'Static bearer token in `Authorization` header.',
-    basic: 'HTTP basic auth.',
-    authheaders: 'Array of `{key, value}` header pairs; each pair both required.',
-    query_param: 'Auth via URL query parameter.',
-    oauth: 'See the cross-field constraint below — `issuer`-OR-trio rule.',
-    cert: 'PEM-encoded CA cert; used for custom-CA / mTLS / self-signed.',
-    none: 'Explicitly disabled auth.',
-  };
   const rows = (auth.variants ?? []).map(v => {
     const reqList = v.requiredFields.map(r => `\`${r}\``).join(', ');
-    let notes = variantNotes[v.name];
+    let notes = VARIANT_NOTES[v.name];
     if (notes === undefined) {
       console.warn(`Warning: no hardcoded note for auth variant "${v.name}"; rendering with path fallback.`);
       notes = `(see schema artifact at \`${v.path}\`)`;
@@ -287,15 +411,16 @@ function renderOAuthVariant(filtered) {
       let req = 'no';
       if (variantRequired.has(f.name)) req = 'yes (variant)';
       else if (conditional.has(f.name)) req = 'conditional';
-      const typeCell = f.secret ? `${f.type}, **secret**` : f.type;
+      const type = f.secret ? `${f.type}, **secret**` : f.type;
+      const target = f.target ? `\`${f.target}\`` : '—';
       const rationale = f.rationale ?? f.description ?? '';
-      return `| \`${f.name}\` | ${req} | ${escapePipe(typeCell)} | ${escapePipe(rationale)} |`;
+      return `| \`${f.name}\` | ${req} | ${escapePipe(type)} | ${target} | ${escapePipe(rationale)} |`;
     });
 
   return [
     '#### OAuth variant — fields and the load-bearing cross-field rule',
     '',
-    '**Cross-field constraint** (verbatim from artifact):',
+    constraintHeading(oauth.crossFieldConstraints),
     constraintBlock,
     '',
     'In other words: a valid `oauth` block must satisfy one of these two shapes:',
@@ -305,8 +430,43 @@ function renderOAuthVariant(filtered) {
     '',
     'Setting some but not all of `client_id` / `client_secret` / `token_url` without `issuer` is invalid. Both shapes still require `type: oauth`, `grant_type`, and `scopes`.',
     '',
-    '| Field | Required | Type | Rationale (from artifact) |',
-    '|---|---|---|---|',
+    '| Field | Required | Type | Target | Rationale (from artifact) |',
+    '|---|---|---|---|---|',
+    ...rows,
+    '',
+  ].join('\n');
+}
+
+const VARIANT_SECTION_RE = /^mcp_servers\[\]\.authentication \(([^)]+)\)(.*)$/;
+
+/**
+ * One flat table for the non-oauth variant field targets. `renderOAuthVariant`
+ * stays separate: its `yes (variant)` / `conditional` required-ness semantics
+ * are load-bearing and a flat table would lose them.
+ */
+function renderVariantFieldTargets(filtered) {
+  const rows = [];
+  for (const section of filtered.sections) {
+    const m = section.path.match(VARIANT_SECTION_RE);
+    if (!m || m[1] === 'oauth') continue;
+    const variant = m[1];
+    const prefix = m[2].replace(/^\./, '');
+    for (const f of section.fields) {
+      const name = prefix ? `${prefix}.${f.name}` : f.name;
+      const target = f.target ? `\`${f.target}\`` : '—';
+      rows.push(
+        `| \`${variant}\` | \`${name}\` | ${f.required ? 'yes' : 'no'} | ${escapePipe(typeCell(f))} | ${target} |`,
+      );
+    }
+  }
+
+  return [
+    '#### Non-OAuth variant fields — where each one lands',
+    '',
+    'Required-ness here is *within the variant*: the field must appear when that `type` is chosen.',
+    '',
+    '| Variant | Field | Required | Type | Target |',
+    '|---|---|---|---|---|',
     ...rows,
     '',
   ].join('\n');
@@ -338,18 +498,51 @@ function renderSecretFields(filtered) {
   ].join('\n');
 }
 
-function renderTargetKind() {
+/**
+ * Prose for each `targetKind`, keyed by the value the artifact emits. Missing
+ * entries warn rather than silently dropping a kind — `platform` was missing
+ * here for as long as `gateway.intent.*` has been emitting it.
+ */
+const TARGET_KIND_PROSE = {
+  advanced:
+    '- **`targetKind: advanced`** — only `gateway.advanced`. Lines are **appended verbatim** to the deployed env file; the parser does not validate keys here. Case-sensitive; the user owns correctness.',
+  envVar:
+    '- **`targetKind: envVar`** — value is written to the deployed env file under the named `target` (e.g. `MCP_REQUIRE_AUTH`, `JWT_AUDIENCE`, `SSRF_ALLOWED_NETWORKS`, `LOG_LEVEL`).',
+  platform:
+    '- **`targetKind: platform`** — value is applied as a platform-side control at the named `platform.*` path rather than written to the gateway env file.',
+  sotwPath:
+    '- **`targetKind: sotwPath`** — value is written into the SOTW YAML at the named dotted path (e.g. `sotw.url`, `sotw.oauth_config.client_secret`). Read the `Target` column per field; do not infer a field\'s target from its section.',
+};
+
+function targetKindsPresent(filtered) {
+  const kinds = new Set();
+  for (const section of filtered.sections) {
+    for (const f of section.fields) {
+      if (f.targetKind) kinds.add(f.targetKind);
+    }
+  }
+  return [...kinds].sort();
+}
+
+function renderTargetKind(filtered) {
+  const bullets = targetKindsPresent(filtered).map(kind => {
+    const prose = TARGET_KIND_PROSE[kind];
+    if (prose === undefined) {
+      console.warn(`Warning: no prose for targetKind "${kind}"; rendering a stub.`);
+      return `- **\`targetKind: ${kind}\`** — undocumented in the generator; see the schema artifact.`;
+    }
+    return prose;
+  });
+
   return [
     '#### `target` / `targetKind` — where values land',
     '',
-    '- **`targetKind: envVar`** — value is written to the deployed env file under the named `target` (e.g. `MCP_REQUIRE_AUTH`, `JWT_AUDIENCE`, `SSRF_ALLOWED_NETWORKS`, `LOG_LEVEL`).',
-    '- **`targetKind: sotwPath`** — value is written into the SOTW YAML at the named dotted path (e.g. `sotw.url`, `sotw.oauth_config.client_secret`). All `mcp_servers[]` fields land here.',
-    '- **`targetKind: advanced`** — only `gateway.advanced`. Lines are **appended verbatim** to the deployed env file; the parser does not validate keys here. Case-sensitive; the user owns correctness.',
+    ...bullets,
     '',
   ].join('\n');
 }
 
-function renderDigest(filtered) {
+function renderDigest(filtered, artifactSha256) {
   const preamble = [
     '### Schema Digest',
     '',
@@ -357,19 +550,100 @@ function renderDigest(filtered) {
     '',
   ].join('\n');
 
-  return [
+  const body = [
     preamble,
-    renderSectionsAtAGlance(),
+    renderSectionsAtAGlance(filtered),
     renderGatewayAuthentication(filtered),
     renderJwksInfo(filtered),
+    renderGenericSection(
+      filtered,
+      'gateway.authentication.oauth_dcr',
+      '#### `gateway.authentication.oauth_dcr` — DCR and discovery overrides',
+    ),
     renderSsrf(filtered),
     renderGatewayAdvancedAndLog(filtered),
+    renderGenericSection(filtered, 'gateway.intent', '#### `gateway.intent` — session-intent capture'),
+    renderGenericSection(
+      filtered,
+      'gateway.session_control',
+      '#### `gateway.session_control` — human-gated clearing registration',
+    ),
+    renderGenericSection(
+      filtered,
+      'gateway.session_control.clearing',
+      '#### `gateway.session_control.clearing` — arming control',
+    ),
     renderMcpServersTop(filtered),
     renderAuthVariants(filtered),
     renderOAuthVariant(filtered),
+    renderVariantFieldTargets(filtered),
     renderSecretFields(filtered),
-    renderTargetKind(),
+    renderTargetKind(filtered),
   ].join('\n').trimEnd();
+
+  // Provenance of the artifact this digest was built from. `--check` byte-
+  // compares the whole block, so this line turns an artifact change that does
+  // NOT move the rendered digest (an internal-audience edit, a reservedKeys
+  // change) into a visible signal instead of silent drift.
+  return `${body}\n\n<!-- schema-reference.json sha256:${artifactSha256} -->`;
+}
+
+// --- coverage gate ---------------------------------------------------------
+
+/**
+ * Fail the generator if the rendered digest omits anything the artifact says
+ * a user needs.
+ *
+ * Two details are load-bearing and were both established empirically:
+ *
+ *  - Key on `target`, never on field name. `enabled` occurs in four sections
+ *    and `client_id` in two, so a name-keyed check reports a field as covered
+ *    because some *other* section's bullet mentions the same name. Targets are
+ *    unique across the artifact.
+ *  - Match the backtick-delimited form. `JWT_ISSUER` is a proper substring of
+ *    `JWT_ISSUER_VERIFICATION`, `JWT_AUDIENCE` of `JWT_AUDIENCE_VERIFICATION`,
+ *    and `sotw.auth_headers` of `sotw.auth_headers[].key`, so a bare
+ *    `includes(target)` false-passes on exactly the fields this gate protects.
+ */
+function assertDigestCoverage(filtered, digest) {
+  const misses = [];
+
+  for (const section of filtered.sections) {
+    for (const f of section.fields) {
+      if (!f.target) continue;
+      if (!digest.includes(`\`${f.target}\``)) {
+        misses.push(`target \`${f.target}\` (${section.path} → ${f.name}) is not rendered in the digest`);
+      }
+    }
+  }
+
+  for (const section of filtered.sections) {
+    for (const c of section.crossFieldConstraints ?? []) {
+      const message = tickQuotes(c.message ?? '');
+      if (!digest.includes(message)) {
+        misses.push(`cross-field constraint on ${section.path} is not rendered: ${message}`);
+      }
+    }
+  }
+
+  for (const kind of targetKindsPresent(filtered)) {
+    if (!digest.includes(`\`targetKind: ${kind}\``)) {
+      misses.push(`targetKind "${kind}" is present in the artifact but has no prose in the digest`);
+    }
+  }
+
+  if (misses.length > 0) {
+    console.error(
+      [
+        `Digest coverage check failed — ${misses.length} item(s) missing from the rendered digest:`,
+        ...misses.map(m => `  - ${m}`),
+        '',
+        'Every user-audience field, cross-field constraint, and targetKind in the',
+        'artifact must appear in SKILL.md. Add a renderer or an override-map entry.',
+      ].join('\n'),
+    );
+    process.exit(1);
+  }
 }
 
 // --- write-out -------------------------------------------------------------
@@ -399,15 +673,21 @@ function main() {
   const skillAbs = resolve(args.skill);
 
   let artifact;
+  let artifactSha256;
   try {
-    artifact = JSON.parse(readFileSync(schemaAbs, 'utf8'));
+    // Hash the raw bytes as read, not a re-serialization, so the embedded
+    // value matches `shasum -a 256` on the committed file.
+    const raw = readFileSync(schemaAbs);
+    artifactSha256 = createHash('sha256').update(raw).digest('hex');
+    artifact = JSON.parse(raw.toString('utf8'));
   } catch (e) {
     console.error(`Failed to read schema at ${schemaAbs}: ${e.message}`);
     process.exit(2);
   }
 
   const filtered = filterArtifactForSkill(artifact);
-  const digest = renderDigest(filtered);
+  const digest = renderDigest(filtered, artifactSha256);
+  assertDigestCoverage(filtered, digest);
 
   const body = readFileSync(skillAbs, 'utf8');
   const updated = replaceBetweenMarkers(body, digest);
