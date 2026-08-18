@@ -130,13 +130,15 @@ This subsection is generated from `schema-reference.json` by `scripts/generate-s
 | `mcp_servers[].authentication (oauth)` | Fields for `type: oauth`. Governed by the `issuer`-OR-trio cross-field rule. |
 | `mcp_servers[].authentication (cert)` | Fields for `type: cert`. PEM-encoded CA cert; custom-CA / mTLS / self-signed. |
 
+Reading the **`Default`** column in the tables below: `` `value` (schema) `` and `` `value` (deploy) `` are defaults the artifact declares. **`gateway-owned`** marks an optional field whose default the gateway applies at boot — the artifact does not declare it, so it is **not** the same as having no default; omitting the field is safe. **`—`** marks a required field, which has no default by definition — you must supply a value.
+
 #### `gateway.authentication` — load-bearing defaults & constraints
 
 - **`enabled`** — `schemaDefault: true`. Type `boolean`. Target env var: `MCP_REQUIRE_AUTH`. **When omitted, the gateway authenticates incoming requests.** Set `false` only for local development.
 - **`sso_issuer`** — optional `URL`. Metadata-only; does NOT validate tokens by itself. Target: `SSO_GENERIC_ISSUER`.
 - **`sso_generic_scope`** — optional `string`. Ignored unless `sso_issuer` is set. Target: `SSO_GENERIC_SCOPE`.
 
-Every field in this section, with the artifact's own guidance. A `gateway-owned` default means the gateway applies one at boot; the artifact does not declare it, so it is **not** the same as having no default.
+Every field in this section, with the artifact's own guidance:
 
 | Field | Required | Type | Default | Target | Guidance (from artifact) |
 |---|---|---|---|---|---|
@@ -208,7 +210,7 @@ Human-gated session clearing (session-control) registration: the IdP app the bro
 
 | Field | Required | Type | Default | Target | Guidance (from artifact) |
 |---|---|---|---|---|---|
-| `client_id` | yes | string | `gateway-owned` | `SESSION_CONTROL_CLIENT_ID` | Register a dedicated public client at your IdP for the clear ceremony (authorization-code + PKCE, no refresh grant) and paste its client id here. Do not reuse the gateway API client. |
+| `client_id` | yes | string | — | `SESSION_CONTROL_CLIENT_ID` | Register a dedicated public client at your IdP for the clear ceremony (authorization-code + PKCE, no refresh grant) and paste its client id here. Do not reuse the gateway API client. |
 
 **Cross-field constraints** (verbatim from artifact):
 > `clearing.enabled` unset follows `gateway.intent.enabled`; an explicit `true` arms clearing even with intent capture off (the markers-only deployment).

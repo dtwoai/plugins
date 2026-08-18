@@ -132,13 +132,19 @@ function typeCell(field) {
 }
 
 /**
- * Default cell for the generic field tables.
+ * Default cell for the generic field tables. See `DEFAULT_COLUMN_LEGEND` —
+ * the two must stay in step.
  *
- * Load-bearing: when both `schemaDefault` and `deployDefault` are null the
- * cell says `gateway-owned`, never `—`. The promoted security-posture
- * booleans (`jwt_issuer_verification` and friends) are exactly this case, and
- * "no default" would be a dangerous thing to imply about them — the gateway
- * does apply a default, it just does not travel in the artifact.
+ * Load-bearing: when an OPTIONAL field declares neither default the cell says
+ * `gateway-owned`, never `—`. The promoted security-posture booleans
+ * (`jwt_issuer_verification` and friends) are exactly this case, and "no
+ * default" would be a dangerous thing to imply about them — the gateway does
+ * apply a default, it just does not travel in the artifact.
+ *
+ * A REQUIRED field with neither default is the opposite case and renders `—`.
+ * A required field has no default by definition: if the gateway supplied one
+ * at boot, the field would not be required. Calling it `gateway-owned` would
+ * tell the reader they may omit it, which is exactly wrong.
  */
 function defaultCell(field) {
   if (field.schemaDefault !== null && field.schemaDefault !== undefined) {
@@ -147,8 +153,16 @@ function defaultCell(field) {
   if (field.deployDefault !== null && field.deployDefault !== undefined) {
     return `\`${JSON.stringify(field.deployDefault)}\` (deploy)`;
   }
-  return '`gateway-owned`';
+  return field.required ? '—' : '`gateway-owned`';
 }
+
+/**
+ * Emitted once, ahead of every table that carries a `Default` column, so a
+ * reader who lands directly on a later section (`session_control`, say) does
+ * not have to guess what `gateway-owned` means.
+ */
+const DEFAULT_COLUMN_LEGEND =
+  'Reading the **`Default`** column in the tables below: `` `value` (schema) `` and `` `value` (deploy) `` are defaults the artifact declares. **`gateway-owned`** marks an optional field whose default the gateway applies at boot — the artifact does not declare it, so it is **not** the same as having no default; omitting the field is safe. **`—`** marks a required field, which has no default by definition — you must supply a value.';
 
 /** Shared generic table over every (already audience-filtered) field. */
 function fieldTableLines(section) {
@@ -273,7 +287,7 @@ function renderGatewayAuthentication(filtered) {
     `- **\`sso_issuer\`** — optional \`${ssoIssuer.type}\`. Metadata-only; does NOT validate tokens by itself. Target: \`${ssoIssuer.target}\`.`,
     `- **\`sso_generic_scope\`** — optional \`${ssoScope.type}\`. Ignored unless \`sso_issuer\` is set. Target: \`${ssoScope.target}\`.`,
     '',
-    'Every field in this section, with the artifact\'s own guidance. A `gateway-owned` default means the gateway applies one at boot; the artifact does not declare it, so it is **not** the same as having no default.',
+    'Every field in this section, with the artifact\'s own guidance:',
     '',
     ...fieldTableLines(auth),
     '',
@@ -553,6 +567,7 @@ function renderDigest(filtered, artifactSha256) {
   const body = [
     preamble,
     renderSectionsAtAGlance(filtered),
+    `${DEFAULT_COLUMN_LEGEND}\n`,
     renderGatewayAuthentication(filtered),
     renderJwksInfo(filtered),
     renderGenericSection(
