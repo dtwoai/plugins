@@ -22,7 +22,14 @@ import { fileURLToPath } from 'node:url';
  */
 export const SCHEMA_ARTIFACT_VERSION = '1.0.0';
 
-export type TargetKind = 'envVar' | 'sotwPath' | 'advanced';
+/**
+ * `platform` is emitted by the currently vendored artifact (every
+ * `gateway.intent.*` field carries it) and was missing from this union — a
+ * type-level lie, not new drift. The artifact is loaded via an unchecked
+ * `JSON.parse(raw) as SchemaArtifact` below, so this union is a claim about
+ * the data, never an enforcement of it.
+ */
+export type TargetKind = 'envVar' | 'sotwPath' | 'advanced' | 'platform';
 
 export type FieldRecord = {
   name: string;
