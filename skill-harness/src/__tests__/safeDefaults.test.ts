@@ -31,7 +31,7 @@ describe('safeDefaults', () => {
       assert.ok(map.has(seed), `missing seed resolution: ${seed}`);
     }
     for (const { path } of GATEWAY_OWNED_SAFE_DEFAULTS) {
-      assert.ok(map.has(path), `missing gateway-owned seed resolution: ${path}`);
+      assert.ok(map.has(path), `missing GATEWAY_OWNED_SAFE_DEFAULTS seed resolution: ${path}`);
     }
     // Spot-check native coercion.
     assert.equal(map.get('gateway.authentication.enabled'), true);
@@ -51,7 +51,7 @@ describe('safeDefaults', () => {
     assert.throws(() => buildSafeDefaults(clone), /no schemaDefault and no deployDefault/);
   });
 
-  it('throws when a gateway-owned entry would shadow a default the artifact declares', () => {
+  it('throws when a GATEWAY_OWNED_SAFE_DEFAULTS entry would shadow a default the artifact declares', () => {
     const clone = cloneArtifact();
     fieldAt(clone, 'gateway.authentication', 'jwt_issuer_verification').schemaDefault = false;
     assert.throws(() => buildSafeDefaults(clone), /would shadow a default the artifact now declares/);

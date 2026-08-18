@@ -122,6 +122,12 @@ function renderConstraints(constraints) {
     .join('\n>\n');
 }
 
+/** Print and die. Used by the gates that must not be satisfiable by a stub. */
+function fatal(lines) {
+  console.error(lines.join('\n'));
+  process.exit(1);
+}
+
 function constraintHeading(constraints) {
   const n = Array.isArray(constraints) ? constraints.length : 0;
   return `**Cross-field constraint${n === 1 ? '' : 's'}** (verbatim from artifact):`;
@@ -136,15 +142,17 @@ function typeCell(field) {
  * the two must stay in step.
  *
  * Load-bearing: when an OPTIONAL field declares neither default the cell says
- * `gateway-owned`, never `—`. The promoted security-posture booleans
- * (`jwt_issuer_verification` and friends) are exactly this case, and "no
- * default" would be a dangerous thing to imply about them — the gateway does
- * apply a default, it just does not travel in the artifact.
+ * `not declared`, never `—`. The promoted security-posture booleans
+ * (`jwt_issuer_verification` and friends) are exactly this case, and a bare
+ * `—` would read as "there is no default", which is false and dangerous for
+ * them — the gateway does apply one, it just does not travel in the artifact.
+ * The token deliberately describes the ARTIFACT (it records no default), not
+ * the runtime, because the runtime story differs per field: some of these are
+ * boot-defaulted, others simply leave a feature switched off when omitted.
  *
- * A REQUIRED field with neither default is the opposite case and renders `—`.
- * A required field has no default by definition: if the gateway supplied one
- * at boot, the field would not be required. Calling it `gateway-owned` would
- * tell the reader they may omit it, which is exactly wrong.
+ * A REQUIRED field with neither default renders `—`: there is nothing to
+ * inherit and the reader must supply a value. Reusing `not declared` there
+ * would suggest omission is an option, which is exactly wrong.
  */
 function defaultCell(field) {
   if (field.schemaDefault !== null && field.schemaDefault !== undefined) {
@@ -153,16 +161,29 @@ function defaultCell(field) {
   if (field.deployDefault !== null && field.deployDefault !== undefined) {
     return `\`${JSON.stringify(field.deployDefault)}\` (deploy)`;
   }
-  return field.required ? '—' : '`gateway-owned`';
+  return field.required ? '—' : '`not declared`';
 }
 
 /**
- * Emitted once, ahead of every table that carries a `Default` column, so a
- * reader who lands directly on a later section (`session_control`, say) does
- * not have to guess what `gateway-owned` means.
+ * Emitted once, ahead of every table that carries `Default` and `Required`
+ * columns, so a reader who lands directly on a later section
+ * (`session_control`, say) does not have to guess what the markers mean.
+ *
+ * Both claims are deliberately narrow. `not declared` is a statement about the
+ * artifact, not a promise about the runtime: of the eleven fields carrying it,
+ * four (`sso_issuer`, `sso_generic_scope`,
+ * `auto_register_on_missing_credentials`, `oauth_discovery_enabled`) say
+ * nothing in their Guidance about what omission does, and for the first two
+ * omission simply leaves a feature switched off rather than applying a value.
+ * And `—` does not say "required fields have no default":
+ * `gateway.authentication.enabled` is required and carries
+ * `schemaDefault: true`. It says only that this particular field declares none.
  */
-const DEFAULT_COLUMN_LEGEND =
-  'Reading the **`Default`** column in the tables below: `` `value` (schema) `` and `` `value` (deploy) `` are defaults the artifact declares. **`gateway-owned`** marks an optional field whose default the gateway applies at boot — the artifact does not declare it, so it is **not** the same as having no default; omitting the field is safe. **`—`** marks a required field, which has no default by definition — you must supply a value.';
+const DEFAULT_COLUMN_LEGEND = [
+  'Reading the **`Default`** column in the tables below: `` `value` (schema) `` and `` `value` (deploy) `` are defaults the artifact declares. **`not declared`** marks an optional field whose default the schema does not record — what happens when it is omitted is decided by the gateway at runtime. Read the Guidance column, which states the effective behavior where the artifact records it. **`—`** marks a required field with no declared default — you must supply a value.',
+  '',
+  'Reading the **`Required`** column: required-ness is *within the containing section*. `yes` means the field must appear whenever that section\'s object is present; if the parent object is itself optional, the whole block may be omitted and the field with it.',
+].join('\n');
 
 /** Shared generic table over every (already audience-filtered) field. */
 function fieldTableLines(section) {
@@ -513,9 +534,13 @@ function renderSecretFields(filtered) {
 }
 
 /**
- * Prose for each `targetKind`, keyed by the value the artifact emits. Missing
- * entries warn rather than silently dropping a kind — `platform` was missing
- * here for as long as `gateway.intent.*` has been emitting it.
+ * Prose for each `targetKind`, keyed by the value the artifact emits.
+ *
+ * A kind with no entry here is a HARD failure — see `renderTargetKind`. There
+ * used to be a stub fallback that rendered `` `targetKind: <kind>` `` with an
+ * "undocumented" note; that made the coverage gate unfalsifiable, because the
+ * stub contained the exact string the gate searches for. An unknown kind would
+ * ship to users with a placeholder and a green test run.
  */
 const TARGET_KIND_PROSE = {
   advanced:
@@ -539,14 +564,20 @@ function targetKindsPresent(filtered) {
 }
 
 function renderTargetKind(filtered) {
-  const bullets = targetKindsPresent(filtered).map(kind => {
-    const prose = TARGET_KIND_PROSE[kind];
-    if (prose === undefined) {
-      console.warn(`Warning: no prose for targetKind "${kind}"; rendering a stub.`);
-      return `- **\`targetKind: ${kind}\`** — undocumented in the generator; see the schema artifact.`;
-    }
-    return prose;
-  });
+  const kinds = targetKindsPresent(filtered);
+  const undocumented = kinds.filter(kind => !Object.hasOwn(TARGET_KIND_PROSE, kind));
+  if (undocumented.length > 0) {
+    fatal([
+      `Unknown targetKind in the schema artifact: ${undocumented.map(k => JSON.stringify(k)).join(', ')}.`,
+      '',
+      'There is deliberately no stub fallback. A placeholder bullet would contain',
+      'the exact string assertDigestCoverage searches for, so the coverage gate',
+      'would pass while shipping an undocumented target kind to users.',
+      '',
+      'Add an entry to TARGET_KIND_PROSE saying where a value of that kind lands.',
+    ]);
+  }
+  const bullets = kinds.map(kind => TARGET_KIND_PROSE[kind]);
 
   return [
     '#### `target` / `targetKind` — where values land',
@@ -642,22 +673,26 @@ function assertDigestCoverage(filtered, digest) {
   }
 
   for (const kind of targetKindsPresent(filtered)) {
+    // Two independent checks. Map membership is the one a stub renderer could
+    // not fake; the rendered-string check catches prose that exists but never
+    // reaches the page.
+    if (!Object.hasOwn(TARGET_KIND_PROSE, kind)) {
+      misses.push(`targetKind "${kind}" has no TARGET_KIND_PROSE entry`);
+      continue;
+    }
     if (!digest.includes(`\`targetKind: ${kind}\``)) {
-      misses.push(`targetKind "${kind}" is present in the artifact but has no prose in the digest`);
+      misses.push(`targetKind "${kind}" is documented but its prose is not in the rendered digest`);
     }
   }
 
   if (misses.length > 0) {
-    console.error(
-      [
-        `Digest coverage check failed — ${misses.length} item(s) missing from the rendered digest:`,
-        ...misses.map(m => `  - ${m}`),
-        '',
-        'Every user-audience field, cross-field constraint, and targetKind in the',
-        'artifact must appear in SKILL.md. Add a renderer or an override-map entry.',
-      ].join('\n'),
-    );
-    process.exit(1);
+    fatal([
+      `Digest coverage check failed — ${misses.length} item(s) missing from the rendered digest:`,
+      ...misses.map(m => `  - ${m}`),
+      '',
+      'Every user-audience field, cross-field constraint, and targetKind in the',
+      'artifact must appear in SKILL.md. Add a renderer or an override-map entry.',
+    ]);
   }
 }
 

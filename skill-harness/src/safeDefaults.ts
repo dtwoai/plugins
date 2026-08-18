@@ -53,11 +53,12 @@ export type GatewayOwnedSafeDefault = { path: string; expected: unknown };
  * setting it `false` for IdPs that do not mint a `jti` on access tokens, so
  * guarding it would penalise correct configs.
  *
- * `mcp_oauth_resource_metadata_enabled` is deliberately absent: the artifact
- * contradicts itself about its default — the `description` says the deploy
- * defaults it to `true` when `sso_issuer` is set, the `rationale` says the
- * gateway defaults it to `false`. It is not gradeable until upstream
- * reconciles the two.
+ * `mcp_oauth_resource_metadata_enabled` is deliberately absent: its default is
+ * conditional and layer-dependent, so no single value is gradeable. The
+ * `description` leads with the deploy layer's behaviour (on when `sso_issuer`
+ * is set); the `rationale` leads with the gateway layer's (`false` unless
+ * something turns it on). Each is accurate for its own layer, and which one a
+ * given config lands on depends on state this list cannot see.
  */
 export const GATEWAY_OWNED_SAFE_DEFAULTS: readonly GatewayOwnedSafeDefault[] = [
   { path: 'gateway.authentication.jwt_issuer_verification', expected: true },

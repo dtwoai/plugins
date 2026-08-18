@@ -12,8 +12,9 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
@@ -48,6 +49,16 @@ function digestRegion(): string {
   assert.ok(begin !== -1, 'SKILL.md has no BEGIN SCHEMA DIGEST marker');
   assert.ok(end > begin, 'SKILL.md has no END SCHEMA DIGEST marker after the BEGIN marker');
   return body.slice(begin, end + END_MARKER.length);
+}
+
+function userTargetKinds(): Set<string> {
+  const kinds = new Set<string>();
+  for (const section of artifact.sections) {
+    for (const field of section.fields) {
+      if (field.audience === 'user' && field.targetKind) kinds.add(field.targetKind);
+    }
+  }
+  return kinds;
 }
 
 function sha256OfFile(path: string): string {
@@ -98,15 +109,74 @@ describe('schemaDigest', () => {
 
   it('documents every targetKind the artifact emits for user-audience fields', () => {
     const region = digestRegion();
-    const kinds = new Set<string>();
-    for (const section of artifact.sections) {
-      for (const field of section.fields) {
-        if (field.audience === 'user' && field.targetKind) kinds.add(field.targetKind);
-      }
-    }
-    assert.ok(kinds.size > 0, 'artifact declares no targetKind at all — shape drift');
-    const missing = [...kinds].filter(k => !region.includes(`\`targetKind: ${k}\``));
+    assert.ok(userTargetKinds().size > 0, 'artifact declares no targetKind at all — shape drift');
+    const missing = [...userTargetKinds()].filter(k => !region.includes(`\`targetKind: ${k}\``));
     assert.deepEqual(missing, [], `targetKind values with no prose in the digest: ${missing.join(', ')}`);
+  });
+
+  // Mirrors TARGET_KIND_PROSE in scripts/generate-schema-digest.mjs. The .mjs
+  // calls main() at import time so the map cannot be imported here; this list
+  // is the hand-kept copy, and the probe below is what keeps it honest — a
+  // kind that reaches the artifact without an entry in the real map fails the
+  // generator outright.
+  const DOCUMENTED_TARGET_KINDS = new Set(['advanced', 'envVar', 'platform', 'sotwPath']);
+
+  it('emits no targetKind outside the documented set', () => {
+    const undocumented = [...userTargetKinds()].filter(k => !DOCUMENTED_TARGET_KINDS.has(k));
+    assert.deepEqual(
+      undocumented,
+      [],
+      `artifact emits targetKind values the generator does not document: ${undocumented.join(', ')}`,
+    );
+  });
+
+  it('fails the generator outright on an undocumented targetKind', () => {
+    // The regression this pins: renderTargetKind used to fall back to a stub
+    // bullet reading "`targetKind: <kind>` — undocumented in the generator".
+    // That stub contained the exact string the coverage gate searches for, so
+    // an unknown kind shipped a placeholder to users with every check green.
+    const probeDir = mkdtempSync(join(tmpdir(), 'schema-digest-probe-'));
+    try {
+      const probeSchema = join(probeDir, 'schema-reference.json');
+      const probeSkill = join(probeDir, 'SKILL.md');
+
+      const mutated = structuredClone(artifact);
+      let planted = false;
+      for (const section of mutated.sections) {
+        for (const field of section.fields) {
+          if (!planted && field.audience === 'user' && field.targetKind) {
+            field.targetKind = 'brandNewKind' as typeof field.targetKind;
+            planted = true;
+          }
+        }
+      }
+      assert.ok(planted, 'probe setup: no user-audience field with a targetKind to mutate');
+      writeFileSync(probeSchema, JSON.stringify(mutated, null, 2));
+      copyFileSync(SKILL_MD, probeSkill);
+
+      let status: number | null = null;
+      let stderr = '';
+      try {
+        execFileSync(process.execPath, [GENERATOR, `--schema=${probeSchema}`, `--skill=${probeSkill}`], {
+          cwd: REPO_ROOT,
+          encoding: 'utf8',
+        });
+      } catch (e) {
+        const err = e as { status?: number; stderr?: string };
+        status = err.status ?? null;
+        stderr = err.stderr ?? '';
+      }
+      assert.notEqual(status, 0, 'generator exited 0 on an undocumented targetKind');
+      assert.match(stderr, /Unknown targetKind/);
+      assert.match(stderr, /brandNewKind/);
+      // And it must not have written a stub into the probe SKILL.md.
+      assert.ok(
+        !readFileSync(probeSkill, 'utf8').includes('brandNewKind'),
+        'generator wrote an undocumented targetKind into SKILL.md',
+      );
+    } finally {
+      rmSync(probeDir, { recursive: true, force: true });
+    }
   });
 
   it('embeds the sha256 of the artifact it was generated from', () => {
