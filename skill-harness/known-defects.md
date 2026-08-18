@@ -1,8 +1,11 @@
-# Known skill defects — `dtwo-gateway-config`
+# Known defects — `dtwo-gateway-config` skill and harness
 
-Defects in the skill surfaced by the N=10 bench harness. **Harness scope
-only**: entries here document *what* the bench sees, not *how* to fix
-it. Skill-side fixes are product work and live outside this package.
+Defects in the skill surfaced by the N=10 bench harness, and defects in
+the harness itself that distort what the bench reports. **Scope**:
+entries here document *what* the bench sees, not *how* to fix it.
+Skill-side fixes are product work and live outside this package;
+harness-side entries say what the harness does about the defect in the
+meantime.
 
 Add a new entry when a fixture produces a reliable non-success signal
 that is NOT a fixture-authoring bug. When a skill-side change resolves
@@ -134,6 +137,22 @@ a defect, move the entry to the "Resolved" section and note the commit
   test). `ssrf-allow-private-networks` and `ssrf-allow-localhost`
   are the fixtures that *do* exercise SSRF opening on purpose;
   they declare `safe_default_opt_out` explicitly.
+
+## 4. Vendored validator bundle lags the vendored schema artifact
+
+- **ID** — `validator-bundle-drift`
+- **Fixture** — none; this is a harness defect, not a skill defect.
+- **First observed** — 2026-08-18 (schema-reference re-vendor).
+- **Status** — `open`.
+- **Impact** — `skill-harness/vendor/config-validator.bundle.mjs` and `dtwo/skills/dtwo-gateway-config/schema-reference.json` are generated from the same schema in the product repo but are vendored independently. Only the artifact was refreshed in this change, so the two disagree, and the rubric reads both: `must_validate` / `no_dropped_keys` use the bundle, `no_hallucinated_keys` uses the artifact. Confirmed divergences:
+  - `gateway.session_control.*` and `gateway.intent.*` are documented, user-facing fields in the artifact but are strict-rejected by the bundle as unrecognized keys. A config that correctly uses them passes the hallucination check and fails validation — the rubric scores a correct answer as a failure.
+  - `jwt_issuer_verification: false` and `jwt_audience_verification: false` are rejected by the artifact's cross-field constraint but accepted by the bundle. The `safe_defaults_preserved` seed is the only check that catches this today.
+  - `HTTP_SERVER` is no longer a reserved key in the artifact but is still rejected inside `gateway.advanced` by the bundle.
+  - `JWT_REQUIRED_ORG_ID`, `SESSION_CONTROL_CLIENT_ID` and `SESSION_CONTROL_ISSUER` are newly reserved in the artifact but are accepted inside `gateway.advanced` by the bundle.
+- **Repro rate** — n/a (deterministic; not a sampled bench signal).
+- **Hypothesis** — Not a hypothesis but a known cause: the two vendored files have no shared version or provenance record, and `VALIDATOR_BUNDLE_VERSION` is a hand-maintained shape constant that did not move across the bundle's content drift, so it cannot signal staleness. The bundle has not been refreshed since it was first vendored.
+- **Caveat** — The list above is what a targeted probe surfaced, not an exhaustive diff. Any bundle-enforced rule may disagree with the artifact until both are re-vendored from the same source revision.
+- **Harness action** — The bundle is deliberately NOT refreshed in this change: doing so is a behavioural change to every rubric run and is scoped to its own follow-up. `EXPECTED_VALIDATOR_BUNDLE_VERSION` in `src/validatorBundle.ts` pins the currently vendored bundle and points here. Until the follow-up lands, do not add fixtures that exercise `gateway.session_control` or `gateway.intent`, and read a `must_validate` pass on the token-validation flags as unproven rather than as evidence of correctness.
 
 ---
 

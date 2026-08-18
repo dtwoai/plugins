@@ -80,18 +80,32 @@ Why inline: production Claude Code does not auto-load a skill's `references/` di
 To regenerate after a schema bump (or to confirm the digest is in sync):
 
 ```bash
-# Refresh the vendored schema from the d2 source of truth, then regenerate
-cp <path>/d2/packages/libs/utils/schema-reference.json dtwo/skills/dtwo-gateway-config/schema-reference.json
+# Copy the generated schema artifact from the product repo over the vendored
+# copy, then regenerate
+cp <path-to-generated-schema-reference.json> dtwo/skills/dtwo-gateway-config/schema-reference.json
 node scripts/generate-schema-digest.mjs
 git diff dtwo/skills/dtwo-gateway-config/SKILL.md
 
-# CI / pre-commit guardrail — exits 1 if SKILL.md is stale relative to the vendored schema
+# Guardrail — exits 1 if SKILL.md is stale relative to the vendored schema.
+# `skill-harness` runs this as a test, so `pnpm test` covers it too.
 node scripts/generate-schema-digest.mjs --check
 ```
 
 Custom paths work too: `node scripts/generate-schema-digest.mjs --schema=PATH --skill=PATH`.
 
-The generator is dependency-free (Node ESM, single file, ~280 LOC) so it runs anywhere Node 17+ is available.
+The generator refuses to write a digest that omits any user-audience field's
+`target`, any cross-field constraint, or any `targetKind` the artifact emits —
+so a schema refresh that introduces a field no renderer covers fails loudly
+instead of silently dropping it. Add a renderer or an override-map entry.
+
+**On every re-vendor**, also re-verify the three `GATEWAY_OWNED_SAFE_DEFAULTS`
+entries in `skill-harness/src/safeDefaults.ts` against the corresponding
+`rationale` strings in the refreshed artifact. Those values are not derivable
+from the artifact — the gateway applies them at boot — so nothing else catches
+it if upstream guidance changes.
+
+The generator is dependency-free (Node ESM, single file) so it runs anywhere
+Node 17+ is available.
 
 ## Releases
 
