@@ -337,13 +337,16 @@ claude mcp add --transport http \
 }
 ```
 
-Cursor, an HTTP MCP server entry in `~/.cursor/mcp.json` (or a project-local `.cursor/mcp.json`):
+Cursor, an HTTP MCP server entry in `~/.cursor/mcp.json` (or a project-local `.cursor/mcp.json`) that carries the static client id under `auth.CLIENT_ID`:
 
 ```json
 {
   "mcpServers": {
     "<name>": {
-      "url": "<mcpUrl>"
+      "url": "<mcpUrl>",
+      "auth": {
+        "CLIENT_ID": "<clientId>"
+      }
     }
   }
 }
