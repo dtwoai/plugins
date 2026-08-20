@@ -28,7 +28,7 @@ Keep the two ideas — what Dtwo *is* and what you'll *do together* — visually
 >
 > I'll get a working gateway running end to end: create your gateway, configure who's allowed to connect, add the MCP servers it'll front, add some policies so it actually enforces something, connect your AI client once it's live, and test that the policies actually work. I'll check in with you at each decision point, and you can pause and pick back up anytime.
 
-Then show the six stages as a compact diagram (each stage bundles several phases — don't diagram all 12 individually, it's too much for a first look). This skill runs in two different hosts, so pick the format that matches yours:
+Then show the six stages as a compact diagram (each stage bundles several phases — don't diagram all 11 individually, it's too much for a first look). This skill runs in two different hosts, so pick the format that matches yours:
 
 - **Claude Cowork, claude.ai, or another chat surface that renders Markdown/Mermaid inline** — use the Mermaid flowchart:
 
@@ -63,7 +63,7 @@ There are **six separate checkpoints** below, one per stage. This is not somethi
 Redraw the six-step diagram from the overview at each checkpoint, so the user can see how far they've gotten. Reuse the same format (Mermaid or vertical list) you used the first time. Mark progress the way that fits each format:
 
 - **Vertical list** — prefix each finished step with a checkmark (`✅ `); leave steps not yet done as plain text.
-- **Mermaid** — leave the step labels as plain text and color the finished nodes instead. Add `classDef done fill:#2ecc71,stroke:#1e8449,color:#ffffff` right after the `flowchart LR` line, then tag each finished node with `:::done`. Don't add checkmark text inside Mermaid nodes.
+- **Mermaid** — leave the step labels as plain text and color the finished nodes instead. Add `classDef done fill:#1e8449,stroke:#2ecc71,color:#ffffff` right after the `flowchart LR` line, then tag each finished node with `:::done`. Don't add checkmark text inside Mermaid nodes.
 
 Show it once per checkpoint, right after the phase work that completes it — don't hold everything back and redraw retroactively at the end.
 
@@ -74,13 +74,13 @@ Checkpoints:
 - After **Phase 5** (MCP servers saved) → also check off **Add MCP servers**.
 - After **Phase 10** (deploy completes) → also check off **Add policies** (this step bundles Phases 6–10: choosing/creating policies, attaching them, publishing, activating, and deploying).
 - After **Phase 11** (client connection registered) → also check off **Connect AI client**.
-- After **Phase 12** (policy test confirmed) → also check off **Test policies** — all six are now checked, so say something short marking setup as complete instead of describing what's next.
+- After **Phase 12**, resolve **Test policies**: if the policy test ran and confirmed enforcement, check it off — all six are now checked, so say something short marking setup as complete instead of describing what's next. If policies were skipped back in Phase 6, leave **Test policies** unchecked (or mark it "skipped") instead — but still say that same short setup-complete close so the user isn't stranded at 5/6 with no closing moment, and repeat the pass-through reminder that nothing is enforced until a policy is attached.
 
 Example, Mermaid form with the first three steps done:
 
 ```mermaid
 flowchart LR
-    classDef done fill:#2ecc71,stroke:#1e8449,color:#ffffff
+    classDef done fill:#1e8449,stroke:#2ecc71,color:#ffffff
     A[Create your<br/>gateway]:::done --> B[Configure<br/>auth]:::done
     B --> C[Add MCP<br/>servers]:::done
     C --> D[Add<br/>policies]
@@ -136,7 +136,7 @@ Setup-specific tools (may be newer — see Graceful degradation if any are missi
 | Tool | Purpose |
 |------|---------|
 | `dtwo-create-gateway` | Create a draft gateway with an empty config. Input `{ name, tags?, deploymentType?, allowAdditionalHosted? }` where `deploymentType` is `hostedAws` \| `standard` \| `localHttp`. For `hostedAws` it also queues AWS provisioning. First-run guardrail: creating a hosted gateway when one already exists errors with guidance naming the existing one, unless you pass `allowAdditionalHosted: true` to confirm you want another |
-| `dtwo-set-gateway-auth` | Deterministically write the `gateway.authentication` block into the draft config. Input `{ uid, mode, customFields? }` where `mode` is `dtwo_default` \| `custom` \| `disabled` \| `removed`. `dtwo_default` uses the Dtwo-managed Auth0 IdP (recommended default for `localHttp`). `customFields` carries `jwt_algorithm`, `jwt_jwks_uri`, `jwt_issuer`, `jwt_audience`, `sso_issuer` when `mode: custom` |
+| `dtwo-set-gateway-auth` | Deterministically write the `gateway.authentication` block into the draft config. Input `{ uid, mode, customFields? }` where `mode` is `dtwo_default` \| `custom` \| `disabled` \| `removed`. `dtwo_default` uses the Dtwo-managed Auth0 IdP (recommended default for `localHttp` and `hostedAws`). `customFields` carries `jwt_algorithm`, `jwt_jwks_uri`, `jwt_issuer`, `jwt_audience`, `sso_issuer` when `mode: custom` |
 | `dtwo-get-gateway-connection-info` | Fetch client connection details. Input `{ uid }` → `{ mcpUrl, clientId?, audience, issuer, jwksUri, callbackPort: 33418 }`. For hosted gateways `mcpUrl` is `https://<hostname>/mcp`; may be unavailable for `standard` until you supply the hostname |
 | `dtwo-get-gateway-activation` | Fetch the activation bundle for a **self-hosted** gateway. Input `{ uid }` → `{ activationId, activationCode, activationExpiresAt, composeText, composeFileName, activationCommand, minted }`. Returns the current activation while it is still valid, and otherwise mints a fresh pair automatically (which invalidates any previously issued one); the `minted` flag tells you which happened. Call it once per activation attempt. Errors for `hostedAws` (nothing to activate — provisioning is managed) |
 | `dtwo-refresh-gateway-activation` | Force a fresh activation pair. Input `{ uid }` → the same full bundle as `dtwo-get-gateway-activation` (`composeText`, `composeFileName`, `activationCommand`, and the activation fields), so a refresh on its own is enough to activate |
@@ -179,9 +179,11 @@ Show this table in your message, unmodified, before asking anything — this is 
 | Local | Runs on your machine via Docker over HTTP. The quickest way to try Dtwo with local MCP clients. |
 | Self-hosted | You self-host on your own infrastructure over HTTPS. Most control, most setup. |
 
+Map the user's choice to `deploymentType`: Dtwo hosted → `hostedAws`, Local → `localHttp`, Self-hosted → `standard`. You'll pass this value to `dtwo-create-gateway` in Phase 3.
+
 Then ask which they want:
 
-- If your host supports `AskUserQuestion`, still populate each option's `description` field verbatim from the table (some hosts do render it, and it costs nothing to include), but never rely on it alone — the table above is what actually guarantees the user sees the description. Match this shape (adjust only the wording, not the structure):
+- If your host supports `AskUserQuestion`, still populate each option's `description` field verbatim from the table (some hosts do render it, and it costs nothing to include), but never rely on it alone — the table above is what actually guarantees the user sees the description. Match this shape exactly; labels and descriptions come verbatim from the table above:
 
   ```json
   {
@@ -213,18 +215,18 @@ Call `dtwo-create-gateway` with `{ name, tags?, deploymentType }`. Capture the r
 
 ### Phase 4 — Authentication
 
-Authentication controls who may connect to the gateway. Don't apply a default without asking, even the recommended one.
+Authentication controls who may connect to the gateway.
 
-For **localHttp**, show this table in your message before asking — same reasoning as Phase 2: it's the guaranteed way the user sees the descriptions, regardless of whether your host renders per-option descriptions on a multiple-choice widget:
+For **localHttp** and **hostedAws**, don't apply the recommended default without asking. Show this table in your message before asking — same reasoning as Phase 2: it's the guaranteed way the user sees the descriptions, regardless of whether your host renders per-option descriptions on a multiple-choice widget:
 
 | Auth method | Description |
 |---|---|
 | Dtwo-managed sign-in (recommended) | The Dtwo-managed Auth0 IdP validates incoming tokens with no IdP setup on your side. |
 | Your own identity provider | Collect your JWKS URL, issuer, audience, and algorithm, and the gateway validates against your IdP instead. |
 
-Then ask which one — still populate `AskUserQuestion` option descriptions from this table if your host supports it (`mode: dtwo_default` for the recommended sign-in, `mode: custom` for their own identity provider, collecting `jwt_algorithm`, `jwt_jwks_uri`, `jwt_issuer`, `jwt_audience`, and `sso_issuer` if they have one, into `customFields`), but the table above is what actually guarantees the description is shown, not the widget field.
+Then ask which one — still populate `AskUserQuestion` option descriptions from this table if your host supports it, but the table above is what actually guarantees the description is shown, not the widget field. Once they answer, call `dtwo-set-gateway-auth`: `mode: dtwo_default` for the recommended sign-in, or `mode: custom` for their own identity provider, collecting `jwt_algorithm`, `jwt_jwks_uri`, `jwt_issuer`, `jwt_audience`, and `sso_issuer` if they have one, into `customFields`.
 
-For **hostedAws / standard**, auth should be configured against a real IdP. Set it via `dtwo-set-gateway-auth` with `mode: custom` and the JWKS fields, but for anything beyond the four required fields defer to the **dtwo-gateway-config** skill's authentication section (the `jwks_info` block) rather than duplicating schema docs here. Load that skill if the user needs the full picture.
+For **standard**, auth should be configured against a real IdP — there's no Dtwo-managed sign-in option for self-hosted gateways. Set it via `dtwo-set-gateway-auth` with `mode: custom` and the JWKS fields, but for anything beyond the four required fields defer to the **dtwo-gateway-config** skill's authentication section (the `jwks_info` block) rather than duplicating schema docs here. Load that skill if the user needs the full picture.
 
 **Show progress — checkpoint 2 of 6, do this now.** Redraw the diagram with **Create your gateway** and **Configure auth** both checked off. Still to come: Add MCP servers (Phase 5), Add policies (Phase 10), Connect AI client (Phase 11), Test policies (Phase 12).
 
@@ -303,7 +305,6 @@ Branch on whether your current environment can run shell commands, the same way 
 
 ```bash
 claude mcp add --transport http \
-  --client-id <clientId> --callback-port 33418 \
   <name> <mcpUrl>
 ```
 
@@ -322,7 +323,6 @@ Claude Code, a CLI add plus an `.mcp.json` snippet:
 
 ```bash
 claude mcp add --transport http \
-  --client-id <clientId> --callback-port 33418 \
   <name> <mcpUrl>
 ```
 
@@ -331,26 +331,19 @@ claude mcp add --transport http \
   "mcpServers": {
     "<name>": {
       "type": "http",
-      "url": "<mcpUrl>",
-      "oauth": {
-        "clientId": "<clientId>",
-        "callbackPort": 33418
-      }
+      "url": "<mcpUrl>"
     }
   }
 }
 ```
 
-Cursor, an HTTP MCP server entry in `~/.cursor/mcp.json` (or a project-local `.cursor/mcp.json`) that carries the static client id under `auth.CLIENT_ID`:
+Cursor, an HTTP MCP server entry in `~/.cursor/mcp.json` (or a project-local `.cursor/mcp.json`):
 
 ```json
 {
   "mcpServers": {
     "<name>": {
-      "url": "<mcpUrl>",
-      "auth": {
-        "CLIENT_ID": "<clientId>"
-      }
+      "url": "<mcpUrl>"
     }
   }
 }
@@ -382,9 +375,9 @@ In clients without those commands (e.g. Claude Desktop), the first use of the co
 
 Don't paraphrase or describe the redaction/deny output in place of showing it — the point of this phase is for the user to see the gateway actually intercept the call, not just take your word for it.
 
-If the user skipped policies in Phase 6, skip the test and remind them the gateway is currently a pass-through — nothing is enforced until a policy is attached.
+If the user skipped policies in Phase 6, skip the test, and remind them the gateway is currently a pass-through — nothing is enforced until a policy is attached. Don't stop there without a closing moment — still finish with a short setup-complete close, just without a policy test to point to.
 
-**Show progress — checkpoint 6 of 6, final one.** Redraw the diagram with all six steps checked off, and say something short marking setup as complete rather than describing what's next.
+**Show progress — checkpoint 6 of 6, final one.** If the policy test ran, redraw the diagram with all six steps checked off. If the test was skipped, redraw it with **Test policies** left unchecked (or marked "skipped") and the other five checked. Either way, say something short marking setup as complete rather than describing what's next — a skipped test doesn't mean setup isn't done.
 
 Close by telling them how to manage config and policies going forward with the companion skills (`dtwo-gateway-config`, `dtwo-gateway-policy`, `dtwo-policy-rego`).
 
