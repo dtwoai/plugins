@@ -195,7 +195,7 @@ function defaultCell(field) {
  * `schemaDefault: true`. It says only that this particular field declares none.
  */
 const DEFAULT_COLUMN_LEGEND = [
-  'Reading the **`Default`** column in the tables below: `` `value` (schema) ``, `` `value` (deploy) `` and `` `value` (gateway) `` are defaults the artifact declares — filled by the schema itself, by deploy-time config, or applied by the gateway at runtime when the deployed env leaves the field unset. **`not declared`** marks an optional field whose default the artifact does not record — what happens when it is omitted is decided by the gateway at runtime. Read the Guidance column, which states the effective behavior where the artifact records it. **`—`** marks a required field with no declared default — you must supply a value.',
+  'Reading the **`Default`** column in the tables below: `` `value` (schema) ``, `` `value` (deploy) `` and `` `value` (gateway) `` are defaults the artifact declares — filled by the schema itself, by deploy-time config, or applied by the gateway at runtime when the deployed env leaves the field unset. **`not declared`** marks an optional field whose default the artifact does not record — the gateway still decides at runtime, but unlike `(gateway)` the value does not travel in this table; read the Guidance column, which states the effective behavior where the artifact records it. **`—`** marks a required field with no declared default — you must supply a value.',
   '',
   'Reading the **`Required`** column: required-ness is *within the containing section*. `yes` means the field must appear whenever that section\'s object is present; if the parent object is itself optional, the whole block may be omitted and the field with it.',
 ].join('\n');
@@ -364,8 +364,31 @@ function renderJwksInfo(filtered) {
   return lines.join('\n');
 }
 
+/**
+ * Guard for the two renderers below that build their own default cells from
+ * `deployDefault` alone instead of going through `defaultCell`. Honest today:
+ * no `gateway.ssrf` or top-level `gateway` field carries a `gatewayDefault`.
+ * If a future artifact adds one, these renderers would show `—` — "no
+ * default" — where a gateway-applied default exists, the exact lie the
+ * `(gateway)` marker was added to prevent. Fail the build instead.
+ */
+function assertNoGatewayDefault(renderer, sectionPath, fields) {
+  const offenders = fields.filter(f => f.gatewayDefault !== null && f.gatewayDefault !== undefined);
+  if (offenders.length > 0) {
+    fatal([
+      `${renderer} builds its Default cell from deployDefault only, but these ${sectionPath} field(s) now carry a gatewayDefault:`,
+      ...offenders.map(f => `  - ${f.name} (gatewayDefault=${JSON.stringify(f.gatewayDefault)})`),
+      '',
+      'Rendering them here would show `—` where a gateway-applied default',
+      'exists. Teach the renderer the `(gateway)` flavor (see defaultCell)',
+      'before regenerating.',
+    ]);
+  }
+}
+
 function renderSsrf(filtered) {
   const ssrf = findSection(filtered, 'gateway.ssrf');
+  assertNoGatewayDefault('renderSsrf', 'gateway.ssrf', ssrf.fields);
   const rows = ssrf.fields.map(f => {
     const def = f.deployDefault !== null && f.deployDefault !== undefined
       ? `\`${JSON.stringify(f.deployDefault)}\``
@@ -390,6 +413,7 @@ function renderGatewayAdvancedAndLog(filtered) {
   const gw = findSection(filtered, 'gateway');
   const adv = fieldByName(gw, 'advanced');
   const log = fieldByName(gw, 'log_level');
+  assertNoGatewayDefault('renderGatewayAdvancedAndLog', 'gateway', [adv, log]);
   const logDefault = log.deployDefault !== null && log.deployDefault !== undefined
     ? `\`${log.deployDefault}\``
     : '—';
