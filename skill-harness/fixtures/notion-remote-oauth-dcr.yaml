@@ -11,7 +11,7 @@
 #   - Scopes: granted via Notion's workspace connection UI; Notion does not publish OAuth
 #     scope strings, so this fixture only asserts min_length ≥ 1 on scopes (value left open).
 # Schema ref: dtwo/skills/dtwo-gateway-config/schema-reference.json (the vendored schema artifact in this repo)
-#   generatorVersion 1.0.0 — mcp_servers[].url, mcp_servers[].transport_type, authentication (oauth)
+#   fields: mcp_servers[].url, mcp_servers[].transport_type, authentication (oauth)
 #
 # Known skill defect (2026-04-23):
 #   At N=10, temperature=0, claude-cli — this fixture is a reliable

@@ -15,7 +15,7 @@
 #   - SCHEMA GAP (flag for Phase 3): add a non-secret `extra_headers` array on mcp_servers[] so
 #     behavioral headers don't have to masquerade as secrets.
 # Schema ref: dtwo/skills/dtwo-gateway-config/schema-reference.json (the vendored schema artifact in this repo)
-#   generatorVersion 1.0.0 — mcp_servers[].url, mcp_servers[].transport_type,
+#   fields: mcp_servers[].url, mcp_servers[].transport_type,
 #   authentication (authheaders).headers[]
 id: github-copilot-mcp-authheaders
 tier: aspirational

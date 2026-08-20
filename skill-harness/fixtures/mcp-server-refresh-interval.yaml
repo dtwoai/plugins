@@ -1,6 +1,6 @@
 # Sources (verified 2026-04-22):
 #   - Schema ref: dtwo/skills/dtwo-gateway-config/schema-reference.json (the vendored schema artifact in this repo)
-#     generatorVersion 1.0.0 — mcp_servers[].refresh_interval_seconds (integer, >= 60)
+#     fields: mcp_servers[].refresh_interval_seconds (integer, >= 60)
 #   - Rationale from schema: "How often the gateway re-fetches the server's tool list.
 #     Raise when the list changes rarely, lower when it changes often."
 id: mcp-server-refresh-interval

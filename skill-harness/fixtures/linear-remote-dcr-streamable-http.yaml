@@ -5,7 +5,7 @@
 #   - The gateway.authentication side still uses the enterprise IdP (Auth0 here) — only the
 #     upstream mcp_servers[0].authentication talks to Linear. This mirrors the Atlassian fixture.
 # Schema ref: dtwo/skills/dtwo-gateway-config/schema-reference.json (the vendored schema artifact in this repo)
-#   generatorVersion 1.0.0 — mcp_servers[].url, mcp_servers[].transport_type, authentication (oauth)
+#   fields: mcp_servers[].url, mcp_servers[].transport_type, authentication (oauth)
 id: linear-remote-dcr-streamable-http
 tier: aspirational
 tags: [linear, oauth, dcr, pkce, streamable_http, mcp_url_pinned]
