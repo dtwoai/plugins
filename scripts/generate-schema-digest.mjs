@@ -141,16 +141,23 @@ function typeCell(field) {
  * Default cell for the generic field tables. See `DEFAULT_COLUMN_LEGEND` —
  * the two must stay in step.
  *
- * Load-bearing: when an OPTIONAL field declares neither default the cell says
- * `not declared`, never `—`. The promoted security-posture booleans
- * (`jwt_issuer_verification` and friends) are exactly this case, and a bare
- * `—` would read as "there is no default", which is false and dangerous for
- * them — the gateway does apply one, it just does not travel in the artifact.
- * The token deliberately describes the ARTIFACT (it records no default), not
- * the runtime, because the runtime story differs per field: some of these are
- * boot-defaulted, others simply leave a feature switched off when omitted.
+ * Three declared-default flavors, in the order the value is settled:
+ * `schemaDefault` (the schema itself fills it), `deployDefault` (deploy-time
+ * config fills it), `gatewayDefault` (the gateway applies it at runtime when
+ * the deployed env never set one). The security-posture booleans
+ * (`jwt_issuer_verification` and friends) carry only `gatewayDefault` — the
+ * artifact used to record no default for them at all, and they rendered
+ * `not declared` even though the gateway does apply `true`.
  *
- * A REQUIRED field with neither default renders `—`: there is nothing to
+ * Load-bearing: when an OPTIONAL field declares none of the three the cell
+ * says `not declared`, never `—`. A bare `—` would read as "there is no
+ * default", which is false and dangerous where a runtime default exists but
+ * does not travel in the artifact. The token deliberately describes the
+ * ARTIFACT (it records no default), not the runtime, because the runtime
+ * story differs per field: some are boot-defaulted, others simply leave a
+ * feature switched off when omitted.
+ *
+ * A REQUIRED field with no declared default renders `—`: there is nothing to
  * inherit and the reader must supply a value. Reusing `not declared` there
  * would suggest omission is an option, which is exactly wrong.
  */
@@ -161,6 +168,9 @@ function defaultCell(field) {
   if (field.deployDefault !== null && field.deployDefault !== undefined) {
     return `\`${JSON.stringify(field.deployDefault)}\` (deploy)`;
   }
+  if (field.gatewayDefault !== null && field.gatewayDefault !== undefined) {
+    return `\`${JSON.stringify(field.gatewayDefault)}\` (gateway)`;
+  }
   return field.required ? '—' : '`not declared`';
 }
 
@@ -169,18 +179,23 @@ function defaultCell(field) {
  * columns, so a reader who lands directly on a later section
  * (`session_control`, say) does not have to guess what the markers mean.
  *
- * Both claims are deliberately narrow. `not declared` is a statement about the
- * artifact, not a promise about the runtime: of the eleven fields carrying it,
+ * All claims are deliberately narrow. `not declared` is a statement about the
+ * artifact, not a promise about the runtime: of the seven fields carrying it,
  * four (`sso_issuer`, `sso_generic_scope`,
  * `auto_register_on_missing_credentials`, `oauth_discovery_enabled`) say
  * nothing in their Guidance about what omission does, and for the first two
  * omission simply leaves a feature switched off rather than applying a value.
+ * `(gateway)` marks the third declared-default flavor the 1.1.0 artifact
+ * added (`gatewayDefault`): a default the gateway itself applies at runtime,
+ * as opposed to one written at deploy time — the security-posture booleans
+ * (`jwt_issuer_verification` and friends) carry it and previously rendered
+ * `not declared` even though the gateway applies `true`.
  * And `—` does not say "required fields have no default":
  * `gateway.authentication.enabled` is required and carries
  * `schemaDefault: true`. It says only that this particular field declares none.
  */
 const DEFAULT_COLUMN_LEGEND = [
-  'Reading the **`Default`** column in the tables below: `` `value` (schema) `` and `` `value` (deploy) `` are defaults the artifact declares. **`not declared`** marks an optional field whose default the schema does not record — what happens when it is omitted is decided by the gateway at runtime. Read the Guidance column, which states the effective behavior where the artifact records it. **`—`** marks a required field with no declared default — you must supply a value.',
+  'Reading the **`Default`** column in the tables below: `` `value` (schema) ``, `` `value` (deploy) `` and `` `value` (gateway) `` are defaults the artifact declares — filled by the schema itself, by deploy-time config, or applied by the gateway at runtime when the deployed env leaves the field unset. **`not declared`** marks an optional field whose default the artifact does not record — what happens when it is omitted is decided by the gateway at runtime. Read the Guidance column, which states the effective behavior where the artifact records it. **`—`** marks a required field with no declared default — you must supply a value.',
   '',
   'Reading the **`Required`** column: required-ness is *within the containing section*. `yes` means the field must appear whenever that section\'s object is present; if the parent object is itself optional, the whole block may be omitted and the field with it.',
 ].join('\n');
@@ -328,7 +343,7 @@ function renderJwksInfo(filtered) {
     ? `All ${jwks.fields.length} fields are required when this object is present.`
     : 'Not every field here is required — read the Required column.';
 
-  return [
+  const lines = [
     '#### `gateway.authentication.jwks_info` — inbound JWT validation',
     '',
     `${lead} These govern the **inbound** leg (clients → gateway), independent of any \`mcp_servers[].authentication\` block which governs the **outbound** leg (gateway → upstream MCP server). Populate \`jwks_info\` whenever the prompt supplies an IdP tenant + audience, even when the upstream server uses OAuth/DCR or "does not accept bearer tokens" — those statements describe the outbound leg only.`,
@@ -337,7 +352,16 @@ function renderJwksInfo(filtered) {
     '|---|---|---|---|---|',
     ...rows,
     '',
-  ].join('\n');
+  ];
+  // This section historically carried no cross-field constraints, so this
+  // renderer — unlike renderGatewayAuthentication and renderGenericSection —
+  // never rendered any. The 1.1.0 artifact declares three; dropping them here
+  // fails assertDigestCoverage, exactly as designed.
+  const constraintBlock = renderConstraints(jwks.crossFieldConstraints);
+  if (constraintBlock) {
+    lines.push(constraintHeading(jwks.crossFieldConstraints), constraintBlock, '');
+  }
+  return lines.join('\n');
 }
 
 function renderSsrf(filtered) {
