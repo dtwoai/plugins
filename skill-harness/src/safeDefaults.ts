@@ -5,10 +5,14 @@
  * `schemaDefault` or `deployDefault` encodes a safe posture, and
  * `buildSafeDefaults` pulls the native safe value straight out of the
  * artifact. `GATEWAY_OWNED_SAFE_DEFAULTS` names fields where the gateway
- * applies the safe value at boot and the artifact therefore declares none —
- * those carry an explicit `expected`, guarded so an entry cannot shadow a
- * default the artifact later starts declaring. `findWeakenedDefaults` flags
- * any YAML that emits a different value without explicit opt-out.
+ * applies the safe value at boot — since artifact 1.1.0 these are declared
+ * as `gatewayDefault`, and the hand-written `expected` values here remain
+ * the harness's own opinion, cross-checked against the artifact rather than
+ * silently derived from it: `buildSafeDefaults` throws when an entry
+ * disagrees with a declared `gatewayDefault`, and still throws when an entry
+ * would shadow a `schemaDefault`/`deployDefault` the artifact later starts
+ * declaring. `findWeakenedDefaults` flags any YAML that emits a different
+ * value without explicit opt-out.
  *
  * `schemaDefault` in the artifact is already native (e.g. `true`); the
  * generator emits it unquoted. `deployDefault` is often stringified
@@ -39,15 +43,19 @@ export const SAFE_DEFAULT_SEEDS: readonly string[] = [
 export type GatewayOwnedSafeDefault = { path: string; expected: unknown };
 
 /**
- * Seeds whose safe value is owned by the gateway runtime, not the schema
- * artifact: both `schemaDefault` and `deployDefault` are null because the
- * gateway applies the default at boot, so `buildSafeDefaults` cannot derive
- * them.
+ * Seeds whose safe value is owned by the gateway runtime, not by deploy-time
+ * config: both `schemaDefault` and `deployDefault` are null because the
+ * gateway applies the default at boot. Since artifact 1.1.0 these fields
+ * declare that boot-time value as `gatewayDefault`.
  *
- * All three `expected: true` values are corroborated by the artifact's own
- * `rationale` strings on the corresponding fields. Re-verify them against
- * the rationale text on every re-vendor — see the schema-digest section of
- * README.md.
+ * The `expected` values stay hand-written on purpose — they are the
+ * harness's own opinion of the safe posture, cross-checked against the
+ * artifact rather than derived from it: `buildSafeDefaults` throws when an
+ * entry disagrees with the field's declared `gatewayDefault`, so an artifact
+ * refresh that flips one of these cannot pass silently. The values are also
+ * corroborated by the artifact's own `rationale` strings on the
+ * corresponding fields; re-verify against the rationale text on every
+ * re-vendor — see the schema-digest section of README.md.
  *
  * `require_jti` is deliberately absent: the artifact's rationale instructs
  * setting it `false` for IdPs that do not mint a `jti` on access tokens, so
@@ -114,7 +122,7 @@ function resolveFieldAtPath(artifact: SchemaArtifact, path: string): ResolvedFie
  * to its safe value. Throws if any seed cannot be resolved — the runtime
  * drift-check that keeps this list honest.
  *
- * Three failure buckets, all loud:
+ * Four failure buckets, all loud:
  *
  *  - **unresolved** — the seed path names no field. The upstream schema moved.
  *  - **unvalued** — a `SAFE_DEFAULT_SEEDS` entry resolves but declares neither
@@ -122,15 +130,22 @@ function resolveFieldAtPath(artifact: SchemaArtifact, path: string): ResolvedFie
  *    `expected: null`, which then flagged *both* `true` and `false` as a
  *    weakening — a silently useless check.
  *  - **shadowed** — a `GATEWAY_OWNED_SAFE_DEFAULTS` entry resolves to a field
- *    that has since started declaring a default. The entry's whole premise is
- *    that the artifact declares none, so a hand-written value must not quietly
- *    take precedence over one the artifact now ships.
+ *    that has since started declaring a `schemaDefault` or `deployDefault`.
+ *    The entry's whole premise is that the value is gateway-owned, so a
+ *    hand-written value must not quietly take precedence over one the
+ *    artifact now ships through the deploy-time channels.
+ *  - **mismatched** — a `GATEWAY_OWNED_SAFE_DEFAULTS` entry resolves to a
+ *    field whose declared `gatewayDefault` disagrees with the hand-written
+ *    `expected`. The hand-written value is a cross-check, not an override —
+ *    an artifact refresh that flips a gateway-owned default must force a
+ *    re-audit, not be silently ignored.
  */
 export function buildSafeDefaults(artifact: SchemaArtifact): Map<string, unknown> {
   const out = new Map<string, unknown>();
   const unresolved: string[] = [];
   const unvalued: string[] = [];
   const shadowed: string[] = [];
+  const mismatched: string[] = [];
 
   for (const seed of SAFE_DEFAULT_SEEDS) {
     const resolved = resolveFieldAtPath(artifact, seed);
@@ -166,6 +181,17 @@ export function buildSafeDefaults(artifact: SchemaArtifact): Map<string, unknown
       );
       continue;
     }
+    if (
+      field.gatewayDefault !== null &&
+      field.gatewayDefault !== undefined &&
+      !valuesEqual(field.gatewayDefault, expected)
+    ) {
+      mismatched.push(
+        `${path} (hand-written expected=${JSON.stringify(expected)}, ` +
+          `artifact declares gatewayDefault=${JSON.stringify(field.gatewayDefault)})`,
+      );
+      continue;
+    }
     out.set(path, expected);
   }
 
@@ -186,6 +212,13 @@ export function buildSafeDefaults(artifact: SchemaArtifact): Map<string, unknown
     throw new Error(
       `GATEWAY_OWNED_SAFE_DEFAULTS entries would shadow a default the artifact now declares: ${shadowed.join('; ')}. ` +
         'Drop the entry and let buildSafeDefaults derive the value from the artifact.',
+    );
+  }
+  if (mismatched.length > 0) {
+    throw new Error(
+      `GATEWAY_OWNED_SAFE_DEFAULTS entries disagree with the gatewayDefault the artifact declares: ${mismatched.join('; ')}. ` +
+        'The hand-written expected value is a cross-check, not an override — re-audit the entry against the ' +
+        "refreshed artifact's rationale and update whichever side is wrong.",
     );
   }
   return out;

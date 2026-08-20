@@ -20,6 +20,11 @@
  * movement. It is asserted at test time (see __tests__/schemaDigest.test.ts)
  * rather than at module load, so a bundle refresh fails one clearly-named
  * test instead of every import.
+ *
+ * The sibling `vendor/config-validator.bundle.d.mts` is a type-only shim and
+ * is deliberately unpinned: the test runner strips types and the runtime
+ * imports only the `.mjs`, so the shim is runtime-inert and cannot alter what
+ * the rubric checks execute.
  */
 
 import { dirname, resolve } from 'node:path';

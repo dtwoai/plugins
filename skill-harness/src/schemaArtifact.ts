@@ -11,9 +11,13 @@
  *
  * That pin is weaker than it looks: `generatorVersion` is hand-maintained
  * upstream and stayed at 1.0.0 across real content change before the 1.1.0
- * bump. The digest's embedded artifact sha256 (see
- * `scripts/generate-schema-digest.mjs`) is what makes a content refresh
- * visible.
+ * bump. Content movement is caught by two complementary mechanisms:
+ * `EXPECTED_SCHEMA_ARTIFACT_SHA256` below is machine-asserted at test time,
+ * so any change to the vendored bytes fails a test until the pin is bumped
+ * in reviewed source; the digest's embedded artifact sha256 (see
+ * `scripts/generate-schema-digest.mjs`) catches one-file drift — an artifact
+ * edit without a digest regeneration fails `--check`, and a regeneration
+ * surfaces the new sha in the SKILL.md diff for reviewers to see.
  */
 
 import { readFileSync } from 'node:fs';
@@ -26,6 +30,22 @@ import { fileURLToPath } from 'node:url';
  * failure so we re-audit the harness's shape assumptions.
  */
 export const SCHEMA_ARTIFACT_VERSION = '1.1.0';
+
+/**
+ * sha256 of the vendored artifact's bytes. Asserted at test time (beside the
+ * validator-bundle byte pin in `__tests__/schemaDigest.test.ts`), not at
+ * module load. Bump it together with the digest regeneration when the
+ * artifact is re-vendored.
+ *
+ * What this does and does not catch, mirroring
+ * `EXPECTED_VALIDATOR_BUNDLE_SHA256`: without it, hand-editing the artifact
+ * and regenerating the digest kept every check green — the digest's embedded
+ * sha updates automatically with the regeneration, so nothing machine-asserted
+ * a fixed value. This pin makes an artifact swap a deliberate two-place change
+ * in reviewed source. It cannot stop a PR that bumps both the artifact and
+ * this constant — judging that change is still review's job.
+ */
+export const EXPECTED_SCHEMA_ARTIFACT_SHA256 = '7da03dec3c066d3ca74a9a25173017dd63b0e8a04eea167dce3eec4ae19fad1d';
 
 /**
  * `platform` is emitted by the currently vendored artifact (every

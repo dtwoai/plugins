@@ -18,7 +18,11 @@ import { dirname, join, resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { DEFAULT_SCHEMA_ARTIFACT_PATH, loadSchemaArtifact } from '../schemaArtifact.js';
+import {
+  DEFAULT_SCHEMA_ARTIFACT_PATH,
+  EXPECTED_SCHEMA_ARTIFACT_SHA256,
+  loadSchemaArtifact,
+} from '../schemaArtifact.js';
 import {
   EXPECTED_VALIDATOR_BUNDLE_SHA256,
   EXPECTED_VALIDATOR_BUNDLE_VERSION,
@@ -179,6 +183,40 @@ describe('schemaDigest', () => {
     }
   });
 
+  it('renders the `(gateway)` default marker for every gateway-defaulted field', () => {
+    // Re-asserted against the COMMITTED SKILL.md, like every check in this
+    // file: deleting defaultCell's gatewayDefault branch in the generator and
+    // regenerating would leave `--check` green (the digest is self-consistent
+    // with the mutated generator), so only a test keyed on the artifact's own
+    // gatewayDefault declarations catches it.
+    const region = digestRegion();
+    const failures: string[] = [];
+    let checked = 0;
+    for (const section of artifact.sections) {
+      for (const field of section.fields) {
+        if (field.audience !== 'user') continue;
+        const hasSchema = field.schemaDefault !== null && field.schemaDefault !== undefined;
+        const hasDeploy = field.deployDefault !== null && field.deployDefault !== undefined;
+        const hasGateway = field.gatewayDefault !== null && field.gatewayDefault !== undefined;
+        // Only fields whose SOLE declared default is gatewayDefault — for the
+        // others defaultCell renders the higher-precedence flavor.
+        if (hasSchema || hasDeploy || !hasGateway) continue;
+        checked++;
+        // Backtick-delimited row matching, same idiom as the target test
+        // above: `JWT_ISSUER` is a proper substring of
+        // `JWT_ISSUER_VERIFICATION`, so key each row on its unique
+        // backticked target, then assert the cell on that row.
+        const rows = region.split('\n').filter(line => line.includes(`\`${field.target}\``));
+        const cell = `\`${JSON.stringify(field.gatewayDefault)}\` (gateway)`;
+        if (!rows.some(line => line.includes(cell))) {
+          failures.push(`${section.path} → ${field.name} (target ${field.target}): no row carries ${cell}`);
+        }
+      }
+    }
+    assert.ok(checked > 0, 'artifact declares no gateway-only defaults at all — shape drift, re-audit this test');
+    assert.deepEqual(failures, [], `gateway-defaulted fields missing their (gateway) cell:\n${failures.join('\n')}`);
+  });
+
   it('embeds the sha256 of the artifact it was generated from', () => {
     const region = digestRegion();
     const match = region.match(/schema-reference\.json sha256:([0-9a-f]{64})/);
@@ -200,6 +238,19 @@ describe('schemaDigest', () => {
       EXPECTED_VALIDATOR_BUNDLE_SHA256,
       'vendor/config-validator.bundle.mjs changed. Bump EXPECTED_VALIDATOR_BUNDLE_SHA256 (and the version pin) ' +
         'in src/validatorBundle.ts, and re-audit the divergences listed in known-defects.md.',
+    );
+  });
+
+  it('pins the vendored schema artifact bytes', () => {
+    // The digest's embedded sha (asserted above) tracks the artifact
+    // automatically — regenerating after a hand-edit keeps the two in step,
+    // so it cannot flag the edit. This committed pin is what makes an
+    // artifact change fail a test until reviewed source is bumped too.
+    assert.equal(
+      sha256OfFile(DEFAULT_SCHEMA_ARTIFACT_PATH),
+      EXPECTED_SCHEMA_ARTIFACT_SHA256,
+      'schema-reference.json changed. Re-vendor deliberately: bump EXPECTED_SCHEMA_ARTIFACT_SHA256 in ' +
+        'src/schemaArtifact.ts, regenerate the digest, and re-audit the safe-default seeds per README.md.',
     );
   });
 });

@@ -57,6 +57,28 @@ describe('safeDefaults', () => {
     assert.throws(() => buildSafeDefaults(clone), /would shadow a default the artifact now declares/);
   });
 
+  it('throws when a GATEWAY_OWNED_SAFE_DEFAULTS entry disagrees with the declared gatewayDefault', () => {
+    // The gap this pins: before the mismatch guard, flipping a field's
+    // gatewayDefault raised nothing and the map silently kept the
+    // hand-written value — the artifact's own declaration was ignored.
+    const clone = cloneArtifact();
+    fieldAt(clone, 'gateway.authentication', 'jwt_issuer_verification').gatewayDefault = false;
+    assert.throws(() => buildSafeDefaults(clone), /disagree with the gatewayDefault the artifact declares/);
+  });
+
+  it('accepts a GATEWAY_OWNED_SAFE_DEFAULTS entry whose gatewayDefault matches', () => {
+    // The real artifact declares gatewayDefault on all three guarded fields
+    // (artifact 1.1.0); the clean resolution above already exercises the
+    // agreeing path. Pin the premise explicitly so a future artifact that
+    // stops declaring them does not quietly turn the mismatch guard vacuous.
+    for (const { path } of GATEWAY_OWNED_SAFE_DEFAULTS) {
+      const dot = path.lastIndexOf('.');
+      const field = fieldAt(artifact, path.slice(0, dot), path.slice(dot + 1));
+      assert.notEqual(field.gatewayDefault, undefined, `${path} declares no gatewayDefault`);
+      assert.notEqual(field.gatewayDefault, null, `${path} declares a null gatewayDefault`);
+    }
+  });
+
   it('flags a weakened SSRF setting', () => {
     const map = buildSafeDefaults(artifact);
     const parsed = {

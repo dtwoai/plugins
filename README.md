@@ -100,9 +100,12 @@ instead of silently dropping it. Add a renderer or an override-map entry.
 
 **On every re-vendor**, also re-verify the three `GATEWAY_OWNED_SAFE_DEFAULTS`
 entries in `skill-harness/src/safeDefaults.ts` against the corresponding
-`rationale` strings in the refreshed artifact. Those values are not derivable
-from the artifact — the gateway applies them at boot — so nothing else catches
-it if upstream guidance changes.
+`rationale` strings in the refreshed artifact. Since artifact 1.1.0 those
+fields declare their boot-time value as `gatewayDefault`, and
+`buildSafeDefaults` throws when a hand-written entry disagrees with it — so a
+refresh that flips one of these values fails loudly. The rationale re-read
+still matters for what the machine check cannot see: whether the upstream
+*guidance* about when to override the default has changed.
 
 The generator is dependency-free (Node ESM, single file) so it runs anywhere
 Node 17+ is available.
