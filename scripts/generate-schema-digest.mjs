@@ -781,12 +781,19 @@ function assertDigestCoverage(filtered, digest) {
     }
   }
 
+  // Match inside the reserved-keys SECTION, not the whole digest: a
+  // typed-owned key also renders as a target env var in its home section's
+  // table, so whole-digest matching would mask a silently dropped redirect
+  // row. A missing/renamed section makes every key miss — loud, as intended.
+  const reservedStart = digest.indexOf('#### Reserved keys');
+  const reservedEnd = digest.indexOf('\n#### ', reservedStart + 1);
+  const reservedSection = reservedStart === -1 ? '' : digest.slice(reservedStart, reservedEnd === -1 ? undefined : reservedEnd);
   for (const rk of filtered.reservedKeys ?? []) {
     // Backtick-delimited for the same substring reason as targets:
     // `JWT_ISSUER` and `JWT_AUDIENCE` are proper substrings of their
     // `_VERIFICATION` siblings, and all four are reserved.
-    if (!digest.includes(`\`${rk.key}\``)) {
-      misses.push(`reserved key \`${rk.key}\` is not rendered in the digest`);
+    if (!reservedSection.includes(`\`${rk.key}\``)) {
+      misses.push(`reserved key \`${rk.key}\` is not rendered in the reserved-keys section`);
     }
   }
 

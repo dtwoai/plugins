@@ -124,11 +124,18 @@ describe('schemaDigest', () => {
       reserved.length >= 10,
       `artifact declares only ${reserved.length} reservedKeys — shape drift, re-audit this test`,
     );
+    // Match inside the reserved-keys SECTION, not the whole region: a
+    // typed-owned key also renders as a target env var in its home section's
+    // table, so region-wide matching would mask a silently dropped redirect
+    // row. A missing/renamed section makes every key miss — loud on purpose.
+    const sectionStart = region.indexOf('#### Reserved keys');
+    const sectionEnd = region.indexOf('\n#### ', sectionStart + 1);
+    const section = sectionStart === -1 ? '' : region.slice(sectionStart, sectionEnd === -1 ? undefined : sectionEnd);
     // Backtick-delimited for the same substring reason as the target test:
     // `JWT_ISSUER` / `JWT_AUDIENCE` are proper substrings of their
     // `_VERIFICATION` siblings, and all four are reserved.
-    const missing = reserved.filter(rk => !region.includes(`\`${rk.key}\``)).map(rk => rk.key);
-    assert.deepEqual(missing, [], `reserved keys missing from the digest: ${missing.join(', ')}`);
+    const missing = reserved.filter(rk => !section.includes(`\`${rk.key}\``)).map(rk => rk.key);
+    assert.deepEqual(missing, [], `reserved keys missing from the reserved-keys section: ${missing.join(', ')}`);
   });
 
   it('documents every targetKind the artifact emits for user-audience fields', () => {
