@@ -28,7 +28,10 @@
  * backtick-delimited form (several targets are proper substrings of others).
  * The same gate covers the artifact's `reservedKeys`: every reserved env-var
  * name must render backtick-delimited, so an artifact that grows the list
- * fails regeneration if the renderer drops the new key.
+ * fails regeneration if the renderer drops the new key. It also covers the
+ * Default column: an artifact key ending in `Default` that `defaultCell` does
+ * not render is fatal, and every user-audience field declaring a known
+ * default must render its flavored cell.
  */
 
 import { createHash } from 'node:crypto';
@@ -368,36 +371,21 @@ function renderJwksInfo(filtered) {
 }
 
 /**
- * Guard for the two renderers below that build their own default cells from
- * `deployDefault` alone instead of going through `defaultCell`. Honest today:
- * no `gateway.ssrf` or top-level `gateway` field carries a `gatewayDefault`.
- * If a future artifact adds one, these renderers would show `—` — "no
- * default" — where a gateway-applied default exists, the exact lie the
- * `(gateway)` marker was added to prevent. Fail the build instead.
+ * renderSsrf and renderGatewayAdvancedAndLog once built their own Default
+ * cells from `deployDefault` alone, backed by a build-failing guard
+ * (`assertNoGatewayDefault`) for the day a field here grew a `gatewayDefault`
+ * — the bare cell would have shown `—` ("no default") where a gateway-applied
+ * default exists. Both now route through the shared `defaultCell`, which
+ * renders all three declared flavors, so that case is handled rather than
+ * forbidden and the guard is gone. It also means `DEFAULT_COLUMN_LEGEND`
+ * applies to these tables the same as to every other: `—` is reserved for
+ * required fields, `not declared` for optional ones with no declared default.
  */
-function assertNoGatewayDefault(renderer, sectionPath, fields) {
-  const offenders = fields.filter(f => f.gatewayDefault !== null && f.gatewayDefault !== undefined);
-  if (offenders.length > 0) {
-    fatal([
-      `${renderer} builds its Default cell from deployDefault only, but these ${sectionPath} field(s) now carry a gatewayDefault:`,
-      ...offenders.map(f => `  - ${f.name} (gatewayDefault=${JSON.stringify(f.gatewayDefault)})`),
-      '',
-      'Rendering them here would show `—` where a gateway-applied default',
-      'exists. Teach the renderer the `(gateway)` flavor (see defaultCell)',
-      'before regenerating.',
-    ]);
-  }
-}
-
 function renderSsrf(filtered) {
   const ssrf = findSection(filtered, 'gateway.ssrf');
-  assertNoGatewayDefault('renderSsrf', 'gateway.ssrf', ssrf.fields);
   const rows = ssrf.fields.map(f => {
-    const def = f.deployDefault !== null && f.deployDefault !== undefined
-      ? `\`${JSON.stringify(f.deployDefault)}\``
-      : '—';
     const target = f.target ? `\`${f.target}\`` : '—';
-    return `| \`${f.name}\` | ${escapePipe(f.type)} | ${def} | ${target} | ${escapePipe(f.rationale ?? f.description)} |`;
+    return `| \`${f.name}\` | ${escapePipe(f.type)} | ${defaultCell(f)} | ${target} | ${escapePipe(f.rationale ?? f.description)} |`;
   });
 
   return [
@@ -405,7 +393,7 @@ function renderSsrf(filtered) {
     '',
     'Strict defaults block localhost, private networks, and fail-closed DNS when omitted.',
     '',
-    '| Field | Type | deployDefault | Target | Rationale (from artifact) |',
+    '| Field | Type | Default | Target | Rationale (from artifact) |',
     '|---|---|---|---|---|',
     ...rows,
     '',
@@ -416,16 +404,12 @@ function renderGatewayAdvancedAndLog(filtered) {
   const gw = findSection(filtered, 'gateway');
   const adv = fieldByName(gw, 'advanced');
   const log = fieldByName(gw, 'log_level');
-  assertNoGatewayDefault('renderGatewayAdvancedAndLog', 'gateway', [adv, log]);
-  const logDefault = log.deployDefault !== null && log.deployDefault !== undefined
-    ? `\`${log.deployDefault}\``
-    : '—';
 
   return [
     '#### `gateway.advanced` and `gateway.log_level`',
     '',
     `- **\`advanced\`** — \`${adv.type}\`, \`targetKind: ${adv.targetKind}\`. Lines are appended verbatim to the deployed env file under systemd \`EnvironmentFile\` semantics (last-occurrence-wins). Validation rejects two classes of keys: keys already emitted by a typed field (so it cannot shadow one by accident) AND every name on the reserved-keys list below. Keys here are case-sensitive — preserve exact casing.`,
-    `- **\`log_level\`** — enum: ${enumList(log)}. \`deployDefault\`: ${logDefault}. Target: \`${log.target}\`.`,
+    `- **\`log_level\`** — enum: ${enumList(log)}. Default: ${defaultCell(log)}. Target: \`${log.target}\`.`,
     '',
   ].join('\n');
 }
@@ -760,8 +744,57 @@ function renderDigest(filtered, artifactSha256) {
  *    and `sotw.auth_headers` of `sotw.auth_headers[].key`, so a bare
  *    `includes(target)` false-passes on exactly the fields this gate protects.
  */
-function assertDigestCoverage(filtered, digest) {
+function assertDigestCoverage(artifact, filtered, digest) {
   const misses = [];
+
+  // Unknown default flavors — scanned over the FULL artifact, not the
+  // user-audience slice: shape drift is shape drift regardless of audience.
+  // `defaultCell` renders exactly three flavors; a fourth (`bootDefault`,
+  // say) would fall through to `not declared` — the exact reading the
+  // defaultCell docstring flags as false and dangerous.
+  const KNOWN_DEFAULT_FLAVORS = new Set(['schemaDefault', 'deployDefault', 'gatewayDefault']);
+  for (const section of artifact.sections) {
+    for (const f of section.fields) {
+      for (const key of Object.keys(f)) {
+        if (key.endsWith('Default') && !KNOWN_DEFAULT_FLAVORS.has(key)) {
+          misses.push(
+            `field ${section.path} → ${f.name}: the artifact declares a default flavor this generator does not render: "${key}"`,
+          );
+        }
+      }
+    }
+  }
+
+  // Flavored-cell coverage: every user-audience field declaring one of the
+  // three known defaults must render its flavored cell (backtick-delimited
+  // value + flavor marker) on a line carrying the field's backtick-delimited
+  // target — targets are unique across the artifact, field names are not.
+  // The expected cell is recomputed here from the artifact, with the same
+  // precedence as `defaultCell` (schema → deploy → gateway), rather than by
+  // CALLING defaultCell: a gate that calls the renderer it polices mutates
+  // in lockstep with it and can never fire on a defaultCell regression.
+  // Every user-facing table that has a Default column routes it through
+  // defaultCell, so there are no per-renderer exceptions. The mcp_servers
+  // tables render no Default column at all, and no user-audience field
+  // there declares a default today; if one ever does, this clause fails the
+  // build until those tables grow one.
+  const declared = v => v !== null && v !== undefined;
+  const digestLines = digest.split('\n');
+  for (const section of filtered.sections) {
+    for (const f of section.fields) {
+      const flavor = ['schema', 'deploy', 'gateway'].find(m => declared(f[`${m}Default`]));
+      if (!flavor) continue;
+      const expected = `\`${JSON.stringify(f[`${flavor}Default`])}\` (${flavor})`;
+      const hit = f.target
+        ? digestLines.some(line => line.includes(`\`${f.target}\``) && line.includes(expected))
+        : digest.includes(expected);
+      if (!hit) {
+        misses.push(
+          `default for ${section.path} → ${f.name} is not rendered flavored: expected ${expected}${f.target ? ` on a line carrying \`${f.target}\`` : ''}`,
+        );
+      }
+    }
+  }
 
   for (const section of filtered.sections) {
     for (const f of section.fields) {
@@ -863,7 +896,7 @@ function main() {
 
   const filtered = filterArtifactForSkill(artifact);
   const digest = renderDigest(filtered, artifactSha256);
-  assertDigestCoverage(filtered, digest);
+  assertDigestCoverage(artifact, filtered, digest);
 
   const body = readFileSync(skillAbs, 'utf8');
   const updated = replaceBetweenMarkers(body, digest);

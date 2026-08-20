@@ -190,16 +190,16 @@ OAuth Dynamic Client Registration overrides. Defaults are auto-derived from mcp_
 
 Strict defaults block localhost, private networks, and fail-closed DNS when omitted.
 
-| Field | Type | deployDefault | Target | Rationale (from artifact) |
+| Field | Type | Default | Target | Rationale (from artifact) |
 |---|---|---|---|---|
-| `allow_localhost` | boolean | `false` | `SSRF_ALLOW_LOCALHOST` | Enable only for local development where the MCP server runs on the same host as the gateway; leaving it on in production widens the gateway's outbound attack surface. |
-| `allow_private_networks` | boolean | `false` | `SSRF_ALLOW_PRIVATE_NETWORKS` | Enable only when the gateway and MCP server share a private network (e.g. co-located on one EC2 host); prefer `allowed_networks` with a surgical CIDR allowlist in production, since a blanket private-range allow widens the gateway's outbound attack surface. |
-| `allowed_networks` | array<string> | `[]` | `SSRF_ALLOWED_NETWORKS` | Set to the specific CIDRs your MCP servers live on when the gateway must reach private hosts — prefer this surgical allowlist over the blanket `allow_private_networks=true`, since every range you add widens the gateway's outbound attack surface. |
+| `allow_localhost` | boolean | `false` (deploy) | `SSRF_ALLOW_LOCALHOST` | Enable only for local development where the MCP server runs on the same host as the gateway; leaving it on in production widens the gateway's outbound attack surface. |
+| `allow_private_networks` | boolean | `false` (deploy) | `SSRF_ALLOW_PRIVATE_NETWORKS` | Enable only when the gateway and MCP server share a private network (e.g. co-located on one EC2 host); prefer `allowed_networks` with a surgical CIDR allowlist in production, since a blanket private-range allow widens the gateway's outbound attack surface. |
+| `allowed_networks` | array<string> | `[]` (deploy) | `SSRF_ALLOWED_NETWORKS` | Set to the specific CIDRs your MCP servers live on when the gateway must reach private hosts — prefer this surgical allowlist over the blanket `allow_private_networks=true`, since every range you add widens the gateway's outbound attack surface. |
 
 #### `gateway.advanced` and `gateway.log_level`
 
 - **`advanced`** — `array<string>`, `targetKind: advanced`. Lines are appended verbatim to the deployed env file under systemd `EnvironmentFile` semantics (last-occurrence-wins). Validation rejects two classes of keys: keys already emitted by a typed field (so it cannot shadow one by accident) AND every name on the reserved-keys list below. Keys here are case-sensitive — preserve exact casing.
-- **`log_level`** — enum: `TRACE`/`DEBUG`/`INFO`/`WARNING`/`ERROR`/`CRITICAL`. `deployDefault`: `DEBUG`. Target: `LOG_LEVEL`.
+- **`log_level`** — enum: `TRACE`/`DEBUG`/`INFO`/`WARNING`/`ERROR`/`CRITICAL`. Default: `"DEBUG"` (deploy). Target: `LOG_LEVEL`.
 
 #### Reserved keys — rejected inside `gateway.advanced`
 
