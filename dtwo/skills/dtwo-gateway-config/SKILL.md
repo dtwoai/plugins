@@ -198,8 +198,41 @@ Strict defaults block localhost, private networks, and fail-closed DNS when omit
 
 #### `gateway.advanced` and `gateway.log_level`
 
-- **`advanced`** — `array<string>`, `targetKind: advanced`. Lines are appended verbatim to the deployed env file under systemd `EnvironmentFile` semantics (last-occurrence-wins). Validation rejects keys already emitted by a typed field, so it cannot shadow a typed field by accident. Keys here are case-sensitive — preserve exact casing.
+- **`advanced`** — `array<string>`, `targetKind: advanced`. Lines are appended verbatim to the deployed env file under systemd `EnvironmentFile` semantics (last-occurrence-wins). Validation rejects two classes of keys: keys already emitted by a typed field (so it cannot shadow one by accident) AND every name on the reserved-keys list below. Keys here are case-sensitive — preserve exact casing.
 - **`log_level`** — enum: `TRACE`/`DEBUG`/`INFO`/`WARNING`/`ERROR`/`CRITICAL`. `deployDefault`: `DEBUG`. Target: `LOG_LEVEL`.
+
+#### Reserved keys — rejected inside `gateway.advanced`
+
+Validation rejects each of these 54 env-var names when written into `gateway.advanced`, in two groups.
+
+Owned by a typed config field — set the field instead of the raw env line:
+
+| Reserved key | Configure via |
+|---|---|
+| `DCR_AUTO_REGISTER_ON_MISSING_CREDENTIALS` | `gateway.authentication.oauth_dcr.auto_register_on_missing_credentials` |
+| `DCR_ENABLED` | `gateway.authentication.oauth_dcr.dcr_enabled` |
+| `JWT_ALGORITHM` | `gateway.authentication.jwks_info.jwt_algorithm` |
+| `JWT_AUDIENCE` | `gateway.authentication.jwks_info.jwt_audience` |
+| `JWT_AUDIENCE_VERIFICATION` | `gateway.authentication.jwt_audience_verification` |
+| `JWT_ISSUER` | `gateway.authentication.jwks_info.jwt_issuer` |
+| `JWT_ISSUER_VERIFICATION` | `gateway.authentication.jwt_issuer_verification` |
+| `JWT_JWKS_URI` | `gateway.authentication.jwks_info.jwt_jwks_uri` |
+| `LOG_LEVEL` | `gateway.log_level` |
+| `MCP_OAUTH_RESOURCE_METADATA_ENABLED` | `gateway.authentication.mcp_oauth_resource_metadata_enabled` |
+| `MCP_REQUIRE_AUTH` | `gateway.authentication.enabled` |
+| `OAUTH_DISCOVERY_ENABLED` | `gateway.authentication.oauth_dcr.oauth_discovery_enabled` |
+| `REQUIRE_JTI` | `gateway.authentication.require_jti` |
+| `REQUIRE_TOKEN_EXPIRATION` | `gateway.authentication.require_token_expiration` |
+| `SESSION_CONTROL_CLIENT_ID` | `gateway.session_control.client_id` |
+| `SSO_GENERIC_ISSUER` | `gateway.authentication.sso_issuer` |
+| `SSO_GENERIC_SCOPE` | `gateway.authentication.sso_generic_scope` |
+| `SSRF_ALLOWED_NETWORKS` | `gateway.ssrf.allowed_networks` |
+| `SSRF_ALLOW_LOCALHOST` | `gateway.ssrf.allow_localhost` |
+| `SSRF_ALLOW_PRIVATE_NETWORKS` | `gateway.ssrf.allow_private_networks` |
+
+Platform-managed — the platform sets these; not configurable through this config at all:
+
+`ALLOWED_ORIGINS`, `AUDIT_TRAIL_ENABLED`, `AUTH_ENCRYPTION_SECRET`, `AUTH_REQUIRED`, `AUTO_REFRESH_SERVERS`, `CACHE_TYPE`, `D2_TENANT_ID`, `DATABASE_URL`, `DISABLE_ACCESS_LOG`, `EMAIL_AUTH_ENABLED`, `ENVIRONMENT`, `GUNICORN_WORKERS`, `HEARTBEAT_ENABLED`, `HEARTBEAT_INTERVAL_SECONDS`, `JWT_REQUIRED_ORG_ID`, `JWT_SECRET_KEY`, `MCPGATEWAY_ADMIN_API_ENABLED`, `MCPGATEWAY_UI_ENABLED`, `PLATFORM_ADMIN_EMAIL`, `PLATFORM_ADMIN_PASSWORD`, `PLUGINS_CONFIG_FILE`, `PLUGINS_ENABLED`, `PULSE_DEBOUNCE_SECONDS`, `PULSE_ENABLED`, `PULSE_EVENT_DRIVEN_ENABLED`, `PULSE_INTERVAL_SECONDS`, `SECURITY_HEADERS_ENABLED`, `SESSION_CONTROL_ISSUER`, `SOTW_ENABLED`, `SOTW_FILE_PATH`, `SSRF_DNS_FAIL_CLOSED`, `STRUCTURED_LOGGING_DATABASE_ENABLED`, `TRANSPORT_TYPE`, `WELL_KNOWN_ALLOW_HTTP`
 
 #### `gateway.intent` — session-intent capture
 

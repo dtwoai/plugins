@@ -111,6 +111,26 @@ describe('schemaDigest', () => {
     assert.deepEqual(missing, [], `cross-field constraints missing from the digest:\n${missing.join('\n')}`);
   });
 
+  it('renders every reserved advanced key', () => {
+    // Same committed-SKILL.md philosophy as the checks around it: deleting
+    // renderReservedKeys from the generator and regenerating keeps `--check`
+    // green (the digest is self-consistent with the mutated generator), so
+    // only an assertion keyed on the artifact's own reservedKeys catches it.
+    const region = digestRegion();
+    const reserved = artifact.reservedKeys ?? [];
+    // Anti-vacuity: the vendored artifact carries ~54 today. A short or empty
+    // list means shape drift, not a gateway that stopped reserving names.
+    assert.ok(
+      reserved.length >= 10,
+      `artifact declares only ${reserved.length} reservedKeys — shape drift, re-audit this test`,
+    );
+    // Backtick-delimited for the same substring reason as the target test:
+    // `JWT_ISSUER` / `JWT_AUDIENCE` are proper substrings of their
+    // `_VERIFICATION` siblings, and all four are reserved.
+    const missing = reserved.filter(rk => !region.includes(`\`${rk.key}\``)).map(rk => rk.key);
+    assert.deepEqual(missing, [], `reserved keys missing from the digest: ${missing.join(', ')}`);
+  });
+
   it('documents every targetKind the artifact emits for user-audience fields', () => {
     const region = digestRegion();
     assert.ok(userTargetKinds().size > 0, 'artifact declares no targetKind at all — shape drift');

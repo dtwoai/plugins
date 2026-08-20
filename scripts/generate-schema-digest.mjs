@@ -26,6 +26,9 @@
  * disappearing. It keys on `target` (unique across the artifact) rather than
  * on field name (which collides across sections), and matches the
  * backtick-delimited form (several targets are proper substrings of others).
+ * The same gate covers the artifact's `reservedKeys`: every reserved env-var
+ * name must render backtick-delimited, so an artifact that grows the list
+ * fails regeneration if the renderer drops the new key.
  */
 
 import { createHash } from 'node:crypto';
@@ -421,8 +424,65 @@ function renderGatewayAdvancedAndLog(filtered) {
   return [
     '#### `gateway.advanced` and `gateway.log_level`',
     '',
-    `- **\`advanced\`** — \`${adv.type}\`, \`targetKind: ${adv.targetKind}\`. Lines are appended verbatim to the deployed env file under systemd \`EnvironmentFile\` semantics (last-occurrence-wins). Validation rejects keys already emitted by a typed field, so it cannot shadow a typed field by accident. Keys here are case-sensitive — preserve exact casing.`,
+    `- **\`advanced\`** — \`${adv.type}\`, \`targetKind: ${adv.targetKind}\`. Lines are appended verbatim to the deployed env file under systemd \`EnvironmentFile\` semantics (last-occurrence-wins). Validation rejects two classes of keys: keys already emitted by a typed field (so it cannot shadow one by accident) AND every name on the reserved-keys list below. Keys here are case-sensitive — preserve exact casing.`,
     `- **\`log_level\`** — enum: ${enumList(log)}. \`deployDefault\`: ${logDefault}. Target: \`${log.target}\`.`,
+    '',
+  ].join('\n');
+}
+
+/**
+ * The artifact's `reservedKeys` are the env-var names that validation rejects
+ * outright inside `gateway.advanced` — the second rejection class the
+ * `advanced` bullet above names. Each entry carries a `key` and optionally a
+ * `schemaPath` naming the typed config field that owns the env var. The split
+ * below is on the *user-filtered* artifact: a `schemaPath` pointing at a
+ * field the digest renders becomes a "configure via the typed field" row,
+ * while a `schemaPath` outside the user authoring surface is, for the reader,
+ * indistinguishable from platform-managed — so it is listed as such rather
+ * than pointing at a field this digest never shows.
+ *
+ * Coverage: `assertDigestCoverage` requires every reserved key to appear
+ * backtick-delimited in the rendered digest, so a future artifact adding one
+ * fails regeneration if this renderer drops it.
+ */
+function renderReservedKeys(filtered) {
+  const reserved = filtered.reservedKeys ?? [];
+  if (reserved.length === 0) {
+    fatal([
+      'The schema artifact declares no reservedKeys at all.',
+      '',
+      'Every vendored artifact so far carried ~50; an empty list means shape',
+      'drift (renamed field, dropped array), not a gateway with nothing',
+      'reserved. Re-audit the artifact before regenerating.',
+    ]);
+  }
+
+  const userFieldPaths = new Set();
+  for (const section of filtered.sections) {
+    for (const f of section.fields) {
+      userFieldPaths.add(section.path === '' ? f.name : `${section.path}.${f.name}`);
+    }
+  }
+
+  const typedOwned = reserved.filter(rk => rk.schemaPath && userFieldPaths.has(rk.schemaPath));
+  const platformManaged = reserved.filter(rk => !(rk.schemaPath && userFieldPaths.has(rk.schemaPath)));
+  const rows = typedOwned.map(rk => `| \`${rk.key}\` | \`${rk.schemaPath}\` |`);
+  const platformList = platformManaged.map(rk => `\`${rk.key}\``).join(', ');
+
+  return [
+    '#### Reserved keys — rejected inside `gateway.advanced`',
+    '',
+    `Validation rejects each of these ${reserved.length} env-var names when written into \`gateway.advanced\`, in two groups.`,
+    '',
+    'Owned by a typed config field — set the field instead of the raw env line:',
+    '',
+    '| Reserved key | Configure via |',
+    '|---|---|',
+    ...rows,
+    '',
+    'Platform-managed — the platform sets these; not configurable through this config at all:',
+    '',
+    platformList,
     '',
   ].join('\n');
 }
@@ -656,6 +716,7 @@ function renderDigest(filtered, artifactSha256) {
     ),
     renderSsrf(filtered),
     renderGatewayAdvancedAndLog(filtered),
+    renderReservedKeys(filtered),
     renderGenericSection(filtered, 'gateway.intent', '#### `gateway.intent` — session-intent capture'),
     renderGenericSection(
       filtered,
@@ -720,6 +781,15 @@ function assertDigestCoverage(filtered, digest) {
     }
   }
 
+  for (const rk of filtered.reservedKeys ?? []) {
+    // Backtick-delimited for the same substring reason as targets:
+    // `JWT_ISSUER` and `JWT_AUDIENCE` are proper substrings of their
+    // `_VERIFICATION` siblings, and all four are reserved.
+    if (!digest.includes(`\`${rk.key}\``)) {
+      misses.push(`reserved key \`${rk.key}\` is not rendered in the digest`);
+    }
+  }
+
   for (const kind of targetKindsPresent(filtered)) {
     // Two independent checks. Map membership is the one a stub renderer could
     // not fake; the rendered-string check catches prose that exists but never
@@ -738,8 +808,9 @@ function assertDigestCoverage(filtered, digest) {
       `Digest coverage check failed — ${misses.length} item(s) missing from the rendered digest:`,
       ...misses.map(m => `  - ${m}`),
       '',
-      'Every user-audience field, cross-field constraint, and targetKind in the',
-      'artifact must appear in SKILL.md. Add a renderer or an override-map entry.',
+      'Every user-audience field, cross-field constraint, reserved key, and',
+      'targetKind in the artifact must appear in SKILL.md. Add a renderer or an',
+      'override-map entry.',
     ]);
   }
 }
