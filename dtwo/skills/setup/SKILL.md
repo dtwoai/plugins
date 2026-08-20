@@ -28,7 +28,7 @@ Keep the two ideas — what Dtwo *is* and what you'll *do together* — visually
 >
 > I'll get a working gateway running end to end: create your gateway, configure who's allowed to connect, add the MCP servers it'll front, add some policies so it actually enforces something, connect your AI client once it's live, and test that the policies actually work. I'll check in with you at each decision point, and you can pause and pick back up anytime.
 
-Then show the six stages as a compact diagram (each stage bundles several phases — don't diagram all 11 individually, it's too much for a first look). This skill runs in two different hosts, so pick the format that matches yours:
+Then show the six stages as a compact diagram (each stage bundles several phases — don't diagram all 12 individually, it's too much for a first look). This skill runs in two different hosts, so pick the format that matches yours:
 
 - **Claude Cowork, claude.ai, or another chat surface that renders Markdown/Mermaid inline** — use the Mermaid flowchart:
 
