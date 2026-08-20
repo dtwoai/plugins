@@ -7,13 +7,13 @@ import { describe, it } from 'node:test';
 import { DEFAULT_SCHEMA_ARTIFACT_PATH, loadSchemaArtifact, SCHEMA_ARTIFACT_VERSION } from '../schemaArtifact.js';
 
 describe('schemaArtifact', () => {
-  it('pins generatorVersion to 1.0.0 exactly', () => {
-    assert.equal(SCHEMA_ARTIFACT_VERSION, '1.0.0');
+  it('pins generatorVersion to 1.1.0 exactly', () => {
+    assert.equal(SCHEMA_ARTIFACT_VERSION, '1.1.0');
   });
 
   it('loads the committed artifact from dtwo/skills/dtwo-gateway-config/', () => {
     const artifact = loadSchemaArtifact();
-    assert.equal(artifact.generatorVersion, '1.0.0');
+    assert.equal(artifact.generatorVersion, '1.1.0');
     assert.ok(Array.isArray(artifact.sections));
     assert.ok(artifact.sections.length > 0);
     assert.ok(Array.isArray(artifact.reservedKeys));

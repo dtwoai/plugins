@@ -26,6 +26,12 @@
  * disappearing. It keys on `target` (unique across the artifact) rather than
  * on field name (which collides across sections), and matches the
  * backtick-delimited form (several targets are proper substrings of others).
+ * The same gate covers the artifact's `reservedKeys`: every reserved env-var
+ * name must render backtick-delimited, so an artifact that grows the list
+ * fails regeneration if the renderer drops the new key. It also covers the
+ * Default column: an artifact key ending in `Default` that `defaultCell` does
+ * not render is fatal, and every user-audience field declaring a known
+ * default must render its flavored cell.
  */
 
 import { createHash } from 'node:crypto';
@@ -141,16 +147,23 @@ function typeCell(field) {
  * Default cell for the generic field tables. See `DEFAULT_COLUMN_LEGEND` —
  * the two must stay in step.
  *
- * Load-bearing: when an OPTIONAL field declares neither default the cell says
- * `not declared`, never `—`. The promoted security-posture booleans
- * (`jwt_issuer_verification` and friends) are exactly this case, and a bare
- * `—` would read as "there is no default", which is false and dangerous for
- * them — the gateway does apply one, it just does not travel in the artifact.
- * The token deliberately describes the ARTIFACT (it records no default), not
- * the runtime, because the runtime story differs per field: some of these are
- * boot-defaulted, others simply leave a feature switched off when omitted.
+ * Three declared-default flavors, in the order the value is settled:
+ * `schemaDefault` (the schema itself fills it), `deployDefault` (deploy-time
+ * config fills it), `gatewayDefault` (the gateway applies it at runtime when
+ * the deployed env never set one). The security-posture booleans
+ * (`jwt_issuer_verification` and friends) carry only `gatewayDefault` — the
+ * artifact used to record no default for them at all, and they rendered
+ * `not declared` even though the gateway does apply `true`.
  *
- * A REQUIRED field with neither default renders `—`: there is nothing to
+ * Load-bearing: when an OPTIONAL field declares none of the three the cell
+ * says `not declared`, never `—`. A bare `—` would read as "there is no
+ * default", which is false and dangerous where a runtime default exists but
+ * does not travel in the artifact. The token deliberately describes the
+ * ARTIFACT (it records no default), not the runtime, because the runtime
+ * story differs per field: some are boot-defaulted, others simply leave a
+ * feature switched off when omitted.
+ *
+ * A REQUIRED field with no declared default renders `—`: there is nothing to
  * inherit and the reader must supply a value. Reusing `not declared` there
  * would suggest omission is an option, which is exactly wrong.
  */
@@ -161,6 +174,9 @@ function defaultCell(field) {
   if (field.deployDefault !== null && field.deployDefault !== undefined) {
     return `\`${JSON.stringify(field.deployDefault)}\` (deploy)`;
   }
+  if (field.gatewayDefault !== null && field.gatewayDefault !== undefined) {
+    return `\`${JSON.stringify(field.gatewayDefault)}\` (gateway)`;
+  }
   return field.required ? '—' : '`not declared`';
 }
 
@@ -169,18 +185,23 @@ function defaultCell(field) {
  * columns, so a reader who lands directly on a later section
  * (`session_control`, say) does not have to guess what the markers mean.
  *
- * Both claims are deliberately narrow. `not declared` is a statement about the
- * artifact, not a promise about the runtime: of the eleven fields carrying it,
+ * All claims are deliberately narrow. `not declared` is a statement about the
+ * artifact, not a promise about the runtime: of the seven fields carrying it,
  * four (`sso_issuer`, `sso_generic_scope`,
  * `auto_register_on_missing_credentials`, `oauth_discovery_enabled`) say
  * nothing in their Guidance about what omission does, and for the first two
  * omission simply leaves a feature switched off rather than applying a value.
+ * `(gateway)` marks the third declared-default flavor the 1.1.0 artifact
+ * added (`gatewayDefault`): a default the gateway itself applies at runtime,
+ * as opposed to one written at deploy time — the security-posture booleans
+ * (`jwt_issuer_verification` and friends) carry it and previously rendered
+ * `not declared` even though the gateway applies `true`.
  * And `—` does not say "required fields have no default":
  * `gateway.authentication.enabled` is required and carries
  * `schemaDefault: true`. It says only that this particular field declares none.
  */
 const DEFAULT_COLUMN_LEGEND = [
-  'Reading the **`Default`** column in the tables below: `` `value` (schema) `` and `` `value` (deploy) `` are defaults the artifact declares. **`not declared`** marks an optional field whose default the schema does not record — what happens when it is omitted is decided by the gateway at runtime. Read the Guidance column, which states the effective behavior where the artifact records it. **`—`** marks a required field with no declared default — you must supply a value.',
+  'Reading the **`Default`** column in the tables below: `` `value` (schema) ``, `` `value` (deploy) `` and `` `value` (gateway) `` are defaults the artifact declares — filled by the schema itself, by deploy-time config, or applied by the gateway at runtime when the deployed env leaves the field unset. **`not declared`** marks an optional field whose default the artifact does not record — the gateway still decides at runtime, but unlike `(gateway)` the value does not travel in this table; read the Guidance column, which states the effective behavior where the artifact records it. **`—`** marks a required field with no declared default — you must supply a value.',
   '',
   'Reading the **`Required`** column: required-ness is *within the containing section*. `yes` means the field must appear whenever that section\'s object is present; if the parent object is itself optional, the whole block may be omitted and the field with it.',
 ].join('\n');
@@ -328,7 +349,7 @@ function renderJwksInfo(filtered) {
     ? `All ${jwks.fields.length} fields are required when this object is present.`
     : 'Not every field here is required — read the Required column.';
 
-  return [
+  const lines = [
     '#### `gateway.authentication.jwks_info` — inbound JWT validation',
     '',
     `${lead} These govern the **inbound** leg (clients → gateway), independent of any \`mcp_servers[].authentication\` block which governs the **outbound** leg (gateway → upstream MCP server). Populate \`jwks_info\` whenever the prompt supplies an IdP tenant + audience, even when the upstream server uses OAuth/DCR or "does not accept bearer tokens" — those statements describe the outbound leg only.`,
@@ -337,17 +358,34 @@ function renderJwksInfo(filtered) {
     '|---|---|---|---|---|',
     ...rows,
     '',
-  ].join('\n');
+  ];
+  // This section historically carried no cross-field constraints, so this
+  // renderer — unlike renderGatewayAuthentication and renderGenericSection —
+  // never rendered any. The 1.1.0 artifact declares three; dropping them here
+  // fails assertDigestCoverage, exactly as designed.
+  const constraintBlock = renderConstraints(jwks.crossFieldConstraints);
+  if (constraintBlock) {
+    lines.push(constraintHeading(jwks.crossFieldConstraints), constraintBlock, '');
+  }
+  return lines.join('\n');
 }
 
+/**
+ * renderSsrf and renderGatewayAdvancedAndLog once built their own Default
+ * cells from `deployDefault` alone, backed by a build-failing guard
+ * (`assertNoGatewayDefault`) for the day a field here grew a `gatewayDefault`
+ * — the bare cell would have shown `—` ("no default") where a gateway-applied
+ * default exists. Both now route through the shared `defaultCell`, which
+ * renders all three declared flavors, so that case is handled rather than
+ * forbidden and the guard is gone. It also means `DEFAULT_COLUMN_LEGEND`
+ * applies to these tables the same as to every other: `—` is reserved for
+ * required fields, `not declared` for optional ones with no declared default.
+ */
 function renderSsrf(filtered) {
   const ssrf = findSection(filtered, 'gateway.ssrf');
   const rows = ssrf.fields.map(f => {
-    const def = f.deployDefault !== null && f.deployDefault !== undefined
-      ? `\`${JSON.stringify(f.deployDefault)}\``
-      : '—';
     const target = f.target ? `\`${f.target}\`` : '—';
-    return `| \`${f.name}\` | ${escapePipe(f.type)} | ${def} | ${target} | ${escapePipe(f.rationale ?? f.description)} |`;
+    return `| \`${f.name}\` | ${escapePipe(f.type)} | ${defaultCell(f)} | ${target} | ${escapePipe(f.rationale ?? f.description)} |`;
   });
 
   return [
@@ -355,7 +393,7 @@ function renderSsrf(filtered) {
     '',
     'Strict defaults block localhost, private networks, and fail-closed DNS when omitted.',
     '',
-    '| Field | Type | deployDefault | Target | Rationale (from artifact) |',
+    '| Field | Type | Default | Target | Rationale (from artifact) |',
     '|---|---|---|---|---|',
     ...rows,
     '',
@@ -366,15 +404,112 @@ function renderGatewayAdvancedAndLog(filtered) {
   const gw = findSection(filtered, 'gateway');
   const adv = fieldByName(gw, 'advanced');
   const log = fieldByName(gw, 'log_level');
-  const logDefault = log.deployDefault !== null && log.deployDefault !== undefined
-    ? `\`${log.deployDefault}\``
-    : '—';
 
   return [
     '#### `gateway.advanced` and `gateway.log_level`',
     '',
-    `- **\`advanced\`** — \`${adv.type}\`, \`targetKind: ${adv.targetKind}\`. Lines are appended verbatim to the deployed env file under systemd \`EnvironmentFile\` semantics (last-occurrence-wins). Validation rejects keys already emitted by a typed field, so it cannot shadow a typed field by accident. Keys here are case-sensitive — preserve exact casing.`,
-    `- **\`log_level\`** — enum: ${enumList(log)}. \`deployDefault\`: ${logDefault}. Target: \`${log.target}\`.`,
+    `- **\`advanced\`** — \`${adv.type}\`, \`targetKind: ${adv.targetKind}\`. Lines are appended verbatim to the deployed env file under systemd \`EnvironmentFile\` semantics (last-occurrence-wins). Validation rejects two classes of keys: keys already emitted by a typed field (so it cannot shadow one by accident) AND every name on the reserved-keys list below. Keys here are case-sensitive — preserve exact casing.`,
+    `- **\`log_level\`** — enum: ${enumList(log)}. Default: ${defaultCell(log)}. Target: \`${log.target}\`.`,
+    '',
+  ].join('\n');
+}
+
+/**
+ * The artifact's `reservedKeys` are the env-var names that validation rejects
+ * outright inside `gateway.advanced` — the second rejection class the
+ * `advanced` bullet above names. Each entry carries a `key` and optionally a
+ * `schemaPath` naming the typed config field that owns the env var. Three
+ * groups, all computed from the artifact:
+ *
+ *  - `schemaPath` resolves to a field this digest renders → a "configure via
+ *    the typed field" redirect row.
+ *  - `schemaPath` resolves to a field OUTSIDE the digest's documented surface
+ *    → its own group. These must NOT be lumped in with platform-managed: the
+ *    validator ACCEPTS the typed field (its rejection text names it — "Use
+ *    the typed schema field `gateway.heartbeat.enabled` instead"); the field
+ *    is merely not documented here. Calling it "not configurable at all"
+ *    would teach the reader that a capability the validator accepts does not
+ *    exist. The `schemaPath` is printed: it already ships verbatim in the
+ *    vendored validator's own error messages, so naming it adds no exposure
+ *    and is strictly more actionable.
+ *  - no `schemaPath` at all → platform-managed; nothing in the config schema
+ *    owns the name, typed or otherwise.
+ *
+ * "Resolves to a field" is decided against the FULL artifact (any audience);
+ * "this digest renders" against the user-filtered one. A `schemaPath` that
+ * resolves to no field at all is fatal — that is artifact drift, and the
+ * validator's own message would be pointing readers at a field that does not
+ * exist.
+ *
+ * Coverage: `assertDigestCoverage` requires every reserved key to appear
+ * backtick-delimited in the rendered digest, so a future artifact adding one
+ * fails regeneration if this renderer drops it.
+ */
+function fieldPathSet(sections) {
+  const paths = new Set();
+  for (const section of sections) {
+    for (const f of section.fields) {
+      paths.add(section.path === '' ? f.name : `${section.path}.${f.name}`);
+    }
+  }
+  return paths;
+}
+
+function renderReservedKeys(artifact, filtered) {
+  const reserved = filtered.reservedKeys ?? [];
+  if (reserved.length === 0) {
+    fatal([
+      'The schema artifact declares no reservedKeys at all.',
+      '',
+      'Every vendored artifact so far carried ~50; an empty list means shape',
+      'drift (renamed field, dropped array), not a gateway with nothing',
+      'reserved. Re-audit the artifact before regenerating.',
+    ]);
+  }
+
+  // "Exists as a typed field" is resolved against the FULL artifact; "shown in
+  // this digest" against the user-filtered one. A schemaPath that resolves to
+  // neither is artifact drift (renamed field, stale reservedKeys entry) — the
+  // validator would then point readers at a field that does not exist.
+  const allFieldPaths = fieldPathSet(artifact.sections);
+  const userFieldPaths = fieldPathSet(filtered.sections);
+  const dangling = reserved.filter(rk => rk.schemaPath && !allFieldPaths.has(rk.schemaPath));
+  if (dangling.length > 0) {
+    fatal([
+      'reservedKeys name a schemaPath that no section field in the artifact resolves to:',
+      '',
+      ...dangling.map(rk => `  ${rk.key} → ${rk.schemaPath}`),
+      '',
+      'Re-audit the artifact before regenerating.',
+    ]);
+  }
+
+  const documented = reserved.filter(rk => rk.schemaPath && userFieldPaths.has(rk.schemaPath));
+  const undocumented = reserved.filter(rk => rk.schemaPath && !userFieldPaths.has(rk.schemaPath));
+  const platformManaged = reserved.filter(rk => !rk.schemaPath);
+  const redirectRow = rk => `| \`${rk.key}\` | \`${rk.schemaPath}\` |`;
+  const platformList = platformManaged.map(rk => `\`${rk.key}\``).join(', ');
+
+  return [
+    '#### Reserved keys — rejected inside `gateway.advanced`',
+    '',
+    `Validation rejects each of these ${reserved.length} env-var names when written into \`gateway.advanced\`, in three groups.`,
+    '',
+    `Owned by a typed config field documented above (${documented.length}) — set the field instead of the raw env line:`,
+    '',
+    '| Reserved key | Configure via |',
+    '|---|---|',
+    ...documented.map(redirectRow),
+    '',
+    `Owned by a typed config field outside this digest's documented surface (${undocumented.length}) — reserved in \`gateway.advanced\` because the typed field owns the value; the validator accepts that field even though this digest does not document it, and its rejection message names it. If a task genuinely needs one of these, confirm the exact field and its type with \`dtwo-validate-gateway-config\` rather than concluding the capability does not exist:`,
+    '',
+    '| Reserved key | Owning typed field |',
+    '|---|---|',
+    ...undocumented.map(redirectRow),
+    '',
+    `Platform-managed (${platformManaged.length}) — nothing in the config schema owns these, typed or otherwise; the platform sets them and they are not configurable through this config at all:`,
+    '',
+    platformList,
     '',
   ].join('\n');
 }
@@ -587,7 +722,7 @@ function renderTargetKind(filtered) {
   ].join('\n');
 }
 
-function renderDigest(filtered, artifactSha256) {
+function renderDigest(artifact, filtered, artifactSha256) {
   const preamble = [
     '### Schema Digest',
     '',
@@ -608,6 +743,7 @@ function renderDigest(filtered, artifactSha256) {
     ),
     renderSsrf(filtered),
     renderGatewayAdvancedAndLog(filtered),
+    renderReservedKeys(artifact, filtered),
     renderGenericSection(filtered, 'gateway.intent', '#### `gateway.intent` — session-intent capture'),
     renderGenericSection(
       filtered,
@@ -651,8 +787,57 @@ function renderDigest(filtered, artifactSha256) {
  *    and `sotw.auth_headers` of `sotw.auth_headers[].key`, so a bare
  *    `includes(target)` false-passes on exactly the fields this gate protects.
  */
-function assertDigestCoverage(filtered, digest) {
+function assertDigestCoverage(artifact, filtered, digest) {
   const misses = [];
+
+  // Unknown default flavors — scanned over the FULL artifact, not the
+  // user-audience slice: shape drift is shape drift regardless of audience.
+  // `defaultCell` renders exactly three flavors; a fourth (`bootDefault`,
+  // say) would fall through to `not declared` — the exact reading the
+  // defaultCell docstring flags as false and dangerous.
+  const KNOWN_DEFAULT_FLAVORS = new Set(['schemaDefault', 'deployDefault', 'gatewayDefault']);
+  for (const section of artifact.sections) {
+    for (const f of section.fields) {
+      for (const key of Object.keys(f)) {
+        if (key.endsWith('Default') && !KNOWN_DEFAULT_FLAVORS.has(key)) {
+          misses.push(
+            `field ${section.path} → ${f.name}: the artifact declares a default flavor this generator does not render: "${key}"`,
+          );
+        }
+      }
+    }
+  }
+
+  // Flavored-cell coverage: every user-audience field declaring one of the
+  // three known defaults must render its flavored cell (backtick-delimited
+  // value + flavor marker) on a line carrying the field's backtick-delimited
+  // target — targets are unique across the artifact, field names are not.
+  // The expected cell is recomputed here from the artifact, with the same
+  // precedence as `defaultCell` (schema → deploy → gateway), rather than by
+  // CALLING defaultCell: a gate that calls the renderer it polices mutates
+  // in lockstep with it and can never fire on a defaultCell regression.
+  // Every user-facing table that has a Default column routes it through
+  // defaultCell, so there are no per-renderer exceptions. The mcp_servers
+  // tables render no Default column at all, and no user-audience field
+  // there declares a default today; if one ever does, this clause fails the
+  // build until those tables grow one.
+  const declared = v => v !== null && v !== undefined;
+  const digestLines = digest.split('\n');
+  for (const section of filtered.sections) {
+    for (const f of section.fields) {
+      const flavor = ['schema', 'deploy', 'gateway'].find(m => declared(f[`${m}Default`]));
+      if (!flavor) continue;
+      const expected = `\`${JSON.stringify(f[`${flavor}Default`])}\` (${flavor})`;
+      const hit = f.target
+        ? digestLines.some(line => line.includes(`\`${f.target}\``) && line.includes(expected))
+        : digest.includes(expected);
+      if (!hit) {
+        misses.push(
+          `default for ${section.path} → ${f.name} is not rendered flavored: expected ${expected}${f.target ? ` on a line carrying \`${f.target}\`` : ''}`,
+        );
+      }
+    }
+  }
 
   for (const section of filtered.sections) {
     for (const f of section.fields) {
@@ -669,6 +854,22 @@ function assertDigestCoverage(filtered, digest) {
       if (!digest.includes(message)) {
         misses.push(`cross-field constraint on ${section.path} is not rendered: ${message}`);
       }
+    }
+  }
+
+  // Match inside the reserved-keys SECTION, not the whole digest: a
+  // typed-owned key also renders as a target env var in its home section's
+  // table, so whole-digest matching would mask a silently dropped redirect
+  // row. A missing/renamed section makes every key miss — loud, as intended.
+  const reservedStart = digest.indexOf('#### Reserved keys');
+  const reservedEnd = digest.indexOf('\n#### ', reservedStart + 1);
+  const reservedSection = reservedStart === -1 ? '' : digest.slice(reservedStart, reservedEnd === -1 ? undefined : reservedEnd);
+  for (const rk of filtered.reservedKeys ?? []) {
+    // Backtick-delimited for the same substring reason as targets:
+    // `JWT_ISSUER` and `JWT_AUDIENCE` are proper substrings of their
+    // `_VERIFICATION` siblings, and all four are reserved.
+    if (!reservedSection.includes(`\`${rk.key}\``)) {
+      misses.push(`reserved key \`${rk.key}\` is not rendered in the reserved-keys section`);
     }
   }
 
@@ -690,8 +891,9 @@ function assertDigestCoverage(filtered, digest) {
       `Digest coverage check failed — ${misses.length} item(s) missing from the rendered digest:`,
       ...misses.map(m => `  - ${m}`),
       '',
-      'Every user-audience field, cross-field constraint, and targetKind in the',
-      'artifact must appear in SKILL.md. Add a renderer or an override-map entry.',
+      'Every user-audience field, cross-field constraint, reserved key, and',
+      'targetKind in the artifact must appear in SKILL.md. Add a renderer or an',
+      'override-map entry.',
     ]);
   }
 }
@@ -736,8 +938,8 @@ function main() {
   }
 
   const filtered = filterArtifactForSkill(artifact);
-  const digest = renderDigest(filtered, artifactSha256);
-  assertDigestCoverage(filtered, digest);
+  const digest = renderDigest(artifact, filtered, artifactSha256);
+  assertDigestCoverage(artifact, filtered, digest);
 
   const body = readFileSync(skillAbs, 'utf8');
   const updated = replaceBetweenMarkers(body, digest);

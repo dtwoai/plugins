@@ -130,7 +130,7 @@ This subsection is generated from `schema-reference.json` by `scripts/generate-s
 | `mcp_servers[].authentication (oauth)` | Fields for `type: oauth`. Governed by the `issuer`-OR-trio cross-field rule. |
 | `mcp_servers[].authentication (cert)` | Fields for `type: cert`. PEM-encoded CA cert; custom-CA / mTLS / self-signed. |
 
-Reading the **`Default`** column in the tables below: `` `value` (schema) `` and `` `value` (deploy) `` are defaults the artifact declares. **`not declared`** marks an optional field whose default the schema does not record — what happens when it is omitted is decided by the gateway at runtime. Read the Guidance column, which states the effective behavior where the artifact records it. **`—`** marks a required field with no declared default — you must supply a value.
+Reading the **`Default`** column in the tables below: `` `value` (schema) ``, `` `value` (deploy) `` and `` `value` (gateway) `` are defaults the artifact declares — filled by the schema itself, by deploy-time config, or applied by the gateway at runtime when the deployed env leaves the field unset. **`not declared`** marks an optional field whose default the artifact does not record — the gateway still decides at runtime, but unlike `(gateway)` the value does not travel in this table; read the Guidance column, which states the effective behavior where the artifact records it. **`—`** marks a required field with no declared default — you must supply a value.
 
 Reading the **`Required`** column: required-ness is *within the containing section*. `yes` means the field must appear whenever that section's object is present; if the parent object is itself optional, the whole block may be omitted and the field with it.
 
@@ -146,10 +146,10 @@ Every field in this section, with the artifact's own guidance:
 |---|---|---|---|---|---|
 | `enabled` | yes | boolean | `true` (schema) | `MCP_REQUIRE_AUTH` | Leave at the default `true` for production. Set `false` only for local development where you want an unauthenticated gateway. |
 | `sso_issuer` | no | URL | `not declared` | `SSO_GENERIC_ISSUER` | Set when you're using an SSO provider that publishes an OpenID Connect discovery document at `{issuer}/.well-known/openid-configuration`. Only set an issuer you want advertised: MCP clients will follow it for OAuth discovery. |
-| `jwt_issuer_verification` | no | boolean | `not declared` | `JWT_ISSUER_VERIFICATION` | Leave unset or `true` — the gateway defaults it to `true` and refuses to start with `false` whenever `jwks_info` is configured, because skipping issuer verification against external IdP keys enables token substitution; the schema rejects `false` for the same reason. Set `true` explicitly to pin the secure value against a future change in the gateway default, not to make a choice. |
-| `jwt_audience_verification` | no | boolean | `not declared` | `JWT_AUDIENCE_VERIFICATION` | Leave unset or `true` — the gateway defaults it to `true` and refuses to start with `false` whenever `jwks_info` is configured, since a token minted for another service in the same tenant would otherwise be accepted here; the schema rejects `false` for the same reason. Set `true` explicitly to pin the secure value against a future change in the gateway default, not to make a choice. |
-| `require_jti` | no | boolean | `not declared` | `REQUIRE_JTI` | The gateway defaults this to `true`, so omitting it rejects every request from Auth0 or Entra ID with "Token is missing required JTI claim" — neither IdP mints a `jti` on access tokens. Set `false` for those, and for any other IdP whose tokens lack `jti`; stay at the `true` default only when your IdP emits one and you rely on per-token revocation, since a `jti`-less token cannot be revoked individually. |
-| `require_token_expiration` | no | boolean | `not declared` | `REQUIRE_TOKEN_EXPIRATION` | The gateway defaults this to `true`, so omitting it already rejects tokens carrying no `exp` claim, which never age out — the setup runbooks set it explicitly only to state that posture. Set `false` only for a short-lived local experiment against an IdP that mints non-expiring tokens, and revert before the gateway sees real traffic. |
+| `jwt_issuer_verification` | no | boolean | `true` (gateway) | `JWT_ISSUER_VERIFICATION` | Leave unset or `true` — the gateway defaults it to `true` and refuses to start with `false` whenever `jwks_info` is configured, because skipping issuer verification against external IdP keys enables token substitution; the schema rejects `false` for the same reason. Set `true` explicitly to pin the secure value against a future change in the gateway default, not to make a choice. |
+| `jwt_audience_verification` | no | boolean | `true` (gateway) | `JWT_AUDIENCE_VERIFICATION` | Leave unset or `true` — the gateway defaults it to `true` and refuses to start with `false` whenever `jwks_info` is configured, since a token minted for another service in the same tenant would otherwise be accepted here; the schema rejects `false` for the same reason. Set `true` explicitly to pin the secure value against a future change in the gateway default, not to make a choice. |
+| `require_jti` | no | boolean | `true` (gateway) | `REQUIRE_JTI` | The gateway defaults this to `true`, so omitting it rejects every request from Auth0 or Entra ID with "Token is missing required JTI claim" — neither IdP mints a `jti` on access tokens. Set `false` for those, and for any other IdP whose tokens lack `jti`; stay at the `true` default only when your IdP emits one and you rely on per-token revocation, since a `jti`-less token cannot be revoked individually. |
+| `require_token_expiration` | no | boolean | `true` (gateway) | `REQUIRE_TOKEN_EXPIRATION` | The gateway defaults this to `true`, so omitting it already rejects tokens carrying no `exp` claim, which never age out — the setup runbooks set it explicitly only to state that posture. Set `false` only for a short-lived local experiment against an IdP that mints non-expiring tokens, and revert before the gateway sees real traffic. |
 | `mcp_oauth_resource_metadata_enabled` | no | boolean | `not declared` | `MCP_OAUTH_RESOURCE_METADATA_ENABLED` | The gateway defaults this to `false`, so discovery is off unless something turns it on. Set `true` when spec-compliant MCP clients must find your authorization server automatically and you have no `sso_issuer` — without it, 401 responses carry no `resource_metadata` URL and the client has nowhere to begin the OAuth flow. With `sso_issuer` set the deploy turns it on for you, so leave it unset there; set `false` to override that and stop advertising the issuer to clients you configure out of band. |
 | `sso_generic_scope` | no | string | `not declared` | `SSO_GENERIC_SCOPE` | Set to the OAuth scope your SSO provider requires (e.g. `openid profile email`). Ignored when `sso_issuer` is not set. |
 
@@ -164,10 +164,17 @@ All 4 fields are required when this object is present. These govern the **inboun
 
 | Field | Required | Type | Target env | Rationale (from artifact) |
 |---|---|---|---|---|
-| `jwt_algorithm` | yes | enum: `HS256`/`HS384`/`HS512`/`RS256`/`RS384`/`RS512`/`ES256`/`ES384`/`ES512` | `JWT_ALGORITHM` | Choose the algorithm your identity provider uses to sign tokens — HS256 for symmetric secrets, RS256 for asymmetric JWKs. |
-| `jwt_jwks_uri` | yes | URL | `JWT_JWKS_URI` | Set to the JWKS URL your identity provider publishes; the gateway fetches public keys from here to validate incoming tokens. |
-| `jwt_issuer` | yes | string | `JWT_ISSUER` | Set to the `iss` claim your provider emits; the gateway rejects tokens whose `iss` does not match. |
+| `jwt_algorithm` | yes | enum: `HS256`/`HS384`/`HS512`/`RS256`/`RS384`/`RS512`/`ES256`/`ES384`/`ES512` | `JWT_ALGORITHM` | Set to the asymmetric algorithm your identity provider signs with — RS256 for most (Auth0, Entra), ES256 for elliptic-curve tenants. The HS256/HS384/HS512 values are symmetric and are rejected here: `jwks_info` always implies a JWKS endpoint, which publishes public keys only, and the gateway refuses to start on that combination. |
+| `jwt_jwks_uri` | yes | URL | `JWT_JWKS_URI` | Set to the JWKS URL your identity provider publishes; the gateway fetches public keys from here to validate incoming tokens. Must begin with a lowercase `https://` — the gateway rejects every other scheme, `file://` included, as an SSRF and key-substitution vector, and refuses to start. |
+| `jwt_issuer` | yes | string | `JWT_ISSUER` | Set to the `iss` claim your provider emits; the gateway rejects tokens whose `iss` does not match. Use the `https://` form — the gateway dereferences this URL for `/userinfo` token introspection and refuses to start on `http://`. Auth0 issuers carry a trailing slash and the comparison is exact, so `https://tenant.us.auth0.com/` and `https://tenant.us.auth0.com` are different values. |
 | `jwt_audience` | yes | string | `JWT_AUDIENCE` | Set to the `aud` claim the provider targets at this gateway; prevents tokens meant for other services from being accepted. |
+
+**Cross-field constraints** (verbatim from artifact):
+> When authentication is enabled (the default), `jwt_jwks_uri` must begin with a lowercase "https://" — the gateway rejects every other scheme, "file://" included, as an SSRF and key-substitution vector, and refuses to start.
+>
+> When authentication is enabled (the default), `jwt_algorithm` cannot be HS256, HS384 or HS512 — a JWKS endpoint publishes public keys, which only verify asymmetric signatures, so the gateway refuses to start. Use RS256 or ES256.
+>
+> When authentication is enabled (the default), `jwt_issuer` cannot begin with "http://" — the gateway dereferences it for /userinfo token introspection and refuses to start rather than send a bearer token in cleartext.
 
 #### `gateway.authentication.oauth_dcr` — DCR and discovery overrides
 
@@ -183,16 +190,65 @@ OAuth Dynamic Client Registration overrides. Defaults are auto-derived from mcp_
 
 Strict defaults block localhost, private networks, and fail-closed DNS when omitted.
 
-| Field | Type | deployDefault | Target | Rationale (from artifact) |
+| Field | Type | Default | Target | Rationale (from artifact) |
 |---|---|---|---|---|
-| `allow_localhost` | boolean | `false` | `SSRF_ALLOW_LOCALHOST` | Enable only for local development where the MCP server runs on the same host as the gateway; leaving it on in production widens the gateway's outbound attack surface. |
-| `allow_private_networks` | boolean | `false` | `SSRF_ALLOW_PRIVATE_NETWORKS` | Enable only when the gateway and MCP server share a private network (e.g. co-located on one EC2 host); prefer `allowed_networks` with a surgical CIDR allowlist in production, since a blanket private-range allow widens the gateway's outbound attack surface. |
-| `allowed_networks` | array<string> | `[]` | `SSRF_ALLOWED_NETWORKS` | Set to the specific CIDRs your MCP servers live on when the gateway must reach private hosts — prefer this surgical allowlist over the blanket `allow_private_networks=true`, since every range you add widens the gateway's outbound attack surface. |
+| `allow_localhost` | boolean | `false` (deploy) | `SSRF_ALLOW_LOCALHOST` | Enable only for local development where the MCP server runs on the same host as the gateway; leaving it on in production widens the gateway's outbound attack surface. |
+| `allow_private_networks` | boolean | `false` (deploy) | `SSRF_ALLOW_PRIVATE_NETWORKS` | Enable only when the gateway and MCP server share a private network (e.g. co-located on one EC2 host); prefer `allowed_networks` with a surgical CIDR allowlist in production, since a blanket private-range allow widens the gateway's outbound attack surface. |
+| `allowed_networks` | array<string> | `[]` (deploy) | `SSRF_ALLOWED_NETWORKS` | Set to the specific CIDRs your MCP servers live on when the gateway must reach private hosts — prefer this surgical allowlist over the blanket `allow_private_networks=true`, since every range you add widens the gateway's outbound attack surface. |
 
 #### `gateway.advanced` and `gateway.log_level`
 
-- **`advanced`** — `array<string>`, `targetKind: advanced`. Lines are appended verbatim to the deployed env file under systemd `EnvironmentFile` semantics (last-occurrence-wins). Validation rejects keys already emitted by a typed field, so it cannot shadow a typed field by accident. Keys here are case-sensitive — preserve exact casing.
-- **`log_level`** — enum: `TRACE`/`DEBUG`/`INFO`/`WARNING`/`ERROR`/`CRITICAL`. `deployDefault`: `DEBUG`. Target: `LOG_LEVEL`.
+- **`advanced`** — `array<string>`, `targetKind: advanced`. Lines are appended verbatim to the deployed env file under systemd `EnvironmentFile` semantics (last-occurrence-wins). Validation rejects two classes of keys: keys already emitted by a typed field (so it cannot shadow one by accident) AND every name on the reserved-keys list below. Keys here are case-sensitive — preserve exact casing.
+- **`log_level`** — enum: `TRACE`/`DEBUG`/`INFO`/`WARNING`/`ERROR`/`CRITICAL`. Default: `"DEBUG"` (deploy). Target: `LOG_LEVEL`.
+
+#### Reserved keys — rejected inside `gateway.advanced`
+
+Validation rejects each of these 54 env-var names when written into `gateway.advanced`, in three groups.
+
+Owned by a typed config field documented above (20) — set the field instead of the raw env line:
+
+| Reserved key | Configure via |
+|---|---|
+| `DCR_AUTO_REGISTER_ON_MISSING_CREDENTIALS` | `gateway.authentication.oauth_dcr.auto_register_on_missing_credentials` |
+| `DCR_ENABLED` | `gateway.authentication.oauth_dcr.dcr_enabled` |
+| `JWT_ALGORITHM` | `gateway.authentication.jwks_info.jwt_algorithm` |
+| `JWT_AUDIENCE` | `gateway.authentication.jwks_info.jwt_audience` |
+| `JWT_AUDIENCE_VERIFICATION` | `gateway.authentication.jwt_audience_verification` |
+| `JWT_ISSUER` | `gateway.authentication.jwks_info.jwt_issuer` |
+| `JWT_ISSUER_VERIFICATION` | `gateway.authentication.jwt_issuer_verification` |
+| `JWT_JWKS_URI` | `gateway.authentication.jwks_info.jwt_jwks_uri` |
+| `LOG_LEVEL` | `gateway.log_level` |
+| `MCP_OAUTH_RESOURCE_METADATA_ENABLED` | `gateway.authentication.mcp_oauth_resource_metadata_enabled` |
+| `MCP_REQUIRE_AUTH` | `gateway.authentication.enabled` |
+| `OAUTH_DISCOVERY_ENABLED` | `gateway.authentication.oauth_dcr.oauth_discovery_enabled` |
+| `REQUIRE_JTI` | `gateway.authentication.require_jti` |
+| `REQUIRE_TOKEN_EXPIRATION` | `gateway.authentication.require_token_expiration` |
+| `SESSION_CONTROL_CLIENT_ID` | `gateway.session_control.client_id` |
+| `SSO_GENERIC_ISSUER` | `gateway.authentication.sso_issuer` |
+| `SSO_GENERIC_SCOPE` | `gateway.authentication.sso_generic_scope` |
+| `SSRF_ALLOWED_NETWORKS` | `gateway.ssrf.allowed_networks` |
+| `SSRF_ALLOW_LOCALHOST` | `gateway.ssrf.allow_localhost` |
+| `SSRF_ALLOW_PRIVATE_NETWORKS` | `gateway.ssrf.allow_private_networks` |
+
+Owned by a typed config field outside this digest's documented surface (11) — reserved in `gateway.advanced` because the typed field owns the value; the validator accepts that field even though this digest does not document it, and its rejection message names it. If a task genuinely needs one of these, confirm the exact field and its type with `dtwo-validate-gateway-config` rather than concluding the capability does not exist:
+
+| Reserved key | Owning typed field |
+|---|---|
+| `ALLOWED_ORIGINS` | `gateway.allowed_origins` |
+| `HEARTBEAT_ENABLED` | `gateway.heartbeat.enabled` |
+| `HEARTBEAT_INTERVAL_SECONDS` | `gateway.heartbeat.interval_seconds` |
+| `PULSE_DEBOUNCE_SECONDS` | `gateway.pulse.debounce_seconds` |
+| `PULSE_ENABLED` | `gateway.pulse.enabled` |
+| `PULSE_EVENT_DRIVEN_ENABLED` | `gateway.pulse.event_driven_enabled` |
+| `PULSE_INTERVAL_SECONDS` | `gateway.pulse.interval_seconds` |
+| `SOTW_ENABLED` | `gateway.sotw.enabled` |
+| `SOTW_FILE_PATH` | `gateway.sotw.file_path` |
+| `SSRF_DNS_FAIL_CLOSED` | `gateway.ssrf.dns_fail_closed` |
+| `WELL_KNOWN_ALLOW_HTTP` | `gateway.authentication.well_known_allow_http` |
+
+Platform-managed (23) — nothing in the config schema owns these, typed or otherwise; the platform sets them and they are not configurable through this config at all:
+
+`AUDIT_TRAIL_ENABLED`, `AUTH_ENCRYPTION_SECRET`, `AUTH_REQUIRED`, `AUTO_REFRESH_SERVERS`, `CACHE_TYPE`, `D2_TENANT_ID`, `DATABASE_URL`, `DISABLE_ACCESS_LOG`, `EMAIL_AUTH_ENABLED`, `ENVIRONMENT`, `GUNICORN_WORKERS`, `JWT_REQUIRED_ORG_ID`, `JWT_SECRET_KEY`, `MCPGATEWAY_ADMIN_API_ENABLED`, `MCPGATEWAY_UI_ENABLED`, `PLATFORM_ADMIN_EMAIL`, `PLATFORM_ADMIN_PASSWORD`, `PLUGINS_CONFIG_FILE`, `PLUGINS_ENABLED`, `SECURITY_HEADERS_ENABLED`, `SESSION_CONTROL_ISSUER`, `STRUCTURED_LOGGING_DATABASE_ENABLED`, `TRANSPORT_TYPE`
 
 #### `gateway.intent` — session-intent capture
 
@@ -316,7 +372,7 @@ Every field marked `secret: true` in the artifact. Emit a self-describing placeh
 - **`targetKind: platform`** — value is applied as a platform-side control at the named `platform.*` path rather than written to the gateway env file.
 - **`targetKind: sotwPath`** — value is written into the SOTW YAML at the named dotted path (e.g. `sotw.url`, `sotw.oauth_config.client_secret`). Read the `Target` column per field; do not infer a field's target from its section.
 
-<!-- schema-reference.json sha256:ffe155c3bdc16325708b171e4f050dbe327336f19bac57feda5602da8e7da12b -->
+<!-- schema-reference.json sha256:7da03dec3c066d3ca74a9a25173017dd63b0e8a04eea167dce3eec4ae19fad1d -->
 
 <!-- END SCHEMA DIGEST -->
 
@@ -324,7 +380,7 @@ Every field marked `secret: true` in the artifact. Emit a self-describing placeh
 
 Controls authentication, SSRF protection, `log_level`, `advanced` flags, DCR / discovery overrides, and session-intent and human-gated clearing — all documented in the Schema Digest above. (CORS is also modeled by the parser but is not detailed in the digest; configure it via the `advanced` escape hatch or confirm the field names with `dtwo-validate-gateway-config` before relying on them.) Authentication and SSRF are the load-bearing ones and are expanded below.
 
-- **Authentication** defaults to enabled when omitted. Every field in `gateway.authentication` — including the token-validation flags (`jwt_issuer_verification`, `jwt_audience_verification`, `require_jti`, `require_token_expiration`, `mcp_oauth_resource_metadata_enabled`) — is listed in the Schema Digest above with its target, its default, and the schema's own guidance on when to set it. Read the table there rather than guessing from this summary; several of those flags have a boot-time default the schema does not declare (their Default column reads `not declared`; the Guidance column states the effective value).
+- **Authentication** defaults to enabled when omitted. Every field in `gateway.authentication` — including the token-validation flags (`jwt_issuer_verification`, `jwt_audience_verification`, `require_jti`, `require_token_expiration`, `mcp_oauth_resource_metadata_enabled`) — is listed in the Schema Digest above with its target, its default, and the schema's own guidance on when to set it. Read the table there rather than guessing from this summary; most of those flags carry a gateway-applied default (their Default column reads `` `true` (gateway) ``), and where the artifact declares none (`mcp_oauth_resource_metadata_enabled` reads `not declared`) the Guidance column states the effective value.
 - **Gateway-side `jwks_info` is independent of any `mcp_servers[].authentication` block.** When the prompt supplies an IdP tenant and audience (e.g. Auth0), populate `gateway.authentication.jwks_info` (`jwt_algorithm`, `jwt_jwks_uri`, `jwt_issuer`, `jwt_audience`) — even when the upstream MCP server uses OAuth/DCR, and even when the prompt says the upstream server "only supports OAuth" or "does not accept bearer tokens." Those statements describe the outbound leg to the MCP server, not the inbound leg from clients to the gateway.
 - **SSRF** defaults to strict (block localhost, block private networks, fail-closed DNS) when omitted. Set `allow_private_networks: true` to permit access to `host.docker.internal` and other private addresses.
 
@@ -343,7 +399,7 @@ Supported authentication types:
 | `basic` | `username`, `password` |
 | `authheaders` | `headers` (array of `{key, value}`) |
 | `query_param` | `param_key`, `param_value` |
-| `oauth` | Either `issuer` (for DCR) or `client_id` + `client_secret` + `token_url`. Optional: `grant_type`, `scopes`, `authorization_url`, `redirect_uri`, `pkce_enabled`, `extra_authorize_params`, `scope_param_name`, `scope_separator`, `token_response_path`, `token_lifetime_seconds`, `oauth_quirks` |
+| `oauth` | `grant_type`, `scopes`, plus either `issuer` (for DCR) or `client_id` + `client_secret` + `token_url`. Optional: `authorization_url`, `redirect_uri`, `pkce_enabled`, `extra_authorize_params`, `scope_param_name`, `scope_separator`, `token_response_path`, `token_lifetime_seconds`, `oauth_quirks` |
 | `cert` | `ca_cert` (PEM) |
 
 **Secret-typed fields** (any field with `secret: true` in the schema — `token`, `password`, `client_secret`, `authheaders.headers[].value`, `query_param.param_value`) must never carry inferred or literal credentials. Emit a self-describing placeholder in one of these shapes: `REPLACE_WITH_<FIELD>`, `PLACEHOLDER_<FIELD>`, `YOUR_<FIELD>` / `your-<field>` (matching the OAuth example below), `CHANGE_ME`, or `${ENV_VAR}`. Bare `PLACEHOLDER` (no suffix), `FILL_FROM_ENV`, and descriptive prose like `placeholder-replace-me` do **not** count — the placeholder must be self-describing so the operator can see which value to substitute.

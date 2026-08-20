@@ -1,5 +1,5 @@
 {
-  "generatorVersion": "1.0.0",
+  "generatorVersion": "1.1.0",
   "source": "Dtwo gateway ConfigSchema",
   "note": "Generated artifact — do not edit by hand; regenerate from the schema instead.",
   "sections": [
@@ -227,6 +227,7 @@
           "audience": "user",
           "schemaDefault": null,
           "deployDefault": null,
+          "gatewayDefault": true,
           "target": "JWT_ISSUER_VERIFICATION",
           "description": "Whether to verify the JWT iss claim.",
           "rationale": "Leave unset or `true` — the gateway defaults it to `true` and refuses to start with `false` whenever `jwks_info` is configured, because skipping issuer verification against external IdP keys enables token substitution; the schema rejects `false` for the same reason. Set `true` explicitly to pin the secure value against a future change in the gateway default, not to make a choice.",
@@ -241,6 +242,7 @@
           "audience": "user",
           "schemaDefault": null,
           "deployDefault": null,
+          "gatewayDefault": true,
           "target": "JWT_AUDIENCE_VERIFICATION",
           "description": "Whether to verify the JWT aud claim.",
           "rationale": "Leave unset or `true` — the gateway defaults it to `true` and refuses to start with `false` whenever `jwks_info` is configured, since a token minted for another service in the same tenant would otherwise be accepted here; the schema rejects `false` for the same reason. Set `true` explicitly to pin the secure value against a future change in the gateway default, not to make a choice.",
@@ -255,6 +257,7 @@
           "audience": "user",
           "schemaDefault": null,
           "deployDefault": null,
+          "gatewayDefault": true,
           "target": "REQUIRE_JTI",
           "description": "Require a jti claim on each token.",
           "rationale": "The gateway defaults this to `true`, so omitting it rejects every request from Auth0 or Entra ID with \"Token is missing required JTI claim\" — neither IdP mints a `jti` on access tokens. Set `false` for those, and for any other IdP whose tokens lack `jti`; stay at the `true` default only when your IdP emits one and you rely on per-token revocation, since a `jti`-less token cannot be revoked individually.",
@@ -269,6 +272,7 @@
           "audience": "user",
           "schemaDefault": null,
           "deployDefault": null,
+          "gatewayDefault": true,
           "target": "REQUIRE_TOKEN_EXPIRATION",
           "description": "Require an exp claim on each token.",
           "rationale": "The gateway defaults this to `true`, so omitting it already rejects tokens carrying no `exp` claim, which never age out — the setup runbooks set it explicitly only to state that posture. Set `false` only for a short-lived local experiment against an IdP that mints non-expiring tokens, and revert before the gateway sees real traffic.",
@@ -363,7 +367,7 @@
           "deployDefault": null,
           "target": "JWT_ALGORITHM",
           "description": "Signing algorithm for bearer tokens.",
-          "rationale": "Choose the algorithm your identity provider uses to sign tokens — HS256 for symmetric secrets, RS256 for asymmetric JWKs.",
+          "rationale": "Set to the asymmetric algorithm your identity provider signs with — RS256 for most (Auth0, Entra), ES256 for elliptic-curve tenants. The HS256/HS384/HS512 values are symmetric and are rejected here: `jwks_info` always implies a JWKS endpoint, which publishes public keys only, and the gateway refuses to start on that combination.",
           "targetKind": "envVar"
         },
         {
@@ -377,7 +381,7 @@
           "deployDefault": null,
           "target": "JWT_JWKS_URI",
           "description": "JWKS discovery endpoint for public keys.",
-          "rationale": "Set to the JWKS URL your identity provider publishes; the gateway fetches public keys from here to validate incoming tokens.",
+          "rationale": "Set to the JWKS URL your identity provider publishes; the gateway fetches public keys from here to validate incoming tokens. Must begin with a lowercase `https://` — the gateway rejects every other scheme, `file://` included, as an SSRF and key-substitution vector, and refuses to start.",
           "targetKind": "envVar"
         },
         {
@@ -391,7 +395,7 @@
           "deployDefault": null,
           "target": "JWT_ISSUER",
           "description": "Expected iss claim value.",
-          "rationale": "Set to the `iss` claim your provider emits; the gateway rejects tokens whose `iss` does not match.",
+          "rationale": "Set to the `iss` claim your provider emits; the gateway rejects tokens whose `iss` does not match. Use the `https://` form — the gateway dereferences this URL for `/userinfo` token introspection and refuses to start on `http://`. Auth0 issuers carry a trailing slash and the comparison is exact, so `https://tenant.us.auth0.com/` and `https://tenant.us.auth0.com` are different values.",
           "targetKind": "envVar"
         },
         {
@@ -407,6 +411,17 @@
           "description": "Expected aud claim value.",
           "rationale": "Set to the `aud` claim the provider targets at this gateway; prevents tokens meant for other services from being accepted.",
           "targetKind": "envVar"
+        }
+      ],
+      "crossFieldConstraints": [
+        {
+          "message": "When authentication is enabled (the default), \"jwt_jwks_uri\" must begin with a lowercase \"https://\" — the gateway rejects every other scheme, \"file://\" included, as an SSRF and key-substitution vector, and refuses to start."
+        },
+        {
+          "message": "When authentication is enabled (the default), \"jwt_algorithm\" cannot be HS256, HS384 or HS512 — a JWKS endpoint publishes public keys, which only verify asymmetric signatures, so the gateway refuses to start. Use RS256 or ES256."
+        },
+        {
+          "message": "When authentication is enabled (the default), \"jwt_issuer\" cannot begin with \"http://\" — the gateway dereferences it for /userinfo token introspection and refuses to start rather than send a bearer token in cleartext."
         }
       ]
     },

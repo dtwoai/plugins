@@ -4,7 +4,7 @@
 #   - https://learn.microsoft.com/entra/identity-platform/scopes-oidc                        (resource.permission dot-syntax, e.g. Calendars.Read.Shared)
 #   - https://learn.microsoft.com/entra/identity-platform/access-tokens                      (v2 endpoints)
 #   - Entra does NOT implement RFC 7591 DCR — client_id + client_secret are static, registered via app registration.
-# Schema ref: packages/libs/utils/schema-reference.json
+# Schema ref: dtwo/skills/dtwo-gateway-config/schema-reference.json (the vendored schema artifact in this repo)
 #   gateway.ssrf.allow_private_networks (host.docker.internal resolves into a private range)
 #
 # Authored 2026-05-12 from a real-world working M365 / Office 365 config supplied

@@ -8,9 +8,9 @@ harness-side entries say what the harness does about the defect in the
 meantime.
 
 Add a new entry when a fixture produces a reliable non-success signal
-that is NOT a fixture-authoring bug. When a skill-side change resolves
-a defect, move the entry to the "Resolved" section and note the commit
-/ change that closed it.
+that is NOT a fixture-authoring bug. When a change resolves a defect,
+move the entry to the "Resolved" section and note the commit / change
+that closed it.
 
 ## Entry template
 
@@ -158,4 +158,18 @@ a defect, move the entry to the "Resolved" section and note the commit
 
 ## Resolved
 
-*(empty)*
+### 4. Vendored validator bundle lags the vendored schema artifact
+
+- **ID** — `validator-bundle-drift`
+- **Fixture** — none; this was a harness defect, not a skill defect.
+- **First observed** — 2026-08-18 (schema-reference re-vendor).
+- **Status** — `resolved` (2026-08-20, PR #34, closes #29: bundle and artifact re-vendored together from the same product-repo revision; validator bundle 2.0.0, schema artifact generatorVersion 1.1.0).
+- **Impact** — `skill-harness/vendor/config-validator.bundle.mjs` and `dtwo/skills/dtwo-gateway-config/schema-reference.json` are generated from the same schema in the product repo but are vendored independently. Only the artifact was refreshed in the 2026-08-18 change, so the two disagreed, and the rubric reads both: `must_validate` / `no_dropped_keys` use the bundle, `no_hallucinated_keys` uses the artifact. Confirmed divergences at the time:
+  - `gateway.session_control.*` and `gateway.intent.*` are documented, user-facing fields in the artifact but were strict-rejected by the bundle as unrecognized keys. A config that correctly used them passed the hallucination check and failed validation — the rubric scored a correct answer as a failure.
+  - `jwt_issuer_verification: false` and `jwt_audience_verification: false` are rejected by the artifact's cross-field constraint but were accepted by the bundle. The `safe_defaults_preserved` seed was the only check that caught this.
+  - `HTTP_SERVER` is no longer a reserved key in the artifact but was still rejected inside `gateway.advanced` by the bundle.
+  - `JWT_REQUIRED_ORG_ID`, `SESSION_CONTROL_CLIENT_ID` and `SESSION_CONTROL_ISSUER` are newly reserved in the artifact but were accepted inside `gateway.advanced` by the bundle.
+- **Repro rate** — n/a (deterministic; not a sampled bench signal).
+- **Hypothesis** — Not a hypothesis but a known cause: the two vendored files have no shared version or provenance record, and `VALIDATOR_BUNDLE_VERSION` is a hand-maintained shape constant that did not move across the bundle's content drift, so it cannot signal staleness. The bundle had not been refreshed since it was first vendored.
+- **Caveat** — The divergence list above is what a targeted probe surfaced, not an exhaustive diff. The resolution sidesteps the caveat by re-vendoring both files from the same source revision rather than patching the listed items.
+- **Harness action** — Resolved by the #34 refresh: both vendored files now come from the same product-repo revision, `EXPECTED_VALIDATOR_BUNDLE_SHA256` pins the refreshed bundle's bytes, and a targeted re-probe confirmed every divergence listed above is closed (`session_control`/`intent` validate, `*_verification: false` is rejected, `HTTP_SERVER` is accepted in `gateway.advanced`, the three newly reserved keys are rejected there). The interim fixture freeze is lifted: fixtures MAY now exercise `gateway.session_control` and `gateway.intent`, and a `must_validate` pass on the token-validation flags is evidence again. The structural gap — no shared provenance record between the two vendored files — remains; the sha256 pin plus the digest's embedded artifact sha are what stand in for one.

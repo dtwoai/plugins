@@ -10,8 +10,8 @@
 #     user asks for a "long-lived Notion token," the skill should push back rather than emit bearer.
 #   - Scopes: granted via Notion's workspace connection UI; Notion does not publish OAuth
 #     scope strings, so this fixture only asserts min_length ≥ 1 on scopes (value left open).
-# Schema ref: packages/libs/utils/schema-reference.json
-#   generatorVersion 1.0.0 — mcp_servers[].url, mcp_servers[].transport_type, authentication (oauth)
+# Schema ref: dtwo/skills/dtwo-gateway-config/schema-reference.json (the vendored schema artifact in this repo)
+#   fields: mcp_servers[].url, mcp_servers[].transport_type, authentication (oauth)
 #
 # Known skill defect (2026-04-23):
 #   At N=10, temperature=0, claude-cli — this fixture is a reliable
@@ -35,7 +35,7 @@
 #   No fixture constraints are changed; this entry documents the
 #   failure mode so the pass-rate signal is interpretable. Skill-side
 #   investigation is out of scope of the harness PR — see
-#   packages/libs/skill-harness/known-defects.md (Phase 3) for the
+#   skill-harness/known-defects.md (Phase 3) for the
 #   searchable record.
 id: notion-remote-oauth-dcr
 tier: aspirational

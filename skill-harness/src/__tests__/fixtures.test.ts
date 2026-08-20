@@ -8,7 +8,7 @@ import { loadSchemaArtifact } from '../schemaArtifact.js';
 describe('fixtures', () => {
   const fixtures = loadFixtures();
 
-  it('loads the Phase 2 fixture battery (12 required + 16 aspirational)', () => {
+  it('loads the Phase 2 fixture battery (12 required + 17 aspirational)', () => {
     const ids = fixtures.map(f => f.id).sort();
     assert.deepEqual(ids, [
       'advanced-custom-env-var',

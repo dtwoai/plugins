@@ -426,7 +426,7 @@ skill under production-equivalent context.
 
 Landed in `dtwoai/plugins` branch `iter/schema-delegation`
 (commit `f024315` on top of the original prose-pointer attempt
-`44f5747`) and `dtwoai/d2` branch `feat/gateway-config-skill-harness`
+`44f5747`) and a companion branch in the product repo
 (commit `e2887e9e`). Neither pushed.
 
 ### Agent rationale (summary)
@@ -472,10 +472,11 @@ production / harness loading boundary.
 - If validation passes: ship PR #5 as the digest-bearing SKILL.md,
   add a GitHub Actions workflow for `node scripts/generate-schema-digest.mjs --check`,
   and promote the harness's `--skip-injected-schema` flag to
-  reviewed-and-shipped status on dtwoai/d2#755.
+  reviewed-and-shipped status via the tracking issue in the
+  product repo's issue tracker.
 - If validation fails: document the null result in this log,
   consider whether the digest's compression dropped a load-bearing
   fact, and (per the parent task) move the work toward the Path C
-  MCP-tool lookup at dtwoai/d2#912.
+  MCP-tool lookup tracked in the product repo's issue tracker.
 
 ---
