@@ -418,18 +418,44 @@ function renderGatewayAdvancedAndLog(filtered) {
  * The artifact's `reservedKeys` are the env-var names that validation rejects
  * outright inside `gateway.advanced` — the second rejection class the
  * `advanced` bullet above names. Each entry carries a `key` and optionally a
- * `schemaPath` naming the typed config field that owns the env var. The split
- * below is on the *user-filtered* artifact: a `schemaPath` pointing at a
- * field the digest renders becomes a "configure via the typed field" row,
- * while a `schemaPath` outside the user authoring surface is, for the reader,
- * indistinguishable from platform-managed — so it is listed as such rather
- * than pointing at a field this digest never shows.
+ * `schemaPath` naming the typed config field that owns the env var. Three
+ * groups, all computed from the artifact:
+ *
+ *  - `schemaPath` resolves to a field this digest renders → a "configure via
+ *    the typed field" redirect row.
+ *  - `schemaPath` resolves to a field OUTSIDE the digest's documented surface
+ *    → its own group. These must NOT be lumped in with platform-managed: the
+ *    validator ACCEPTS the typed field (its rejection text names it — "Use
+ *    the typed schema field `gateway.heartbeat.enabled` instead"); the field
+ *    is merely not documented here. Calling it "not configurable at all"
+ *    would teach the reader that a capability the validator accepts does not
+ *    exist. The `schemaPath` is printed: it already ships verbatim in the
+ *    vendored validator's own error messages, so naming it adds no exposure
+ *    and is strictly more actionable.
+ *  - no `schemaPath` at all → platform-managed; nothing in the config schema
+ *    owns the name, typed or otherwise.
+ *
+ * "Resolves to a field" is decided against the FULL artifact (any audience);
+ * "this digest renders" against the user-filtered one. A `schemaPath` that
+ * resolves to no field at all is fatal — that is artifact drift, and the
+ * validator's own message would be pointing readers at a field that does not
+ * exist.
  *
  * Coverage: `assertDigestCoverage` requires every reserved key to appear
  * backtick-delimited in the rendered digest, so a future artifact adding one
  * fails regeneration if this renderer drops it.
  */
-function renderReservedKeys(filtered) {
+function fieldPathSet(sections) {
+  const paths = new Set();
+  for (const section of sections) {
+    for (const f of section.fields) {
+      paths.add(section.path === '' ? f.name : `${section.path}.${f.name}`);
+    }
+  }
+  return paths;
+}
+
+function renderReservedKeys(artifact, filtered) {
   const reserved = filtered.reservedKeys ?? [];
   if (reserved.length === 0) {
     fatal([
@@ -441,30 +467,47 @@ function renderReservedKeys(filtered) {
     ]);
   }
 
-  const userFieldPaths = new Set();
-  for (const section of filtered.sections) {
-    for (const f of section.fields) {
-      userFieldPaths.add(section.path === '' ? f.name : `${section.path}.${f.name}`);
-    }
+  // "Exists as a typed field" is resolved against the FULL artifact; "shown in
+  // this digest" against the user-filtered one. A schemaPath that resolves to
+  // neither is artifact drift (renamed field, stale reservedKeys entry) — the
+  // validator would then point readers at a field that does not exist.
+  const allFieldPaths = fieldPathSet(artifact.sections);
+  const userFieldPaths = fieldPathSet(filtered.sections);
+  const dangling = reserved.filter(rk => rk.schemaPath && !allFieldPaths.has(rk.schemaPath));
+  if (dangling.length > 0) {
+    fatal([
+      'reservedKeys name a schemaPath that no section field in the artifact resolves to:',
+      '',
+      ...dangling.map(rk => `  ${rk.key} → ${rk.schemaPath}`),
+      '',
+      'Re-audit the artifact before regenerating.',
+    ]);
   }
 
-  const typedOwned = reserved.filter(rk => rk.schemaPath && userFieldPaths.has(rk.schemaPath));
-  const platformManaged = reserved.filter(rk => !(rk.schemaPath && userFieldPaths.has(rk.schemaPath)));
-  const rows = typedOwned.map(rk => `| \`${rk.key}\` | \`${rk.schemaPath}\` |`);
+  const documented = reserved.filter(rk => rk.schemaPath && userFieldPaths.has(rk.schemaPath));
+  const undocumented = reserved.filter(rk => rk.schemaPath && !userFieldPaths.has(rk.schemaPath));
+  const platformManaged = reserved.filter(rk => !rk.schemaPath);
+  const redirectRow = rk => `| \`${rk.key}\` | \`${rk.schemaPath}\` |`;
   const platformList = platformManaged.map(rk => `\`${rk.key}\``).join(', ');
 
   return [
     '#### Reserved keys — rejected inside `gateway.advanced`',
     '',
-    `Validation rejects each of these ${reserved.length} env-var names when written into \`gateway.advanced\`, in two groups.`,
+    `Validation rejects each of these ${reserved.length} env-var names when written into \`gateway.advanced\`, in three groups.`,
     '',
-    'Owned by a typed config field — set the field instead of the raw env line:',
+    `Owned by a typed config field documented above (${documented.length}) — set the field instead of the raw env line:`,
     '',
     '| Reserved key | Configure via |',
     '|---|---|',
-    ...rows,
+    ...documented.map(redirectRow),
     '',
-    'Platform-managed — the platform sets these; not configurable through this config at all:',
+    `Owned by a typed config field outside this digest's documented surface (${undocumented.length}) — reserved in \`gateway.advanced\` because the typed field owns the value; the validator accepts that field even though this digest does not document it, and its rejection message names it. If a task genuinely needs one of these, confirm the exact field and its type with \`dtwo-validate-gateway-config\` rather than concluding the capability does not exist:`,
+    '',
+    '| Reserved key | Owning typed field |',
+    '|---|---|',
+    ...undocumented.map(redirectRow),
+    '',
+    `Platform-managed (${platformManaged.length}) — nothing in the config schema owns these, typed or otherwise; the platform sets them and they are not configurable through this config at all:`,
     '',
     platformList,
     '',
@@ -679,7 +722,7 @@ function renderTargetKind(filtered) {
   ].join('\n');
 }
 
-function renderDigest(filtered, artifactSha256) {
+function renderDigest(artifact, filtered, artifactSha256) {
   const preamble = [
     '### Schema Digest',
     '',
@@ -700,7 +743,7 @@ function renderDigest(filtered, artifactSha256) {
     ),
     renderSsrf(filtered),
     renderGatewayAdvancedAndLog(filtered),
-    renderReservedKeys(filtered),
+    renderReservedKeys(artifact, filtered),
     renderGenericSection(filtered, 'gateway.intent', '#### `gateway.intent` — session-intent capture'),
     renderGenericSection(
       filtered,
@@ -895,7 +938,7 @@ function main() {
   }
 
   const filtered = filterArtifactForSkill(artifact);
-  const digest = renderDigest(filtered, artifactSha256);
+  const digest = renderDigest(artifact, filtered, artifactSha256);
   assertDigestCoverage(artifact, filtered, digest);
 
   const body = readFileSync(skillAbs, 'utf8');

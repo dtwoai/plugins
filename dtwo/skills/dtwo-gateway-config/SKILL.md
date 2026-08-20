@@ -203,9 +203,9 @@ Strict defaults block localhost, private networks, and fail-closed DNS when omit
 
 #### Reserved keys — rejected inside `gateway.advanced`
 
-Validation rejects each of these 54 env-var names when written into `gateway.advanced`, in two groups.
+Validation rejects each of these 54 env-var names when written into `gateway.advanced`, in three groups.
 
-Owned by a typed config field — set the field instead of the raw env line:
+Owned by a typed config field documented above (20) — set the field instead of the raw env line:
 
 | Reserved key | Configure via |
 |---|---|
@@ -230,9 +230,25 @@ Owned by a typed config field — set the field instead of the raw env line:
 | `SSRF_ALLOW_LOCALHOST` | `gateway.ssrf.allow_localhost` |
 | `SSRF_ALLOW_PRIVATE_NETWORKS` | `gateway.ssrf.allow_private_networks` |
 
-Platform-managed — the platform sets these; not configurable through this config at all:
+Owned by a typed config field outside this digest's documented surface (11) — reserved in `gateway.advanced` because the typed field owns the value; the validator accepts that field even though this digest does not document it, and its rejection message names it. If a task genuinely needs one of these, confirm the exact field and its type with `dtwo-validate-gateway-config` rather than concluding the capability does not exist:
 
-`ALLOWED_ORIGINS`, `AUDIT_TRAIL_ENABLED`, `AUTH_ENCRYPTION_SECRET`, `AUTH_REQUIRED`, `AUTO_REFRESH_SERVERS`, `CACHE_TYPE`, `D2_TENANT_ID`, `DATABASE_URL`, `DISABLE_ACCESS_LOG`, `EMAIL_AUTH_ENABLED`, `ENVIRONMENT`, `GUNICORN_WORKERS`, `HEARTBEAT_ENABLED`, `HEARTBEAT_INTERVAL_SECONDS`, `JWT_REQUIRED_ORG_ID`, `JWT_SECRET_KEY`, `MCPGATEWAY_ADMIN_API_ENABLED`, `MCPGATEWAY_UI_ENABLED`, `PLATFORM_ADMIN_EMAIL`, `PLATFORM_ADMIN_PASSWORD`, `PLUGINS_CONFIG_FILE`, `PLUGINS_ENABLED`, `PULSE_DEBOUNCE_SECONDS`, `PULSE_ENABLED`, `PULSE_EVENT_DRIVEN_ENABLED`, `PULSE_INTERVAL_SECONDS`, `SECURITY_HEADERS_ENABLED`, `SESSION_CONTROL_ISSUER`, `SOTW_ENABLED`, `SOTW_FILE_PATH`, `SSRF_DNS_FAIL_CLOSED`, `STRUCTURED_LOGGING_DATABASE_ENABLED`, `TRANSPORT_TYPE`, `WELL_KNOWN_ALLOW_HTTP`
+| Reserved key | Owning typed field |
+|---|---|
+| `ALLOWED_ORIGINS` | `gateway.allowed_origins` |
+| `HEARTBEAT_ENABLED` | `gateway.heartbeat.enabled` |
+| `HEARTBEAT_INTERVAL_SECONDS` | `gateway.heartbeat.interval_seconds` |
+| `PULSE_DEBOUNCE_SECONDS` | `gateway.pulse.debounce_seconds` |
+| `PULSE_ENABLED` | `gateway.pulse.enabled` |
+| `PULSE_EVENT_DRIVEN_ENABLED` | `gateway.pulse.event_driven_enabled` |
+| `PULSE_INTERVAL_SECONDS` | `gateway.pulse.interval_seconds` |
+| `SOTW_ENABLED` | `gateway.sotw.enabled` |
+| `SOTW_FILE_PATH` | `gateway.sotw.file_path` |
+| `SSRF_DNS_FAIL_CLOSED` | `gateway.ssrf.dns_fail_closed` |
+| `WELL_KNOWN_ALLOW_HTTP` | `gateway.authentication.well_known_allow_http` |
+
+Platform-managed (23) — nothing in the config schema owns these, typed or otherwise; the platform sets them and they are not configurable through this config at all:
+
+`AUDIT_TRAIL_ENABLED`, `AUTH_ENCRYPTION_SECRET`, `AUTH_REQUIRED`, `AUTO_REFRESH_SERVERS`, `CACHE_TYPE`, `D2_TENANT_ID`, `DATABASE_URL`, `DISABLE_ACCESS_LOG`, `EMAIL_AUTH_ENABLED`, `ENVIRONMENT`, `GUNICORN_WORKERS`, `JWT_REQUIRED_ORG_ID`, `JWT_SECRET_KEY`, `MCPGATEWAY_ADMIN_API_ENABLED`, `MCPGATEWAY_UI_ENABLED`, `PLATFORM_ADMIN_EMAIL`, `PLATFORM_ADMIN_PASSWORD`, `PLUGINS_CONFIG_FILE`, `PLUGINS_ENABLED`, `SECURITY_HEADERS_ENABLED`, `SESSION_CONTROL_ISSUER`, `STRUCTURED_LOGGING_DATABASE_ENABLED`, `TRANSPORT_TYPE`
 
 #### `gateway.intent` — session-intent capture
 
