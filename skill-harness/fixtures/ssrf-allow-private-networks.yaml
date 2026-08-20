@@ -1,6 +1,6 @@
 # Sources:
 #   - RFC 1918 (private IPv4 ranges: 10/8, 172.16/12, 192.168/16)
-#   - Schema ref: packages/libs/utils/schema-reference.json
+#   - Schema ref: dtwo/skills/dtwo-gateway-config/schema-reference.json (the vendored schema artifact in this repo)
 #     generatorVersion 1.0.0 — gateway.ssrf.allow_private_networks (deployDefault false)
 #   - Field rationale (from schema): "Enable only when the gateway and MCP server share a private network … prefer
 #     `allowed_networks` with a surgical CIDR allowlist in production."

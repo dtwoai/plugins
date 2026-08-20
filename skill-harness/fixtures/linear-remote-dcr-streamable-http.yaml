@@ -4,7 +4,7 @@
 #   - Auth: OAuth 2.1 with Dynamic Client Registration; Linear is its own IdP.
 #   - The gateway.authentication side still uses the enterprise IdP (Auth0 here) — only the
 #     upstream mcp_servers[0].authentication talks to Linear. This mirrors the Atlassian fixture.
-# Schema ref: packages/libs/utils/schema-reference.json
+# Schema ref: dtwo/skills/dtwo-gateway-config/schema-reference.json (the vendored schema artifact in this repo)
 #   generatorVersion 1.0.0 — mcp_servers[].url, mcp_servers[].transport_type, authentication (oauth)
 id: linear-remote-dcr-streamable-http
 tier: aspirational

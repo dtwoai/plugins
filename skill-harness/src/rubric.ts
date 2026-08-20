@@ -9,7 +9,8 @@
  * Check order and `check` names (used by tests + future Tier-2 summary):
  *   1. `must_validate`          — `parseConfig` must succeed (picks up
  *                                 the reserved-`advanced` blocklist via
- *                                 PR #733's runtime `.superRefine`).
+ *                                 the product repo's runtime
+ *                                 `.superRefine` reserved-key guard).
  *   2. `no_hallucinated_keys`   — `findHallucinations` against the
  *                                 allowed-path set.
  *   3. `no_dropped_keys`        — round-trip `paths(input) \ paths(parsed)`

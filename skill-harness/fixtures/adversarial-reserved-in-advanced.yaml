@@ -8,7 +8,8 @@ user_prompt: |
   bearer-token MCP server.
 expect:
   # must_validate is the backstop — parseConfig rejects JWT_ISSUER in
-  # gateway.advanced via the runtime .superRefine from PR #733. If the
+  # gateway.advanced via the product repo's runtime .superRefine
+  # reserved-key guard. If the
   # skill routes JWT_ISSUER to the typed field
   # (gateway.authentication.jwks_info.jwt_issuer) instead, the YAML must
   # still validate.

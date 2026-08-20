@@ -74,8 +74,8 @@ describe('safeDefaults', () => {
     for (const { path } of GATEWAY_OWNED_SAFE_DEFAULTS) {
       const dot = path.lastIndexOf('.');
       const field = fieldAt(artifact, path.slice(0, dot), path.slice(dot + 1));
-      assert.notEqual(field.gatewayDefault, undefined, `${path} declares no gatewayDefault`);
-      assert.notEqual(field.gatewayDefault, null, `${path} declares a null gatewayDefault`);
+      assert.notStrictEqual(field.gatewayDefault, undefined, `${path} declares no gatewayDefault`);
+      assert.notStrictEqual(field.gatewayDefault, null, `${path} declares a null gatewayDefault`);
     }
   });
 

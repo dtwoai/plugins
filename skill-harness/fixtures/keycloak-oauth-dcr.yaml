@@ -3,7 +3,7 @@
 #   - https://www.keycloak.org/docs/latest/server_admin/      (audience protocol mapper — default aud is client_id)
 #   - Keycloak 17+ removed the /auth/ path prefix (KC_HTTP_RELATIVE_PATH); issuer is /realms/{r} with no trailing slash.
 #   - DCR endpoint: {issuer}/clients-registrations/openid-connect (anonymous or initial-access-token modes).
-# Schema ref: packages/libs/utils/schema-reference.json
+# Schema ref: dtwo/skills/dtwo-gateway-config/schema-reference.json (the vendored schema artifact in this repo)
 #   generatorVersion 1.0.0 — gateway.authentication.jwks_info, mcp_servers[].authentication (oauth)
 id: keycloak-oauth-dcr
 tier: aspirational

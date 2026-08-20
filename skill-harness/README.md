@@ -87,13 +87,13 @@ ready), and `results.html` (workflow-artifact ready) under `--output`.
 | `--compare-baseline=<path>` | — | Loads baseline.json, runs comparison, exits non-zero on regression. |
 | `--append-history=<path>` | — | Appends one JSON line per run. |
 | `--write-baseline=<path>` | — | Derives a fresh baseline from the current run. Mutually exclusive with `--compare-baseline`. |
-| `--skill-bundle=<path>` | sibling checkout of `dtwoai/plugins` | Path to the `dtwo-gateway-config` skill dir (contains `SKILL.md`). Falls back to `DTWO_SKILL_BUNDLE_PATH` env then well-known sibling paths. The skill was moved out of d2 in #775. |
+| `--skill-bundle=<path>` | sibling checkout of `dtwoai/plugins` | Path to the `dtwo-gateway-config` skill dir (contains `SKILL.md`). Falls back to `DTWO_SKILL_BUNDLE_PATH` env then well-known sibling paths. The skill was moved into this repo from the product repo. |
 | `--dry-run` | off | Prints fixture list + stats; no LLM calls. |
 
 ## Skill-bundle location
 
-The `dtwo-gateway-config` skill was moved out of d2 via PR #775
-(2026-04-28) and now lives canonically in [`dtwoai/plugins`][plugin]
+The `dtwo-gateway-config` skill was moved into this repo from the
+product repo (2026-04-28) and now lives canonically in [`dtwoai/plugins`][plugin]
 at `dtwo/skills/dtwo-gateway-config/`. The harness resolves the bundle
 in this order:
 
