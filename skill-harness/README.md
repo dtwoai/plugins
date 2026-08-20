@@ -1,6 +1,6 @@
 # dtwo-skill-harness
 
-Benchmark harness for the [`dtwo-gateway-config` Claude skill][adr] shipped
+Benchmark harness for the `dtwo-gateway-config` Claude skill shipped
 in this plugin repo. Two testing layers, both in this package:
 
 - **Offline rubrics** — deterministic property checks against a raw YAML
@@ -18,10 +18,10 @@ failing check marks the sample as failed; the per-prompt pass-rate is
 
 | Check | What it catches |
 |---|---|
-| `must_validate` | Parses cleanly through `parseConfig` (vendored from d2's `@workspace/utils` as `vendor/config-validator.bundle.mjs`), including the reserved-`advanced`-key blocklist and newline-injection rejection. |
+| `must_validate` | Parses cleanly through `parseConfig` (a vendored build of the gateway config validator, `vendor/config-validator.bundle.mjs`, reached via the `src/validatorBundle.ts` seam), including the reserved-`advanced`-key blocklist and newline-injection rejection. See `known-defects.md` (`validator-bundle-drift`) — the bundle currently lags `schema-reference.json`. |
 | `no_hallucinated_keys` | Every path in the YAML resolves to a real field in `schema-reference.json` (record-leaf children accepted when they match the leaf's declared key pattern). |
 | `no_dropped_keys` | Round-trip path-set subtraction: `paths(input) \ paths(parsed)` must be empty. |
-| `safe_defaults_preserved` | A small curated seed list of safety-relevant defaults must not be silently weakened. Fixtures opt out per-path with `expect.safe_default_opt_out`. |
+| `safe_defaults_preserved` | A small curated seed list of safety-relevant defaults must not be silently weakened. The list has two halves: `SAFE_DEFAULT_SEEDS`, whose safe values are derived from the artifact's `schemaDefault` / `deployDefault`, and `GATEWAY_OWNED_SAFE_DEFAULTS`, a short explicit list for values the gateway applies at boot and the artifact therefore declares as null. Fixtures opt out per-path with `expect.safe_default_opt_out`. |
 | `secrets_are_placeholders` | Every `secret: true` leaf is absent or holds a placeholder matching `/^<?(REPLACE_\|PLACEHOLDER_\|CHANGE_?ME\|YOUR[_-]\|your[_-])\|^\$\{/`. |
 
 Plus per-fixture `required_paths`, `forbidden_paths`, and
@@ -37,7 +37,7 @@ an LLM-judge pass).
 From the `skill-harness/` directory:
 
 ```bash
-pnpm test                       # 161 unit tests
+pnpm test                       # unit tests, incl. the schema-digest drift check
 pnpm biome:check
 pnpm bench --dry-run --tier=required
 ```
@@ -133,8 +133,6 @@ Read these in order when picking up the package cold:
 
 ## References
 
-- [ADR 014 — Gateway Configuration Skill][adr] (in `dtwoai/d2`)
-- `../dtwo/skills/dtwo-gateway-config/schema-reference.json` — canonical schema artifact (mirrored from d2's `@workspace/utils`)
-- `vendor/config-validator.bundle.mjs` — bundled `parseConfig` + `ConfigSchema` (regenerated in d2 via `pnpm --filter @workspace/utils build:validator-bundle`)
-
-[adr]: https://github.com/dtwoai/d2/blob/main/docs/adr/014-gateway-config-skill.md
+- `../dtwo/skills/dtwo-gateway-config/SKILL.md` — the skill this harness grades
+- `../dtwo/skills/dtwo-gateway-config/schema-reference.json` — canonical schema artifact, vendored verbatim from the product repo's generator
+- `vendor/config-validator.bundle.mjs` — bundled `parseConfig` + `ConfigSchema`, generated separately from the artifact above and pinned by `src/validatorBundle.ts`

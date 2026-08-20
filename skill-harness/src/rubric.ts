@@ -25,8 +25,6 @@
  */
 
 import yaml from 'js-yaml';
-import { parseConfig } from '../vendor/config-validator.bundle.mjs';
-
 import type { Fixture } from './fixtureSchema.js';
 import { constraintKind } from './fixtureSchema.js';
 import { findHallucinations } from './hallucination.js';
@@ -36,6 +34,7 @@ import { roundTripDiff } from './roundTrip.js';
 import { buildSafeDefaults, findWeakenedDefaults } from './safeDefaults.js';
 import type { SchemaArtifact } from './schemaArtifact.js';
 import { collectSecretPaths, findSecretViolations } from './secrets.js';
+import { parseConfig } from './validatorBundle.js';
 
 export type RubricFailure = { check: string; message: string; path?: string };
 

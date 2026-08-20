@@ -22,7 +22,7 @@ If you add a second plugin to the marketplace later, the same rule applies: vers
 
 Production Claude Code caches only each skill's `SKILL.md` in the system prompt; a skill's `references/` directory is **not** auto-loaded for real users. Anything a policy/skill author needs at authoring time must live inline in `SKILL.md`, not in a sidecar file.
 
-The `dtwo-gateway-config` skill's `### Schema Digest` (between `<!-- BEGIN SCHEMA DIGEST -->` / `<!-- END SCHEMA DIGEST -->`) is **generated** from `dtwo/skills/dtwo-gateway-config/schema-reference.json` — do not hand-edit it. Regenerate with `node scripts/generate-schema-digest.mjs` (add `--check` for the CI guardrail that fails if it's stale). The vendored schema comes from the d2 source of truth (`d2/packages/libs/utils/schema-reference.json`).
+The `dtwo-gateway-config` skill's `### Schema Digest` (between `<!-- BEGIN SCHEMA DIGEST -->` / `<!-- END SCHEMA DIGEST -->`) is **generated** from `dtwo/skills/dtwo-gateway-config/schema-reference.json` — do not hand-edit it. Regenerate with `node scripts/generate-schema-digest.mjs`; `--check` fails if it's stale, and the `skill-harness` suite runs exactly that, so `pnpm test` is what enforces it. The vendored schema is a verbatim copy of the artifact the product repo's schema generator emits; refresh it by copying, never by editing in place.
 
 ## Test locally before pushing
 

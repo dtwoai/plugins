@@ -17,6 +17,8 @@ export { evaluateRubric } from './rubric.js';
 export {
   buildSafeDefaults,
   findWeakenedDefaults,
+  GATEWAY_OWNED_SAFE_DEFAULTS,
+  type GatewayOwnedSafeDefault,
   SAFE_DEFAULT_SEEDS,
   type WeakenedDefault,
 } from './safeDefaults.js';

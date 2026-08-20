@@ -18,8 +18,8 @@
  */
 
 import yaml from 'js-yaml';
-import { ConfigSchema } from '../vendor/config-validator.bundle.mjs';
 import { walkYamlPaths } from './hallucination.js';
+import { ConfigSchema } from './validatorBundle.js';
 
 export type RoundTripResult = {
   parsed: unknown;

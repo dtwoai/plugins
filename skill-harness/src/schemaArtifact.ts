@@ -2,13 +2,17 @@
  * Loader + TypeScript shape for the gateway-config schema artifact.
  *
  * The artifact lives at `dtwo/skills/dtwo-gateway-config/schema-reference.json`
- * inside this plugin repo and is byte-identical to the one in d2's
- * `@workspace/utils` package (generated there by `scripts/gen-schema-docs.ts`,
- * mirrored here by the skill-publishing workflow). Its shape is described in
- * d2's `packages/libs/utils/src/internal/genSchemaDocs.ts` (`JsonFieldOutput`,
- * `Section`, `reservedKeys`). We mirror that shape here so harness code can
- * walk it without a Zod runtime schema — drift is caught at the seam by the
- * exact `generatorVersion` equality pin below, not by structural validation.
+ * inside this plugin repo and is a verbatim copy of what the product repo's
+ * schema-artifact generator emits. The types below mirror that generator's
+ * output shape (`JsonFieldOutput`, `Section`, `reservedKeys`) so harness code
+ * can walk it without a Zod runtime schema — drift is caught at the seam by
+ * the exact `generatorVersion` equality pin below, not by structural
+ * validation.
+ *
+ * That pin is weaker than it looks: `generatorVersion` is hand-maintained
+ * upstream and has stayed at 1.0.0 across real content change. The digest's
+ * embedded artifact sha256 (see `scripts/generate-schema-digest.mjs`) is what
+ * makes a content refresh visible.
  */
 
 import { readFileSync } from 'node:fs';
@@ -22,7 +26,14 @@ import { fileURLToPath } from 'node:url';
  */
 export const SCHEMA_ARTIFACT_VERSION = '1.0.0';
 
-export type TargetKind = 'envVar' | 'sotwPath' | 'advanced';
+/**
+ * `platform` is emitted by the currently vendored artifact (every
+ * `gateway.intent.*` field carries it) and was missing from this union — a
+ * type-level lie, not new drift. The artifact is loaded via an unchecked
+ * `JSON.parse(raw) as SchemaArtifact` below, so this union is a claim about
+ * the data, never an enforcement of it.
+ */
+export type TargetKind = 'envVar' | 'sotwPath' | 'advanced' | 'platform';
 
 export type FieldRecord = {
   name: string;

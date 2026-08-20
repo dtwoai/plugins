@@ -38,10 +38,13 @@ apply globally and are NOT declared per fixture:
   `schema-reference.json` (with record-leaf children accepted when they
   match the leaf's declared key pattern).
 - `no_dropped_keys` — `paths(input) \ paths(parsed)` must be empty.
-- `safe_defaults_preserved` — five-field seed list (see
-  `src/safeDefaults.ts`, `SAFE_DEFAULT_SEEDS`). Fixtures that legitimately
-  ask for a weakening (e.g. allow localhost for local dev) declare the
-  path in `expect.safe_default_opt_out`; the rubric skips that path.
+- `safe_defaults_preserved` — curated seed list in two halves (see
+  `src/safeDefaults.ts`): `SAFE_DEFAULT_SEEDS`, whose safe values are read
+  off the schema artifact, and `GATEWAY_OWNED_SAFE_DEFAULTS`, which carries
+  explicit values for fields the gateway defaults at boot. Fixtures that
+  legitimately ask for a weakening (e.g. allow localhost for local dev)
+  declare the path in `expect.safe_default_opt_out`; the rubric skips that
+  path.
 - `secrets_are_placeholders` — every `secret: true` leaf is absent or
   holds a placeholder matching `/^<?(?:REPLACE_|PLACEHOLDER_|CHANGE_?ME|YOUR[_-])|^\$\{/i`
   (brackets optional; `REPLACE_`, `PLACEHOLDER_`, `CHANGE_ME`, `YOUR_…` /

@@ -114,10 +114,25 @@ This subsection is generated from `schema-reference.json` by `scripts/generate-s
 |---|---|
 | `gateway` | Gateway-wide settings (auth, SSRF, logging). Carries the `advanced` escape hatch and `log_level`. |
 | `gateway.authentication` | Inbound auth from clients to the gateway. `enabled` defaults to `true`; cross-field constraint requires `jwks_info` when enabled. |
-| `gateway.authentication.jwks_info` | Inbound JWT validation parameters. All four fields required when this object is present. |
+| `gateway.authentication.jwks_info` | Inbound JWT validation parameters. All 4 fields required when this object is present. |
+| `gateway.authentication.oauth_dcr` | OAuth Dynamic Client Registration overrides. Defaults are auto-derived from mcp_servers; set fields here to override (typically to disable DCR/discovery for IdPs that pre-provision clients). |
 | `gateway.ssrf` | SSRF protection overrides. Strict defaults apply when omitted. |
+| `gateway.intent` | Gateway session-intent controls. |
+| `gateway.session_control` | Human-gated session clearing (session-control) registration: the IdP app the browser ceremony authenticates against. Arms the platform clear tools and the browser clear ceremony when `intent.enabled: true`, or when `clearing.enabled: true` on a gateway that uses markers without intent capture. The ceremony issuer is not configured here — it is always `gateway.authentication.jwks_info.jwt_issuer` (the same tenant issues both the inbound tokens and the browser-login ID tokens), and the deploy derives `SESSION_CONTROL_ISSUER` from it. |
+| `gateway.session_control.clearing` | Arming control for human-gated clearing. |
 | `mcp_servers[]` | One entry per upstream MCP server. `name` and `url` required. |
-| `mcp_servers[].authentication` | Discriminated union keyed on `type`; outbound auth from gateway to the upstream server. Seven variants (see table). |
+| `mcp_servers[].authentication` | Discriminated union keyed on `type`; outbound auth from gateway to the upstream server. 7 variants (see table). |
+| `mcp_servers[].authentication (bearer)` | Fields for `type: bearer`. Static bearer token in the `Authorization` header. |
+| `mcp_servers[].authentication (basic)` | Fields for `type: basic`. HTTP basic auth. |
+| `mcp_servers[].authentication (authheaders)` | Fields for `type: authheaders`. Array of `{key, value}` header pairs. |
+| `mcp_servers[].authentication (authheaders).headers[]` | Each element of `mcp_servers[].authentication (authheaders).headers`. |
+| `mcp_servers[].authentication (query_param)` | Fields for `type: query_param`. Auth via a URL query parameter. |
+| `mcp_servers[].authentication (oauth)` | Fields for `type: oauth`. Governed by the `issuer`-OR-trio cross-field rule. |
+| `mcp_servers[].authentication (cert)` | Fields for `type: cert`. PEM-encoded CA cert; custom-CA / mTLS / self-signed. |
+
+Reading the **`Default`** column in the tables below: `` `value` (schema) `` and `` `value` (deploy) `` are defaults the artifact declares. **`not declared`** marks an optional field whose default the schema does not record — what happens when it is omitted is decided by the gateway at runtime. Read the Guidance column, which states the effective behavior where the artifact records it. **`—`** marks a required field with no declared default — you must supply a value.
+
+Reading the **`Required`** column: required-ness is *within the containing section*. `yes` means the field must appear whenever that section's object is present; if the parent object is itself optional, the whole block may be omitted and the field with it.
 
 #### `gateway.authentication` — load-bearing defaults & constraints
 
@@ -125,34 +140,96 @@ This subsection is generated from `schema-reference.json` by `scripts/generate-s
 - **`sso_issuer`** — optional `URL`. Metadata-only; does NOT validate tokens by itself. Target: `SSO_GENERIC_ISSUER`.
 - **`sso_generic_scope`** — optional `string`. Ignored unless `sso_issuer` is set. Target: `SSO_GENERIC_SCOPE`.
 
-**Cross-field constraint** (verbatim from artifact):
+Every field in this section, with the artifact's own guidance:
+
+| Field | Required | Type | Default | Target | Guidance (from artifact) |
+|---|---|---|---|---|---|
+| `enabled` | yes | boolean | `true` (schema) | `MCP_REQUIRE_AUTH` | Leave at the default `true` for production. Set `false` only for local development where you want an unauthenticated gateway. |
+| `sso_issuer` | no | URL | `not declared` | `SSO_GENERIC_ISSUER` | Set when you're using an SSO provider that publishes an OpenID Connect discovery document at `{issuer}/.well-known/openid-configuration`. Only set an issuer you want advertised: MCP clients will follow it for OAuth discovery. |
+| `jwt_issuer_verification` | no | boolean | `not declared` | `JWT_ISSUER_VERIFICATION` | Leave unset or `true` — the gateway defaults it to `true` and refuses to start with `false` whenever `jwks_info` is configured, because skipping issuer verification against external IdP keys enables token substitution; the schema rejects `false` for the same reason. Set `true` explicitly to pin the secure value against a future change in the gateway default, not to make a choice. |
+| `jwt_audience_verification` | no | boolean | `not declared` | `JWT_AUDIENCE_VERIFICATION` | Leave unset or `true` — the gateway defaults it to `true` and refuses to start with `false` whenever `jwks_info` is configured, since a token minted for another service in the same tenant would otherwise be accepted here; the schema rejects `false` for the same reason. Set `true` explicitly to pin the secure value against a future change in the gateway default, not to make a choice. |
+| `require_jti` | no | boolean | `not declared` | `REQUIRE_JTI` | The gateway defaults this to `true`, so omitting it rejects every request from Auth0 or Entra ID with "Token is missing required JTI claim" — neither IdP mints a `jti` on access tokens. Set `false` for those, and for any other IdP whose tokens lack `jti`; stay at the `true` default only when your IdP emits one and you rely on per-token revocation, since a `jti`-less token cannot be revoked individually. |
+| `require_token_expiration` | no | boolean | `not declared` | `REQUIRE_TOKEN_EXPIRATION` | The gateway defaults this to `true`, so omitting it already rejects tokens carrying no `exp` claim, which never age out — the setup runbooks set it explicitly only to state that posture. Set `false` only for a short-lived local experiment against an IdP that mints non-expiring tokens, and revert before the gateway sees real traffic. |
+| `mcp_oauth_resource_metadata_enabled` | no | boolean | `not declared` | `MCP_OAUTH_RESOURCE_METADATA_ENABLED` | The gateway defaults this to `false`, so discovery is off unless something turns it on. Set `true` when spec-compliant MCP clients must find your authorization server automatically and you have no `sso_issuer` — without it, 401 responses carry no `resource_metadata` URL and the client has nowhere to begin the OAuth flow. With `sso_issuer` set the deploy turns it on for you, so leave it unset there; set `false` to override that and stop advertising the issuer to clients you configure out of band. |
+| `sso_generic_scope` | no | string | `not declared` | `SSO_GENERIC_SCOPE` | Set to the OAuth scope your SSO provider requires (e.g. `openid profile email`). Ignored when `sso_issuer` is not set. |
+
+**Cross-field constraints** (verbatim from artifact):
 > When authentication is enabled (the default), `jwks_info` must be configured. `sso_issuer` alone is metadata-only and does not validate tokens.
+>
+> When authentication is enabled (the default) and `jwks_info` is configured, `jwt_issuer_verification` and `jwt_audience_verification` cannot be false — the gateway refuses to start. Omit them to take the secure default.
 
 #### `gateway.authentication.jwks_info` — inbound JWT validation
 
-All four fields are required when this object is present. These govern the **inbound** leg (clients → gateway), independent of any `mcp_servers[].authentication` block which governs the **outbound** leg (gateway → upstream MCP server). Populate `jwks_info` whenever the prompt supplies an IdP tenant + audience, even when the upstream server uses OAuth/DCR or "does not accept bearer tokens" — those statements describe the outbound leg only.
+All 4 fields are required when this object is present. These govern the **inbound** leg (clients → gateway), independent of any `mcp_servers[].authentication` block which governs the **outbound** leg (gateway → upstream MCP server). Populate `jwks_info` whenever the prompt supplies an IdP tenant + audience, even when the upstream server uses OAuth/DCR or "does not accept bearer tokens" — those statements describe the outbound leg only.
 
-| Field | Type | Target env | Rationale (from artifact) |
-|---|---|---|---|
-| `jwt_algorithm` | enum: `HS256`/`HS384`/`HS512`/`RS256`/`RS384`/`RS512`/`ES256`/`ES384`/`ES512` | `JWT_ALGORITHM` | Choose the algorithm your identity provider uses to sign tokens — HS256 for symmetric secrets, RS256 for asymmetric JWKs. |
-| `jwt_jwks_uri` | URL | `JWT_JWKS_URI` | Set to the JWKS URL your identity provider publishes; the gateway fetches public keys from here to validate incoming tokens. |
-| `jwt_issuer` | string | `JWT_ISSUER` | Set to the `iss` claim your provider emits; the gateway rejects tokens whose `iss` does not match. |
-| `jwt_audience` | string | `JWT_AUDIENCE` | Set to the `aud` claim the provider targets at this gateway; prevents tokens meant for other services from being accepted. |
+| Field | Required | Type | Target env | Rationale (from artifact) |
+|---|---|---|---|---|
+| `jwt_algorithm` | yes | enum: `HS256`/`HS384`/`HS512`/`RS256`/`RS384`/`RS512`/`ES256`/`ES384`/`ES512` | `JWT_ALGORITHM` | Choose the algorithm your identity provider uses to sign tokens — HS256 for symmetric secrets, RS256 for asymmetric JWKs. |
+| `jwt_jwks_uri` | yes | URL | `JWT_JWKS_URI` | Set to the JWKS URL your identity provider publishes; the gateway fetches public keys from here to validate incoming tokens. |
+| `jwt_issuer` | yes | string | `JWT_ISSUER` | Set to the `iss` claim your provider emits; the gateway rejects tokens whose `iss` does not match. |
+| `jwt_audience` | yes | string | `JWT_AUDIENCE` | Set to the `aud` claim the provider targets at this gateway; prevents tokens meant for other services from being accepted. |
+
+#### `gateway.authentication.oauth_dcr` — DCR and discovery overrides
+
+OAuth Dynamic Client Registration overrides. Defaults are auto-derived from mcp_servers; set fields here to override (typically to disable DCR/discovery for IdPs that pre-provision clients).
+
+| Field | Required | Type | Default | Target | Guidance (from artifact) |
+|---|---|---|---|---|---|
+| `dcr_enabled` | no | boolean | `not declared` | `DCR_ENABLED` | Set `false` when your IdP (e.g. Entra ID) does not support DCR and OAuth clients are pre-provisioned out of band; leave unset to inherit the default driven by `mcp_servers[*].authentication.issuer`. |
+| `auto_register_on_missing_credentials` | no | boolean | `not declared` | `DCR_AUTO_REGISTER_ON_MISSING_CREDENTIALS` | Set `false` to require pre-provisioned client credentials and fail closed when they are missing. |
+| `oauth_discovery_enabled` | no | boolean | `not declared` | `OAUTH_DISCOVERY_ENABLED` | Set `false` when the upstream IdP does not publish authorization-server metadata (common with config-only Entra deployments). |
 
 #### `gateway.ssrf` — strict-by-default
 
 Strict defaults block localhost, private networks, and fail-closed DNS when omitted.
 
-| Field | Type | deployDefault | Rationale (from artifact) |
-|---|---|---|---|
-| `allow_localhost` | boolean | `false` | Enable only for local development where the MCP server runs on the same host as the gateway; leaving it on in production widens the gateway's outbound attack surface. |
-| `allow_private_networks` | boolean | `false` | Enable only when the gateway and MCP server share a private network (e.g. co-located on one EC2 host); prefer `allowed_networks` with a surgical CIDR allowlist in production, since a blanket private-range allow widens the gateway's outbound attack surface. |
-| `allowed_networks` | array<string> | `[]` | Set to the specific CIDRs your MCP servers live on when the gateway must reach private hosts — prefer this surgical allowlist over the blanket `allow_private_networks=true`, since every range you add widens the gateway's outbound attack surface. |
+| Field | Type | deployDefault | Target | Rationale (from artifact) |
+|---|---|---|---|---|
+| `allow_localhost` | boolean | `false` | `SSRF_ALLOW_LOCALHOST` | Enable only for local development where the MCP server runs on the same host as the gateway; leaving it on in production widens the gateway's outbound attack surface. |
+| `allow_private_networks` | boolean | `false` | `SSRF_ALLOW_PRIVATE_NETWORKS` | Enable only when the gateway and MCP server share a private network (e.g. co-located on one EC2 host); prefer `allowed_networks` with a surgical CIDR allowlist in production, since a blanket private-range allow widens the gateway's outbound attack surface. |
+| `allowed_networks` | array<string> | `[]` | `SSRF_ALLOWED_NETWORKS` | Set to the specific CIDRs your MCP servers live on when the gateway must reach private hosts — prefer this surgical allowlist over the blanket `allow_private_networks=true`, since every range you add widens the gateway's outbound attack surface. |
 
 #### `gateway.advanced` and `gateway.log_level`
 
 - **`advanced`** — `array<string>`, `targetKind: advanced`. Lines are appended verbatim to the deployed env file under systemd `EnvironmentFile` semantics (last-occurrence-wins). Validation rejects keys already emitted by a typed field, so it cannot shadow a typed field by accident. Keys here are case-sensitive — preserve exact casing.
 - **`log_level`** — enum: `TRACE`/`DEBUG`/`INFO`/`WARNING`/`ERROR`/`CRITICAL`. `deployDefault`: `DEBUG`. Target: `LOG_LEVEL`.
+
+#### `gateway.intent` — session-intent capture
+
+Gateway session-intent controls.
+
+| Field | Required | Type | Default | Target | Guidance (from artifact) |
+|---|---|---|---|---|---|
+| `enabled` | no | boolean | `false` (deploy) | `platform.intent.enabled` | Turn on when you want intent-aware policies to have real values to read. Capture alone never denies a call — but it arms the egress closed-pipeline gate for `set_intent`: customer egress denies, transforms, and marker writes stop applying to that one tool (needed so a customer deny on the set_intent response cannot block the client while the platform capture policy has already committed the intent to session state). Customer INGRESS policies still govern `set_intent` unless `required: true` is also on. No `mcp_servers[]` configuration is needed — the platform intent server is deployed inside the gateway container and injected automatically. |
+| `required` | no | boolean | `false` (deploy) | `platform.intent.required` | Turn on when your intent registry and workflows are settled. Requires `enabled: true` — a gate with no capture policy would deny every call forever. Also arms the INGRESS closed-pipeline gate for `set_intent`: customer ingress denies/throttles/argument-inspection stop applying to that one tool (needed so a customer default-deny cannot AND against intent_required and lock the agent out of `set_intent`). Availability note: while on, the gate fails closed, so an intent-server outage blocks the entire tool surface (only `set_intent` stays reachable). A transient OPA/registry blip self-heals — `set_intent` returns a retryable `registry_unavailable` rather than locking permanently — but to recover from a sustained intent-server outage, set `required: false` and redeploy. |
+
+**Cross-field constraint** (verbatim from artifact):
+> `required: true` requires `enabled: true` (a required gate needs the capture policy to write intent).
+
+#### `gateway.session_control` — human-gated clearing registration
+
+Human-gated session clearing (session-control) registration: the IdP app the browser ceremony authenticates against. Arms the platform clear tools and the browser clear ceremony when `intent.enabled: true`, or when `clearing.enabled: true` on a gateway that uses markers without intent capture. The ceremony issuer is not configured here — it is always `gateway.authentication.jwks_info.jwt_issuer` (the same tenant issues both the inbound tokens and the browser-login ID tokens), and the deploy derives `SESSION_CONTROL_ISSUER` from it.
+
+| Field | Required | Type | Default | Target | Guidance (from artifact) |
+|---|---|---|---|---|---|
+| `client_id` | yes | string | — | `SESSION_CONTROL_CLIENT_ID` | Register a dedicated public client at your IdP for the clear ceremony (authorization-code + PKCE, no refresh grant) and paste its client id here. Do not reuse the gateway API client. |
+
+**Cross-field constraints** (verbatim from artifact):
+> `clearing.enabled` unset follows `gateway.intent.enabled`; an explicit `true` arms clearing even with intent capture off (the markers-only deployment).
+>
+> `clearing.enabled: false` while `gateway.intent.enabled: true` is rejected (clearing cannot be withdrawn where markers can block).
+>
+> While clearing is armed, `gateway.authentication` must be enabled with `jwks_info` — the ceremony binds every clear to the authenticated caller identity, so an unauthenticated inbound leg has nothing to bind.
+>
+> While clearing is armed, `jwt_issuer` must be a normalized HTTPS URL (it becomes the ceremony issuer via `SESSION_CONTROL_ISSUER`) and `jwt_audience` must not be blank.
+
+#### `gateway.session_control.clearing` — arming control
+
+Arming control for human-gated clearing.
+
+| Field | Required | Type | Default | Target | Guidance (from artifact) |
+|---|---|---|---|---|---|
+| `enabled` | no | boolean | `not declared` | `platform.session_control.clearing.enabled` | Leave unset in almost all cases — clearing arms automatically wherever intent capture is on and this block is configured. Set `true` explicitly on a gateway that runs marker-writing policies WITHOUT intent capture, which otherwise has no targeted clear path and can only wait for a marker to expire. |
 
 #### `mcp_servers[]` — required and optional top-level fields
 
@@ -192,17 +269,33 @@ In other words: a valid `oauth` block must satisfy one of these two shapes:
 
 Setting some but not all of `client_id` / `client_secret` / `token_url` without `issuer` is invalid. Both shapes still require `type: oauth`, `grant_type`, and `scopes`.
 
-| Field | Required | Type | Rationale (from artifact) |
-|---|---|---|---|
-| `grant_type` | yes (variant) | string | Pick the OAuth grant the upstream server supports — `client_credentials` for machine-to-machine, `authorization_code` for delegated user auth. |
-| `scopes` | yes (variant) | array<string> | Scopes the gateway requests from the provider; match the provider's documented scope strings. |
-| `issuer` | conditional | URL | Set to enable dynamic client registration — the gateway discovers token/authorize URLs and registers itself automatically. |
-| `client_id` | conditional | string | The OAuth client identifier the upstream server issued you. Omit to let the gateway register dynamically (requires `issuer`). |
-| `client_secret` | conditional | string, **secret** | The OAuth client secret paired with `client_id`. Omit for public clients or when using DCR. |
-| `token_url` | conditional | URL | The token endpoint the gateway posts to. Omit when `issuer` is set — DCR will discover it. |
-| `authorization_url` | no | URL | The authorize endpoint for delegated user flows. Omit for non-interactive grants like `client_credentials`. |
-| `redirect_uri` | no | URL | Callback URL the upstream server redirects back to after user consent. |
-| `pkce_enabled` | no | boolean | Enable for public clients where leaking the `client_secret` is a risk. |
+| Field | Required | Type | Target | Rationale (from artifact) |
+|---|---|---|---|---|
+| `grant_type` | yes (variant) | string | `sotw.oauth_config.grant_type` | Pick the OAuth grant the upstream server supports — `client_credentials` for machine-to-machine, `authorization_code` for delegated user auth. |
+| `scopes` | yes (variant) | array<string> | `sotw.oauth_config.scopes` | Scopes the gateway requests from the provider; match the provider's documented scope strings. |
+| `issuer` | conditional | URL | `sotw.oauth_config.issuer` | Set to enable dynamic client registration — the gateway discovers token/authorize URLs and registers itself automatically. |
+| `client_id` | conditional | string | `sotw.oauth_config.client_id` | The OAuth client identifier the upstream server issued you. Omit to let the gateway register dynamically (requires `issuer`). |
+| `client_secret` | conditional | string, **secret** | `sotw.oauth_config.client_secret` | The OAuth client secret paired with `client_id`. Omit for public clients or when using DCR. |
+| `token_url` | conditional | URL | `sotw.oauth_config.token_url` | The token endpoint the gateway posts to. Omit when `issuer` is set — DCR will discover it. |
+| `authorization_url` | no | URL | `sotw.oauth_config.authorization_url` | The authorize endpoint for delegated user flows. Omit for non-interactive grants like `client_credentials`. |
+| `redirect_uri` | no | URL | `sotw.oauth_config.redirect_uri` | Callback URL the upstream server redirects back to after user consent. |
+| `pkce_enabled` | no | boolean | `sotw.oauth_config.pkce_enabled` | Enable for public clients where leaking the `client_secret` is a risk. |
+
+#### Non-OAuth variant fields — where each one lands
+
+Required-ness here is *within the variant*: the field must appear when that `type` is chosen.
+
+| Variant | Field | Required | Type | Target |
+|---|---|---|---|---|
+| `bearer` | `token` | yes | string | `sotw.auth_token` |
+| `basic` | `username` | yes | string | `sotw.auth_username` |
+| `basic` | `password` | yes | string | `sotw.auth_password` |
+| `authheaders` | `headers` | yes | array<object> | `sotw.auth_headers` |
+| `authheaders` | `headers[].key` | yes | string | `sotw.auth_headers[].key` |
+| `authheaders` | `headers[].value` | yes | string | `sotw.auth_headers[].value` |
+| `query_param` | `param_key` | yes | string | `sotw.auth_query_param_key` |
+| `query_param` | `param_value` | yes | string | `sotw.auth_query_param_value` |
+| `cert` | `ca_cert` | yes | string | `sotw.ca_certificate` |
 
 #### Secret-typed fields — must emit a placeholder, never a literal
 
@@ -218,23 +311,26 @@ Every field marked `secret: true` in the artifact. Emit a self-describing placeh
 
 #### `target` / `targetKind` — where values land
 
-- **`targetKind: envVar`** — value is written to the deployed env file under the named `target` (e.g. `MCP_REQUIRE_AUTH`, `JWT_AUDIENCE`, `SSRF_ALLOWED_NETWORKS`, `LOG_LEVEL`).
-- **`targetKind: sotwPath`** — value is written into the SOTW YAML at the named dotted path (e.g. `sotw.url`, `sotw.oauth_config.client_secret`). All `mcp_servers[]` fields land here.
 - **`targetKind: advanced`** — only `gateway.advanced`. Lines are **appended verbatim** to the deployed env file; the parser does not validate keys here. Case-sensitive; the user owns correctness.
+- **`targetKind: envVar`** — value is written to the deployed env file under the named `target` (e.g. `MCP_REQUIRE_AUTH`, `JWT_AUDIENCE`, `SSRF_ALLOWED_NETWORKS`, `LOG_LEVEL`).
+- **`targetKind: platform`** — value is applied as a platform-side control at the named `platform.*` path rather than written to the gateway env file.
+- **`targetKind: sotwPath`** — value is written into the SOTW YAML at the named dotted path (e.g. `sotw.url`, `sotw.oauth_config.client_secret`). Read the `Target` column per field; do not infer a field's target from its section.
+
+<!-- schema-reference.json sha256:ffe155c3bdc16325708b171e4f050dbe327336f19bac57feda5602da8e7da12b -->
 
 <!-- END SCHEMA DIGEST -->
 
 ### Gateway Section
 
-Controls authentication, SSRF protection, `log_level`, and `advanced` flags — all documented in the Schema Digest above. (CORS is also modeled by the parser but is not detailed in the digest; configure it via the `advanced` escape hatch or confirm the field names with `dtwo-validate-gateway-config` before relying on them.) Authentication and SSRF are the load-bearing ones and are expanded below.
+Controls authentication, SSRF protection, `log_level`, `advanced` flags, DCR / discovery overrides, and session-intent and human-gated clearing — all documented in the Schema Digest above. (CORS is also modeled by the parser but is not detailed in the digest; configure it via the `advanced` escape hatch or confirm the field names with `dtwo-validate-gateway-config` before relying on them.) Authentication and SSRF are the load-bearing ones and are expanded below.
 
-- **Authentication** defaults to enabled when omitted. Supports JWKS-based JWT verification, SSO issuer, audience/issuer verification, JTI requirements, token expiration enforcement, and OAuth resource metadata.
+- **Authentication** defaults to enabled when omitted. Every field in `gateway.authentication` — including the token-validation flags (`jwt_issuer_verification`, `jwt_audience_verification`, `require_jti`, `require_token_expiration`, `mcp_oauth_resource_metadata_enabled`) — is listed in the Schema Digest above with its target, its default, and the schema's own guidance on when to set it. Read the table there rather than guessing from this summary; several of those flags have a boot-time default the schema does not declare (their Default column reads `not declared`; the Guidance column states the effective value).
 - **Gateway-side `jwks_info` is independent of any `mcp_servers[].authentication` block.** When the prompt supplies an IdP tenant and audience (e.g. Auth0), populate `gateway.authentication.jwks_info` (`jwt_algorithm`, `jwt_jwks_uri`, `jwt_issuer`, `jwt_audience`) — even when the upstream MCP server uses OAuth/DCR, and even when the prompt says the upstream server "only supports OAuth" or "does not accept bearer tokens." Those statements describe the outbound leg to the MCP server, not the inbound leg from clients to the gateway.
 - **SSRF** defaults to strict (block localhost, block private networks, fail-closed DNS) when omitted. Set `allow_private_networks: true` to permit access to `host.docker.internal` and other private addresses.
 
 ### MCP Servers Section
 
-Each server requires `name` and `url`. Optional fields: `description`, `transport_type`, `refresh_interval_seconds`, and `authentication`.
+Each server requires `name` and `url`. Optional fields: `description`, `transport_type`, `refresh_interval_seconds`, `visibility`, `owner_email`, and `authentication`.
 
 - `transport_type` — accepted values are `streamablehttp`, `sse`, and `http`. **When generating new configs, always use `streamablehttp`** (one word). The parser also accepts `streamable_http` and normalizes it to `streamablehttp` when writing the file back out, so you may see either form in existing configs.
 - `refresh_interval_seconds` — supported but should not normally be set; rely on the gateway default unless the user has a specific reason to override.
