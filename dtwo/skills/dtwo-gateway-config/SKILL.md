@@ -350,7 +350,7 @@ Supported authentication types:
 | `basic` | `username`, `password` |
 | `authheaders` | `headers` (array of `{key, value}`) |
 | `query_param` | `param_key`, `param_value` |
-| `oauth` | Either `issuer` (for DCR) or `client_id` + `client_secret` + `token_url`. Optional: `grant_type`, `scopes`, `authorization_url`, `redirect_uri`, `pkce_enabled`, `extra_authorize_params`, `scope_param_name`, `scope_separator`, `token_response_path`, `token_lifetime_seconds`, `oauth_quirks` |
+| `oauth` | `grant_type`, `scopes`, plus either `issuer` (for DCR) or `client_id` + `client_secret` + `token_url`. Optional: `authorization_url`, `redirect_uri`, `pkce_enabled`, `extra_authorize_params`, `scope_param_name`, `scope_separator`, `token_response_path`, `token_lifetime_seconds`, `oauth_quirks` |
 | `cert` | `ca_cert` (PEM) |
 
 **Secret-typed fields** (any field with `secret: true` in the schema — `token`, `password`, `client_secret`, `authheaders.headers[].value`, `query_param.param_value`) must never carry inferred or literal credentials. Emit a self-describing placeholder in one of these shapes: `REPLACE_WITH_<FIELD>`, `PLACEHOLDER_<FIELD>`, `YOUR_<FIELD>` / `your-<field>` (matching the OAuth example below), `CHANGE_ME`, or `${ENV_VAR}`. Bare `PLACEHOLDER` (no suffix), `FILL_FROM_ENV`, and descriptive prose like `placeholder-replace-me` do **not** count — the placeholder must be self-describing so the operator can see which value to substitute.
