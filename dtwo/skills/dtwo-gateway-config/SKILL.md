@@ -146,10 +146,10 @@ Every field in this section, with the artifact's own guidance:
 |---|---|---|---|---|---|
 | `enabled` | yes | boolean | `true` (schema) | `MCP_REQUIRE_AUTH` | Leave at the default `true` for production. Set `false` only for local development where you want an unauthenticated gateway. |
 | `sso_issuer` | no | URL | `not declared` | `SSO_GENERIC_ISSUER` | Set when you're using an SSO provider that publishes an OpenID Connect discovery document at `{issuer}/.well-known/openid-configuration`. Only set an issuer you want advertised: MCP clients will follow it for OAuth discovery. |
-| `jwt_issuer_verification` | no | boolean | `not declared` | `JWT_ISSUER_VERIFICATION` | Leave unset or `true` — the gateway defaults it to `true` and refuses to start with `false` whenever `jwks_info` is configured, because skipping issuer verification against external IdP keys enables token substitution; the schema rejects `false` for the same reason. Set `true` explicitly to pin the secure value against a future change in the gateway default, not to make a choice. |
-| `jwt_audience_verification` | no | boolean | `not declared` | `JWT_AUDIENCE_VERIFICATION` | Leave unset or `true` — the gateway defaults it to `true` and refuses to start with `false` whenever `jwks_info` is configured, since a token minted for another service in the same tenant would otherwise be accepted here; the schema rejects `false` for the same reason. Set `true` explicitly to pin the secure value against a future change in the gateway default, not to make a choice. |
-| `require_jti` | no | boolean | `not declared` | `REQUIRE_JTI` | The gateway defaults this to `true`, so omitting it rejects every request from Auth0 or Entra ID with "Token is missing required JTI claim" — neither IdP mints a `jti` on access tokens. Set `false` for those, and for any other IdP whose tokens lack `jti`; stay at the `true` default only when your IdP emits one and you rely on per-token revocation, since a `jti`-less token cannot be revoked individually. |
-| `require_token_expiration` | no | boolean | `not declared` | `REQUIRE_TOKEN_EXPIRATION` | The gateway defaults this to `true`, so omitting it already rejects tokens carrying no `exp` claim, which never age out — the setup runbooks set it explicitly only to state that posture. Set `false` only for a short-lived local experiment against an IdP that mints non-expiring tokens, and revert before the gateway sees real traffic. |
+| `jwt_issuer_verification` | no | boolean | `true` (gateway) | `JWT_ISSUER_VERIFICATION` | Leave unset or `true` — the gateway defaults it to `true` and refuses to start with `false` whenever `jwks_info` is configured, because skipping issuer verification against external IdP keys enables token substitution; the schema rejects `false` for the same reason. Set `true` explicitly to pin the secure value against a future change in the gateway default, not to make a choice. |
+| `jwt_audience_verification` | no | boolean | `true` (gateway) | `JWT_AUDIENCE_VERIFICATION` | Leave unset or `true` — the gateway defaults it to `true` and refuses to start with `false` whenever `jwks_info` is configured, since a token minted for another service in the same tenant would otherwise be accepted here; the schema rejects `false` for the same reason. Set `true` explicitly to pin the secure value against a future change in the gateway default, not to make a choice. |
+| `require_jti` | no | boolean | `true` (gateway) | `REQUIRE_JTI` | The gateway defaults this to `true`, so omitting it rejects every request from Auth0 or Entra ID with "Token is missing required JTI claim" — neither IdP mints a `jti` on access tokens. Set `false` for those, and for any other IdP whose tokens lack `jti`; stay at the `true` default only when your IdP emits one and you rely on per-token revocation, since a `jti`-less token cannot be revoked individually. |
+| `require_token_expiration` | no | boolean | `true` (gateway) | `REQUIRE_TOKEN_EXPIRATION` | The gateway defaults this to `true`, so omitting it already rejects tokens carrying no `exp` claim, which never age out — the setup runbooks set it explicitly only to state that posture. Set `false` only for a short-lived local experiment against an IdP that mints non-expiring tokens, and revert before the gateway sees real traffic. |
 | `mcp_oauth_resource_metadata_enabled` | no | boolean | `not declared` | `MCP_OAUTH_RESOURCE_METADATA_ENABLED` | The gateway defaults this to `false`, so discovery is off unless something turns it on. Set `true` when spec-compliant MCP clients must find your authorization server automatically and you have no `sso_issuer` — without it, 401 responses carry no `resource_metadata` URL and the client has nowhere to begin the OAuth flow. With `sso_issuer` set the deploy turns it on for you, so leave it unset there; set `false` to override that and stop advertising the issuer to clients you configure out of band. |
 | `sso_generic_scope` | no | string | `not declared` | `SSO_GENERIC_SCOPE` | Set to the OAuth scope your SSO provider requires (e.g. `openid profile email`). Ignored when `sso_issuer` is not set. |
 
@@ -164,10 +164,17 @@ All 4 fields are required when this object is present. These govern the **inboun
 
 | Field | Required | Type | Target env | Rationale (from artifact) |
 |---|---|---|---|---|
-| `jwt_algorithm` | yes | enum: `HS256`/`HS384`/`HS512`/`RS256`/`RS384`/`RS512`/`ES256`/`ES384`/`ES512` | `JWT_ALGORITHM` | Choose the algorithm your identity provider uses to sign tokens — HS256 for symmetric secrets, RS256 for asymmetric JWKs. |
-| `jwt_jwks_uri` | yes | URL | `JWT_JWKS_URI` | Set to the JWKS URL your identity provider publishes; the gateway fetches public keys from here to validate incoming tokens. |
-| `jwt_issuer` | yes | string | `JWT_ISSUER` | Set to the `iss` claim your provider emits; the gateway rejects tokens whose `iss` does not match. |
+| `jwt_algorithm` | yes | enum: `HS256`/`HS384`/`HS512`/`RS256`/`RS384`/`RS512`/`ES256`/`ES384`/`ES512` | `JWT_ALGORITHM` | Set to the asymmetric algorithm your identity provider signs with — RS256 for most (Auth0, Entra), ES256 for elliptic-curve tenants. The HS256/HS384/HS512 values are symmetric and are rejected here: `jwks_info` always implies a JWKS endpoint, which publishes public keys only, and the gateway refuses to start on that combination. |
+| `jwt_jwks_uri` | yes | URL | `JWT_JWKS_URI` | Set to the JWKS URL your identity provider publishes; the gateway fetches public keys from here to validate incoming tokens. Must begin with a lowercase `https://` — the gateway rejects every other scheme, `file://` included, as an SSRF and key-substitution vector, and refuses to start. |
+| `jwt_issuer` | yes | string | `JWT_ISSUER` | Set to the `iss` claim your provider emits; the gateway rejects tokens whose `iss` does not match. Use the `https://` form — the gateway dereferences this URL for `/userinfo` token introspection and refuses to start on `http://`. Auth0 issuers carry a trailing slash and the comparison is exact, so `https://tenant.us.auth0.com/` and `https://tenant.us.auth0.com` are different values. |
 | `jwt_audience` | yes | string | `JWT_AUDIENCE` | Set to the `aud` claim the provider targets at this gateway; prevents tokens meant for other services from being accepted. |
+
+**Cross-field constraints** (verbatim from artifact):
+> When authentication is enabled (the default), `jwt_jwks_uri` must begin with a lowercase "https://" — the gateway rejects every other scheme, "file://" included, as an SSRF and key-substitution vector, and refuses to start.
+>
+> When authentication is enabled (the default), `jwt_algorithm` cannot be HS256, HS384 or HS512 — a JWKS endpoint publishes public keys, which only verify asymmetric signatures, so the gateway refuses to start. Use RS256 or ES256.
+>
+> When authentication is enabled (the default), `jwt_issuer` cannot begin with "http://" — the gateway dereferences it for /userinfo token introspection and refuses to start rather than send a bearer token in cleartext.
 
 #### `gateway.authentication.oauth_dcr` — DCR and discovery overrides
 
@@ -316,7 +323,7 @@ Every field marked `secret: true` in the artifact. Emit a self-describing placeh
 - **`targetKind: platform`** — value is applied as a platform-side control at the named `platform.*` path rather than written to the gateway env file.
 - **`targetKind: sotwPath`** — value is written into the SOTW YAML at the named dotted path (e.g. `sotw.url`, `sotw.oauth_config.client_secret`). Read the `Target` column per field; do not infer a field's target from its section.
 
-<!-- schema-reference.json sha256:ffe155c3bdc16325708b171e4f050dbe327336f19bac57feda5602da8e7da12b -->
+<!-- schema-reference.json sha256:7da03dec3c066d3ca74a9a25173017dd63b0e8a04eea167dce3eec4ae19fad1d -->
 
 <!-- END SCHEMA DIGEST -->
 

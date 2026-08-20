@@ -10,9 +10,10 @@
  * validation.
  *
  * That pin is weaker than it looks: `generatorVersion` is hand-maintained
- * upstream and has stayed at 1.0.0 across real content change. The digest's
- * embedded artifact sha256 (see `scripts/generate-schema-digest.mjs`) is what
- * makes a content refresh visible.
+ * upstream and stayed at 1.0.0 across real content change before the 1.1.0
+ * bump. The digest's embedded artifact sha256 (see
+ * `scripts/generate-schema-digest.mjs`) is what makes a content refresh
+ * visible.
  */
 
 import { readFileSync } from 'node:fs';
@@ -24,7 +25,7 @@ import { fileURLToPath } from 'node:url';
  * `generatorVersion` bump in the artifact must surface as a loud Tier-1
  * failure so we re-audit the harness's shape assumptions.
  */
-export const SCHEMA_ARTIFACT_VERSION = '1.0.0';
+export const SCHEMA_ARTIFACT_VERSION = '1.1.0';
 
 /**
  * `platform` is emitted by the currently vendored artifact (every
@@ -45,6 +46,14 @@ export type FieldRecord = {
   rationale?: string;
   schemaDefault: unknown;
   deployDefault: unknown;
+  /**
+   * Added by generatorVersion 1.1.0: a default the gateway itself applies at
+   * runtime when the deployed env leaves the field unset — distinct from
+   * `deployDefault`, which deploy-time config writes. Carried today by the
+   * four security-posture booleans (`jwt_issuer_verification`,
+   * `jwt_audience_verification`, `require_jti`, `require_token_expiration`).
+   */
+  gatewayDefault?: unknown;
   target: string | null;
   targetKind?: TargetKind;
   description: string;
