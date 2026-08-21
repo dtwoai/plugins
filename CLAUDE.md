@@ -22,7 +22,7 @@ If you add a second plugin to the marketplace later, the same rule applies: vers
 
 Production Claude Code caches only each skill's `SKILL.md` in the system prompt; a skill's `references/` directory is **not** auto-loaded for real users. Anything a policy/skill author needs at authoring time must live inline in `SKILL.md`, not in a sidecar file.
 
-The `dtwo-gateway-config` skill's `### Schema Digest` (between `<!-- BEGIN SCHEMA DIGEST -->` / `<!-- END SCHEMA DIGEST -->`) is **generated** from `dtwo/skills/dtwo-gateway-config/schema-reference.json` — do not hand-edit it. Regenerate with `node scripts/generate-schema-digest.mjs`; `--check` fails if it's stale, and the `skill-harness` suite runs exactly that, so `pnpm test` is what enforces it. The vendored schema is a verbatim copy of the artifact the product repo's schema generator emits; refresh it by copying, never by editing in place.
+The `dtwo-gateway-config` skill's `### Schema Digest` (between `<!-- BEGIN SCHEMA DIGEST -->` / `<!-- END SCHEMA DIGEST -->`) is **generated** from `dtwo/skills/dtwo-gateway-config/schema-reference.json` — do not hand-edit it. Regenerate with `node scripts/generate-schema-digest.mjs`; `--check` fails if it's stale; the `skill-harness` suite runs exactly that, and CI (`.github/workflows/skill-harness.yml`) runs both the `--check` and the suite on every push to `main` and every PR. The vendored schema is a verbatim copy of the artifact the product repo's schema generator emits; refresh it by copying, never by editing in place.
 
 ## Test locally before pushing
 
@@ -34,6 +34,8 @@ The `dtwo-gateway-config` skill's `### Schema Digest` (between `<!-- BEGIN SCHEM
 ```
 
 Clean up when done: `/plugin uninstall dtwo@dtwo` then `/plugin marketplace remove dtwo`.
+
+The offline checks (tests, biome, tsc, digest drift) also run in CI via `.github/workflows/skill-harness.yml`; the live bench does not.
 
 ## This repo is public (MIT)
 
