@@ -107,7 +107,7 @@ Phase numbers, tool names, and schema fields (`dtwo-create-gateway`, `jwt_jwks_u
 
 - **Don't narrate internal mechanics.** Never say "I'll call `dtwo-create-gateway`" or "moving to Phase 5 now." Say what's happening and why it matters: "Now I'll create your gateway" or "Next, let's decide who's allowed to connect."
 - **Translate protocol jargon into the plain choices already written into each phase.** The one-line descriptions in Phase 2 (hosted vs. local vs. self-hosted) and Phase 4 (Dtwo-managed sign-in vs. your own identity provider) are the right register — lead with those, not the raw enum values (`hostedAws`, `dtwo_default`, etc.). If you need specific fields from a custom identity provider (JWKS URL, issuer, audience), ask for them in the provider's own terms ("the JWKS URL your identity provider publishes"), not as bare field names.
-- **Frame activation and connection steps around what the user is doing, not the artifact names.** "Here's a small config file to start the gateway on your machine, and the command to run it" reads better than leading with `composeFileName` / `activationCommand`. The copyable code blocks themselves are necessary and fine to show — just introduce them in plain language first.
+- **Frame activation and connection steps around what the user is doing, not the artifact names.** "Here's a small config file to start the gateway on your machine, an activation file so Dtwo recognizes it, and the commands to run" reads better than leading with `composeFileName` / `dtwo.env`. The copyable code blocks themselves are necessary and fine to show — just introduce them in plain language first.
 - **Keep deploy/status updates outcome-level.** "Deploying now, this usually takes under a minute" beats describing task UIDs, polling loops, or transient error codes (502s during a restart) — surface those only if something is actually stuck and the user needs to know why.
 - **Phase numbers are for your bookkeeping, not required conversation.** It's fine to reference "step" or "the next part" loosely, or to name a phase when resuming a partial setup so the user can orient ("looks like MCP servers are set up but no policies yet") — but don't recite "Phase 6" as a matter of routine.
 - **Surface technical detail on request, not by default.** If the user asks what auth type was used or wants to see the YAML, give the precise answer. Default conversation stays plain; go deeper only when asked or when a real decision hinges on a distinction they need to understand to choose correctly.
@@ -139,8 +139,8 @@ Setup-specific tools (may be newer — see Graceful degradation if any are missi
 | `dtwo-set-gateway-auth` | Deterministically write the `gateway.authentication` block into the draft config. Input `{ uid, mode, customFields? }` where `mode` is `dtwo_default` \| `custom` \| `disabled` \| `removed`. `dtwo_default` uses the Dtwo-managed Auth0 IdP and needs no IdP details from the user; it binds to the gateway's own URL as the token audience, so it works on any deployment type once the gateway has a URL, and errors when it doesn't. `custom` takes the audience from `customFields` and so needs no gateway URL. On `localHttp` and `hostedAws`, which are created on the Dtwo-managed IdP already, this tool is for moving off that default rather than first-time setup. `customFields` carries `jwt_algorithm`, `jwt_jwks_uri`, `jwt_issuer`, `jwt_audience`, `sso_issuer` when `mode: custom` |
 | `dtwo-update-gateway` | Update gateway metadata. Input `{ uid, name?, tags?, url?, callbackUrl? }`. This is how a `standard` gateway gets the MCP URL it was created without. The URL is the audience the Dtwo-managed IdP binds to, so it has to be set before `dtwo-set-gateway-auth` with `mode: dtwo_default`; `mode: custom` carries its own audience and doesn't need it. Either way it can be left for a later session if the user doesn't have the address yet. `url` and `callbackUrl` are `standard`-only, since `localHttp` and `hostedAws` URLs are platform-assigned and a change to those is refused |
 | `dtwo-get-gateway-connection-info` | Fetch client connection details, on any deployment type. Input `{ uid }` → `{ mcpUrl, authMode, clientId?, audience?, issuer?, jwksUri?, domain?, callbackPort? }`. `authMode` tells you how much is filled in: `dtwo` carries the audience, issuer, JWKS URI, Auth0 domain, and the tenant's client id when it has one; `custom` carries the audience, issuer, and JWKS URI the gateway verifies against, and no client id; `none` means auth is off, so the URL is all there is; `unknown` means the saved config couldn't be read. `callbackPort` (33418) comes back for `localHttp` only. Errors when the gateway has no URL yet, which for `standard` means the `dtwo-update-gateway` step hasn't happened |
-| `dtwo-get-gateway-activation` | Fetch the **first-run** activation bundle for a **self-hosted** gateway. Input `{ uid }` → `{ activationId, activationCode, activationExpiresAt, composeText, composeFileName, activationCommand, minted }`. The activation code is never stored, so in practice every call mints a fresh pair and returns `minted: true`, invalidating any previously issued one. Call it once per activation attempt. Its `activationCommand` pulls the image and starts the stack, which is what a host that has never come up needs. `composeText` carries the `443:443`→`80:80` port swap for `localHttp`. Errors for `hostedAws` (nothing to activate, since provisioning is managed) |
-| `dtwo-refresh-gateway-activation` | Mint a fresh activation pair for a `localHttp` or `standard` gateway, invalidating any previously issued one. Input `{ uid }` → the same fields as `dtwo-get-gateway-activation`, so a refresh on its own carries everything needed. The difference is the `activationCommand`, which is the re-register form: `docker compose down`, write the new activation to `.env`, `docker compose up -d`, deliberately with no `pull`, so the deployed image doesn't change. That command assumes a host that is already up, so use `dtwo-get-gateway-activation` for one that has never come up. Errors for `hostedAws`: refreshing would invalidate the credential the provisioning instance is using |
+| `dtwo-get-gateway-activation` | Fetch the **first-run** activation bundle for a **self-hosted** gateway. Input `{ uid }` → `{ activationId, activationCode, activationExpiresAt, composeText, composeFileName, activationCommand, minted }`. The activation code is never stored, so in practice every call mints a fresh pair and returns `minted: true`, invalidating any previously issued one; the pair is single-use and lasts 24 hours. Call it once per activation attempt. Use `activationId` and `activationCode` to write the `dtwo.env` file described in Phase 9 rather than running `activationCommand`, which still returns an older `.env`-writing form. `composeText` carries the `443:443`→`80:80` port swap for `localHttp`. Errors for `hostedAws` (nothing to activate, since provisioning is managed) |
+| `dtwo-refresh-gateway-activation` | Mint a fresh activation pair for a `localHttp` or `standard` gateway that is already up, invalidating any previously issued one. Input `{ uid }` → the same fields as `dtwo-get-gateway-activation`. Again, take `activationId` and `activationCode` and rewrite `dtwo.env`; its `activationCommand` is an older `docker compose down` / `.env` form. Re-register with `docker compose --env-file dtwo.env up -d --force-recreate`, which recreates the container on the image it already has. For a host that has never come up, use `dtwo-get-gateway-activation` instead, since its flow pulls the image. Errors for `hostedAws`: refreshing would invalidate the credential the provisioning instance is using |
 
 Existing lifecycle tools this skill leans on (documented in the companion skills):
 
@@ -177,7 +177,7 @@ Show this table in your message, unmodified, before asking anything — this is 
 | Deployment type | Description |
 |---|---|
 | Dtwo hosted | Dtwo runs the gateway for you in the cloud. Zero local infrastructure. |
-| Local | Runs on your machine via Docker, serving plain HTTP on port 80. The quickest way to try Dtwo, but not meant for production. |
+| Local | Runs on your machine via Docker, serving plain HTTP on port 80. This is not meant for production. |
 | Self-hosted | You self-host on your own infrastructure over HTTPS. Most control, most setup. |
 
 Map the user's choice to `deploymentType`: Dtwo hosted → `hostedAws`, Local → `localHttp`, Self-hosted → `standard`. You'll pass this value to `dtwo-create-gateway` in Phase 3.
@@ -317,17 +317,48 @@ Confirm with the user, then call `dtwo-publish-gateway-config` to publish the dr
 
 **Skip this phase entirely for `hostedAws`** — there is nothing to activate; provisioning was queued at creation. Instead, check `dtwo-get-gateway` (and `dtwo-get-gateway-deployments` if useful) to confirm provisioning has progressed before deploying in Phase 10.
 
-For **localHttp / standard**, call `dtwo-get-gateway-activation` `{ uid }` to get `{ composeText, composeFileName, activationCommand, activationExpiresAt, ... }`. Then branch on whether your current environment can run shell commands:
+For **localHttp / standard**, call `dtwo-get-gateway-activation` `{ uid }` to get `{ activationId, activationCode, activationExpiresAt, composeText, composeFileName, activationCommand, minted }`.
 
-- **Shell available (e.g. Claude Code with Bash).** Offer to do it for the user. If they agree: ask where to put the file, write `composeText` to `composeFileName` in that directory, then run `activationCommand` **from that same directory**: it writes the activation pair to a `.env` file beside the compose file and then runs `docker compose pull` and `docker compose up -d`, so it only works with that directory as the working directory. Stream the result back and confirm the container came up.
-- **Shell NOT available (e.g. claude.ai / Claude Desktop without a local shell).** Present `composeText` as a copyable code block (named `composeFileName`) and the `activationCommand` as a copyable command, with a one-line explanation of each. Then wait for the user to confirm they've run it before continuing.
+Activation is two files in one folder on the host, plus two commands run from that folder:
+
+1. **`compose.yaml`**: `composeText`, saved under the name `composeFileName` gives.
+2. **`dtwo.env`**: the activation pair, exactly two lines.
+
+   ```
+   ACTIVATION_ID=<activationId>
+   ACTIVATION_CODE=<activationCode>
+   ```
+
+3. Then, from that folder, pull the image and start the stack:
+
+   ```bash
+   docker compose --env-file dtwo.env pull
+   docker compose --env-file dtwo.env up -d
+   ```
+
+Build those commands yourself as written above rather than echoing the `activationCommand` field. That field still returns an older form that writes the pair into a `.env` file, which works but doesn't match the Dtwo Hub or its docs, and a leading-dot filename is easy to lose (browsers rename it on download, and `ls` hides it). The file name `dtwo.env` is what the Hub uses, and the `--env-file` flag is what makes a visible name work.
+
+The credentials are **single-use and valid for 24 hours** from when they were minted. `activationExpiresAt` carries the exact expiry if the user asks.
+
+**The user decides who runs this, not your environment.** Where you can run shell commands (Claude Code with Bash), offer to do it and say what that involves: creating a folder with two files in it and starting a container. Ask before touching anything. Two ways it can go:
+
+- **They accept.** Ask which folder to use, write both files there, then run the two commands from that folder. No need to print the activation pair when you're the one writing the file. Stream the result back and confirm the container came up.
+- **They'd rather do it themselves**, or you have no shell (claude.ai, Claude Desktop without one). Hand over everything they need as copyable blocks with a line of explanation each: `composeText` (titled `composeFileName`), the two `dtwo.env` lines with the **real `activationId` and `activationCode` filled in**, and the two commands. Say that both files go in the same folder and the commands run from there. Then wait for them to confirm they've run it before continuing.
+
+Print the real values in that second case. The pair is a credential, so don't scatter it around unasked, but a user who has said they'll run the commands themselves needs the actual id and code, and a placeholder or an offer to write the file for them instead is just an obstacle. Someone who came to a skill for guidance may well not want it creating files on their machine, and that's a reasonable thing to want.
 
 **Expired or missing credentials are handled for you.** The activation code is never stored, so `dtwo-get-gateway-activation` mints a fresh pair on essentially every call and reports `minted: true`. There is nothing to do about expiry up front, and no reason to check it before starting.
 
-The two activation tools hand back different commands, so pick by what state the host is in:
+If a first attempt needs another go, which tool to call depends on whether the host is up:
 
-- **The host has never come up** (the normal case here, including a first attempt whose code expired before the user ran it): call `dtwo-get-gateway-activation` again. Its command pulls the image and starts the stack, which is what a host with no image yet needs.
-- **The host is already up** and the activation command reported an invalid or expired code at run time: call `dtwo-refresh-gateway-activation` `{ uid }`. Its command takes the stack down, writes the new activation, and brings it back up **without** pulling, so re-registering doesn't change the image the host is running. The rest of the bundle is identical, so present or run it the same way, from the compose file's directory again.
+- **The host has never come up** (the normal case here, including a first attempt whose code expired before the user ran it): call `dtwo-get-gateway-activation` again, then hand over or write the new pair the same way as the first attempt, and run the same two commands. The `pull` matters, since the image may still not be on the host.
+- **The host is already up** and reported an invalid or expired code at run time: call `dtwo-refresh-gateway-activation` `{ uid }`, hand over or write the new pair into `dtwo.env` as before, and re-register with one command instead:
+
+  ```bash
+  docker compose --env-file dtwo.env up -d --force-recreate
+  ```
+
+  `--force-recreate` is what makes Compose rebuild the container so it picks up the new pair, and leaving `pull` out keeps the host on the image it is already running.
 
 **Fetch the activation once per attempt.** Do not call `dtwo-get-gateway-activation` again after the container has started with the pair you were given: a re-fetch mints a new one and invalidates the one the host just used. Re-fetching is only right when the attempt didn't finish, as in the first case above. Fetch once, activate, then move on to Phase 10.
 
@@ -361,7 +392,7 @@ Use a kebab-case token for `<name>` (derive it from the gateway name; the Dtwo H
 
 Branch on whether your current environment can run shell commands, the same way Phase 9 does:
 
-**Shell available (e.g. Claude Code with Bash).** Offer to register the gateway as an MCP server directly by running `claude mcp add` for the user. Confirm first, and confirm the server `<name>` (the kebab-case token described above). Then run the exact command:
+**Shell available (e.g. Claude Code with Bash).** Offer to register the gateway as an MCP server directly by running `claude mcp add` for the user. Confirm first, and confirm the server `<name>` (the kebab-case token described above). If they'd rather run it themselves, hand them the command filled in and let them, the same as in Phase 9: this one edits their client config, so it's theirs to run if they want it that way. Either way the command is:
 
 ```bash
 claude mcp add --transport http \
@@ -435,6 +466,12 @@ Then move on to Phase 12 — setup isn't finished until the user has authenticat
 - The manual route: run `/mcp`, select the newly added gateway server in the list, and choose **Authenticate**. If the server doesn't show up in the list, run `/reload-plugins` and check `/mcp` again.
 
 In clients without those commands (e.g. Claude Desktop), the first use of the connector triggers the auth flow in the browser instead.
+
+**If that first sign-in fails, clear the server's authentication and try once more.** In Claude Code that's `/mcp`, select the server, and choose **Clear authentication** (wording varies a little by version); other clients have an equivalent under the connector's own settings, sometimes as disconnecting and reconnecting it. Then authenticate again.
+
+Try this before digging into the config, because it's quick and it's a common cause: clients cache OAuth state per server, including what they discovered from the gateway URL, and a stale entry can outlive the gateway it came from. It matters most for a user who has used Dtwo before and is setting up again, where the cached state can belong to an older gateway at a different URL. It's worth one attempt even on a first-ever setup, since a server added, removed, and re-added under the same name can leave the same residue.
+
+If a clear-and-retry doesn't fix it, stop guessing and check the two things that actually decide sign-in: that `dtwo-get-gateway-connection-info` reports the `authMode` you expect and an `mcpUrl` matching what the client is pointed at, and that the gateway's latest deploy carried the authentication config (an auth change saved but never deployed is the other common cause). On a custom IdP, add the callback-registration check from Phase 4.
 
 **Test the attached policies.** Pick one of the policies attached in Phase 7 and trigger the behavior it governs *through* the gateway, using one of the MCP servers added in Phase 5. Show the user the gateway's actual response verbatim — not just your summary of it — so they see the enforcement with their own eyes, then add your own one-line confirmation on top:
 
