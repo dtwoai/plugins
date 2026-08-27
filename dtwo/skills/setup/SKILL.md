@@ -136,8 +136,9 @@ Setup-specific tools (may be newer — see Graceful degradation if any are missi
 | Tool | Purpose |
 |------|---------|
 | `dtwo-create-gateway` | Create a draft gateway with an empty config. Input `{ name, tags?, deploymentType?, allowAdditionalHosted? }` where `deploymentType` is `hostedAws` \| `standard` \| `localHttp`. For `hostedAws` it also queues AWS provisioning. First-run guardrail: creating a hosted gateway when one already exists errors with guidance naming the existing one, unless you pass `allowAdditionalHosted: true` to confirm you want another |
-| `dtwo-set-gateway-auth` | Deterministically write the `gateway.authentication` block into the draft config. Input `{ uid, mode, customFields? }` where `mode` is `dtwo_default` \| `custom` \| `disabled` \| `removed`. `dtwo_default` uses the Dtwo-managed Auth0 IdP (recommended default for `localHttp` and `hostedAws`). `customFields` carries `jwt_algorithm`, `jwt_jwks_uri`, `jwt_issuer`, `jwt_audience`, `sso_issuer` when `mode: custom` |
-| `dtwo-get-gateway-connection-info` | Fetch client connection details. Input `{ uid }` → `{ mcpUrl, clientId?, audience, issuer, jwksUri, callbackPort: 33418 }`. For hosted gateways `mcpUrl` is `https://<hostname>/mcp`; may be unavailable for `standard` until you supply the hostname |
+| `dtwo-set-gateway-auth` | Deterministically write the `gateway.authentication` block into the draft config. Input `{ uid, mode, customFields? }` where `mode` is `dtwo_default` \| `custom` \| `disabled` \| `removed`. `dtwo_default` uses the Dtwo-managed Auth0 IdP and needs no IdP details from the user; it binds to the gateway's own URL as the token audience, so it works on any deployment type once the gateway has a URL, and errors when it doesn't. `customFields` carries `jwt_algorithm`, `jwt_jwks_uri`, `jwt_issuer`, `jwt_audience`, `sso_issuer` when `mode: custom` |
+| `dtwo-update-gateway` | Update gateway metadata. Input `{ uid, name?, tags?, url?, callbackUrl? }`. This is how a `standard` gateway gets the MCP URL it was created without. The URL is the audience the IdP binds to, so it has to be set before `dtwo-set-gateway-auth`, though it can be left for a later session if the user doesn't have the address yet. `url` and `callbackUrl` are `standard`-only, since `localHttp` and `hostedAws` URLs are platform-assigned and a change to those is refused |
+| `dtwo-get-gateway-connection-info` | Fetch client connection details, on any deployment type. Input `{ uid }` → `{ mcpUrl, authMode, clientId?, audience?, issuer?, jwksUri?, domain?, callbackPort? }`. `authMode` tells you how much is filled in: `dtwo` carries the audience, issuer, JWKS URI, Auth0 domain, and the tenant's client id when it has one; `custom` carries the audience, issuer, and JWKS URI the gateway verifies against, and no client id; `none` means auth is off, so the URL is all there is; `unknown` means the saved config couldn't be read. `callbackPort` (33418) comes back for `localHttp` only. Errors when the gateway has no URL yet, which for `standard` means the `dtwo-update-gateway` step hasn't happened |
 | `dtwo-get-gateway-activation` | Fetch the activation bundle for a **self-hosted** gateway. Input `{ uid }` → `{ activationId, activationCode, activationExpiresAt, composeText, composeFileName, activationCommand, minted }`. Returns the current activation while it is still valid, and otherwise mints a fresh pair automatically (which invalidates any previously issued one); the `minted` flag tells you which happened. Call it once per activation attempt. Errors for `hostedAws` (nothing to activate — provisioning is managed) |
 | `dtwo-refresh-gateway-activation` | Force a fresh activation pair. Input `{ uid }` → the same full bundle as `dtwo-get-gateway-activation` (`composeText`, `composeFileName`, `activationCommand`, and the activation fields), so a refresh on its own is enough to activate |
 
@@ -181,6 +182,8 @@ Show this table in your message, unmodified, before asking anything — this is 
 
 Map the user's choice to `deploymentType`: Dtwo hosted → `hostedAws`, Local → `localHttp`, Self-hosted → `standard`. You'll pass this value to `dtwo-create-gateway` in Phase 3.
 
+Self-hosted is the one type where Dtwo can't work out the gateway's address for itself, so a self-hosted gateway needs the public HTTPS URL clients will call. If that's what the user picks, mention it now rather than surprising them with the question later. They can give it in Phase 3 if they know it, or leave it blank and come back once DNS, a load balancer, or a certificate is in place: authentication and the connection step are the only parts that wait on it.
+
 Then ask which they want:
 
 - If your host supports `AskUserQuestion`, still populate each option's `description` field verbatim from the table (some hosts do render it, and it costs nothing to include), but never rely on it alone — the table above is what actually guarantees the user sees the description. Match this shape exactly; labels and descriptions come verbatim from the table above:
@@ -211,24 +214,51 @@ Call `dtwo-create-gateway` with `{ name, tags?, deploymentType }`. Capture the r
 - For **hostedAws**, creation also queues AWS provisioning; note that so the user knows something is happening in the background.
 - **Hosted-already-exists guardrail.** If `deploymentType: hostedAws` fails because a hosted gateway already exists, the error names the existing one. Tell the user plainly and offer three options: (a) reuse the existing hosted gateway (switch to managing it via the companion skills, or continue this flow against its `uid`), (b) create a `localHttp` or `standard` gateway instead, or (c) confirm they really do want an additional hosted gateway, in which case re-run `dtwo-create-gateway` with `allowAdditionalHosted: true`. Re-run with their choice.
 
+**Set the gateway URL (`standard` only).** A `standard` gateway is created with no URL and no authentication, because its address is something only the user knows. Ask for the public URL MCP clients will call, then set it with `dtwo-update-gateway` `{ uid, url }`.
+
+Leaving it blank is a normal way through this setup, not a mistake to argue the user out of. Someone still standing up DNS, a load balancer, or a TLS certificate may not have the address for hours or days, and everything else (MCP servers, policies, the rest of the config) can be built out meanwhile. If they don't have it yet, say what's waiting on it and move on: the URL is the token audience the identity provider binds to, so authentication can't be configured without it, and Phase 11 has no endpoint to hand a client. Tell them they can pick this setup back up any time, or fill in the **Gateway URL** field from the Dtwo Hub, and that authentication is the step to return to once it's set.
+
+When they do have the URL, say what shape it takes, with an example: `https://gateway.example.com/mcp`. What the platform accepts:
+
+- **HTTPS**, absolute, including the scheme. Plain `http` is only allowed for loopback addresses.
+- **No query string, fragment, or embedded credentials.** The URL is compared exactly when a token is validated, so anything that varies per request can't be part of it.
+- It has to be the address clients actually reach, not an internal or container-local one. Everything downstream (the audience, the OAuth callback, the instructions in Phase 11) is derived from it.
+
+Three errors are worth recognizing so you can explain them rather than just relaying them:
+
+- **URL rejected as invalid** → the message names the reason (missing scheme, a query string, and so on). Ask for a corrected URL and call again.
+- **URL already registered with the identity provider** → another gateway is using it. Ask for a different one.
+- **`url` rejected as an unknown input** → the connected Dtwo environment predates self-hosted URL support on the MCP surface. Don't try to work around it. Tell the user their gateway needs its **Gateway URL** field filled in from the Dtwo Hub, and continue from Phase 4 once they confirm it's saved.
+
+**Callback URL.** Sign-in returns to `<gateway-url-without-/mcp>/oauth/callback` by default, so `https://gateway.example.com/mcp` gives `https://gateway.example.com/oauth/callback`. Self-hosted deployments often don't land there: a proxy, an ingress, or a separate auth host in front of the gateway can all put the redirect somewhere else, so expect this to differ more often than not. Ask the user where their OAuth redirect terminates, offer the default as the answer when it's right, and pass `callbackUrl` when it isn't.
+
 **Show progress — checkpoint 1 of 6, do this now.** Redraw the six-step diagram with only **Create your gateway** checked off. Five more checkpoints still need their own redraw later: Configure auth (Phase 4), Add MCP servers (Phase 5), Add policies (Phase 10), Connect AI client (Phase 11), Test policies (Phase 12) — don't stop doing this after this first one.
 
 ### Phase 4 — Authentication
 
 Authentication controls who may connect to the gateway.
 
-For **localHttp** and **hostedAws**, don't apply the recommended default without asking. Show this table in your message before asking — same reasoning as Phase 2: it's the guaranteed way the user sees the descriptions, regardless of whether your host renders per-option descriptions on a multiple-choice widget:
+**If a `standard` gateway has no URL yet**, this is the phase that waits. Both options bind to the gateway's own URL, so there's nothing to configure until it's set. Tell the user authentication is parked, leave it un-configured, and carry on with Phase 5. Come back here once they have the address.
+
+Both options below are available on **every** deployment type, self-hosted included, so ask the same question regardless of what the user picked in Phase 2. Don't apply the recommended default without asking. Show this table in your message before asking, for the same reason as Phase 2: it's the guaranteed way the user sees the descriptions, regardless of whether your host renders per-option descriptions on a multiple-choice widget:
 
 | Auth method | Description |
 |---|---|
 | Dtwo-managed sign-in (recommended) | The Dtwo-managed Auth0 IdP validates incoming tokens with no IdP setup on your side. |
 | Your own identity provider | Collect your JWKS URL, issuer, audience, and algorithm, and the gateway validates against your IdP instead. |
 
-Then ask which one — still populate `AskUserQuestion` option descriptions from this table if your host supports it, but the table above is what actually guarantees the description is shown, not the widget field. Once they answer, call `dtwo-set-gateway-auth`: `mode: dtwo_default` for the recommended sign-in, or `mode: custom` for their own identity provider, collecting `jwt_algorithm`, `jwt_jwks_uri`, `jwt_issuer`, `jwt_audience`, and `sso_issuer` if they have one, into `customFields`.
+Then ask which one — still populate `AskUserQuestion` option descriptions from this table if your host supports it, but the table above is what actually guarantees the description is shown, not the widget field. Once they answer, call `dtwo-set-gateway-auth`: `mode: dtwo_default` for the recommended sign-in, or `mode: custom` for their own identity provider, collecting `jwt_algorithm`, `jwt_jwks_uri`, `jwt_issuer`, `jwt_audience`, and `sso_issuer` into `customFields`. All five are required when `mode: custom`, so gather them before calling rather than sending a partial block.
 
-For **standard**, auth should be configured against a real IdP — there's no Dtwo-managed sign-in option for self-hosted gateways. Set it via `dtwo-set-gateway-auth` with `mode: custom` and the JWKS fields, but for anything beyond the four required fields defer to the **dtwo-gateway-config** skill's authentication section (the `jwks_info` block) rather than duplicating schema docs here. Load that skill if the user needs the full picture.
+**On `mode: dtwo_default`.** This is the recommended default on every deployment type, `standard` included: the block binds to the gateway's own URL as the token audience, so a self-hosted gateway on the Dtwo-managed IdP needs no IdP setup either. If the call errors saying the gateway has no URL to bind to, the URL isn't set yet: either set it with `dtwo-update-gateway` and call this again, or leave authentication for later if the user still doesn't have the address.
 
-**Show progress — checkpoint 2 of 6, do this now.** Redraw the diagram with **Create your gateway** and **Configure auth** both checked off. Still to come: Add MCP servers (Phase 5), Add policies (Phase 10), Connect AI client (Phase 11), Test policies (Phase 12).
+**On `mode: custom`.** For anything beyond the five fields collected above, defer to the **dtwo-gateway-config** skill's authentication section (the `jwks_info` block) rather than duplicating schema docs here. Load that skill if the user needs the full picture. Two things to tell the user, because they're work on their side that the gateway can't do for them:
+
+- **Register the gateway's OAuth callback with their IdP.** Sign-in returns to the gateway's callback URL (whatever `callbackUrl` was set to in Phase 3, or `<gateway-url-without-/mcp>/oauth/callback` if it was left at the default), and their IdP will refuse the flow until that exact URL is in its allowed redirect list. This is the most common reason a custom-IdP gateway comes up and then fails to authenticate.
+- **`jwt_audience` should be the gateway's own URL**, matching what `dtwo-get-gateway-connection-info` reports, unless they have a reason for it to differ. A mismatch here means tokens their IdP issues are rejected by the gateway.
+
+You don't need to do anything for client discovery: supplying `sso_issuer` turns on RFC 9728 resource metadata automatically, which is what lets spec-compliant MCP clients find the IdP from the gateway URL alone.
+
+**Show progress — checkpoint 2 of 6, do this now.** Redraw the diagram with **Create your gateway** and **Configure auth** both checked off. If authentication is parked waiting on a URL, leave **Configure auth** unchecked and say what it's waiting for. Still to come: Add MCP servers (Phase 5), Add policies (Phase 10), Connect AI client (Phase 11), Test policies (Phase 12).
 
 ### Phase 5 — Add MCP servers
 
@@ -295,9 +325,16 @@ Confirm with the user, then call `dtwo-deploy-gateway` `{ uid }`. Capture the re
 
 ### Phase 11 — Connect
 
-Call `dtwo-get-gateway-connection-info` `{ uid }` and render ready-to-paste connection instructions from the returned `mcpUrl`, `clientId`, and `callbackPort` (33418).
+Call `dtwo-get-gateway-connection-info` `{ uid }` and render ready-to-paste connection instructions from the returned `mcpUrl`, `authMode`, `clientId`, and `callbackPort`. This works on every deployment type, self-hosted included: a `standard` gateway reports the same connection details as any other once it has a URL.
 
-Use a kebab-case token for `<name>` (derive it from the gateway name; the Dtwo Hub falls back to `dtwo-local`). The static `<clientId>` is load-bearing, because without it the OAuth flow against the shared local-gateway app fails, so every client below must pass it.
+Read `authMode` before writing the instructions, because it decides what you can promise:
+
+- **`dtwo`**: the Dtwo-managed IdP. Sign-in needs nothing from the user beyond completing the browser flow. Use `clientId` where the client below asks for one.
+- **`custom`**: the user's own IdP. `mcpUrl`, `audience`, `issuer`, and `jwksUri` come back; `clientId` does not, and its absence is correct rather than a failure. Present the URL, say that sign-in goes through their own IdP, and name the returned issuer so they can see which one the gateway will accept. Where a client below wants a client id, tell them to use the one they registered with their IdP.
+- **`none`**: authentication is off, so `mcpUrl` is all there is. Say plainly that anyone who can reach the URL can use the gateway, in case that isn't what they intended.
+- **`unknown`**: the saved config couldn't be read, usually a YAML problem. Don't guess at connection instructions. Send the user back to the config (hand off to **dtwo-gateway-config**) and come back to this phase after it validates.
+
+Use a kebab-case token for `<name>` (derive it from the gateway name; the Dtwo Hub falls back to `dtwo-local`). Pass `<clientId>` wherever a client below takes one and the tool returned it: clients that carry a Client ID Metadata Document (Claude's own surfaces and Claude Code) identify themselves and connect from `mcpUrl` alone, while other clients such as Cursor need it spelled out. `callbackPort` (33418) comes back for `localHttp` gateways only, since every other type completes the OAuth redirect on the gateway's own callback URL.
 
 Branch on whether your current environment can run shell commands, the same way Phase 9 does:
 
@@ -352,9 +389,12 @@ Cursor, an HTTP MCP server entry in `~/.cursor/mcp.json` (or a project-local `.c
 }
 ```
 
-**If `dtwo-get-gateway-connection-info` returns no `clientId`** (common for hosted gateways), present the `mcpUrl` and explain that token/auth details depend on the gateway's configured IdP — the client completes auth against that IdP rather than the static-client flow above.
+**If `dtwo-get-gateway-connection-info` returns no `clientId`**, that's expected in two cases and isn't a problem in either: `authMode: custom`, where sign-in goes through the user's own IdP, and a tenant with no client application of its own. Present the `mcpUrl` and, for the clients above that take a client id, say where theirs comes from. The Claude Code and Claude Desktop paths need no client id at all.
 
-If `mcpUrl` isn't available yet (e.g. a `standard` gateway still needs its hostname, or hosted provisioning is mid-flight), say so and tell the user how to get it (re-run `dtwo-get-gateway-connection-info` once provisioning completes / the hostname is set).
+**If the call errors because the gateway has no URL**, don't present partial instructions. Two causes, with different fixes:
+
+- **A `standard` gateway with no URL yet.** Ask whether they have the address now. If they do, set it with `dtwo-update-gateway` `{ uid, url }`, configure authentication (Phase 4), and come back here. If they don't, say what's left to do and leave the connection step for a later session — nothing changes here on its own.
+- **A `hostedAws` gateway still provisioning.** Dtwo assigns the URL when provisioning finishes, so this one is a genuine wait. Check `dtwo-get-gateway`, and re-run `dtwo-get-gateway-connection-info` once it completes.
 
 Wait for the user to actually confirm the connection is registered before doing the following — don't assume it's done just because you presented the instructions, especially on the Claude Desktop / manual-config paths where you have no way to verify it yourself:
 
@@ -391,15 +431,16 @@ Close by telling them how to manage config and policies going forward with the c
 Setup can be interrupted. Before starting from scratch, infer what's already done and continue from the first incomplete phase:
 
 1. `dtwo-list-gateways` / `dtwo-get-gateway` — does the gateway exist? What's its `deploymentType` and provisioning/heartbeat state? (Exists → Phases 1–3 done.)
-2. `dtwo-get-gateway-config` — is `gateway.authentication` set (Phase 4)? Are there `mcp_servers` entries (Phase 5)?
-3. `dtwo-get-gateway-pipelines` — are policies attached (Phases 6–7)?
-4. Published version present and a completed deployment (`dtwo-get-gateway-deployments`)? → Phases 8–10 done; likely just needs **Connect** (Phase 11) and **Authenticate and test** (Phase 12).
+2. For a `standard` gateway, does it have a `url`? A self-hosted gateway with no URL is a normal resting state, since everything but authentication and the connection step can be done without it, so it's often exactly why the user came back. Ask whether they have the address now: if so, pick up at Phase 3's URL step, and otherwise carry on from whatever else is unfinished.
+3. `dtwo-get-gateway-config` — is `gateway.authentication` set (Phase 4)? Are there `mcp_servers` entries (Phase 5)?
+4. `dtwo-get-gateway-pipelines` — are policies attached (Phases 6–7)?
+5. Published version present and a completed deployment (`dtwo-get-gateway-deployments`)? → Phases 8–10 done; likely just needs **Connect** (Phase 11) and **Authenticate and test** (Phase 12).
 
 Tell the user what you found ("Looks like your gateway exists with two MCP servers but no policies attached yet — want to pick up at the policies step?") and continue from there rather than redoing completed work.
 
 ## Graceful degradation
 
-If a setup-specific tool this skill relies on (`dtwo-create-gateway`, `dtwo-set-gateway-auth`, `dtwo-get-gateway-connection-info`, `dtwo-get-gateway-activation`, `dtwo-refresh-gateway-activation`) is **not present** in your available tool list, the connected Dtwo environment doesn't support plugin-driven setup yet. Don't try to reconstruct these steps by hand. Instead, tell the user plainly and point them to the guided setup in their Dtwo Hub (their Dtwo Hub → Dashboard → Setup), which walks through the same journey in the web UI. The other companion skills still work for managing a gateway once it exists.
+If a setup-specific tool this skill relies on (`dtwo-create-gateway`, `dtwo-update-gateway`, `dtwo-set-gateway-auth`, `dtwo-get-gateway-connection-info`, `dtwo-get-gateway-activation`, `dtwo-refresh-gateway-activation`) is **not present** in your available tool list, the connected Dtwo environment doesn't support plugin-driven setup yet. Don't try to reconstruct these steps by hand. Instead, tell the user plainly and point them to the guided setup in their Dtwo Hub (their Dtwo Hub → Dashboard → Setup), which walks through the same journey in the web UI. The other companion skills still work for managing a gateway once it exists.
 
 ## Limitations
 
