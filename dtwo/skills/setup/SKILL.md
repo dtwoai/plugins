@@ -120,7 +120,7 @@ This skill orchestrates the others. Invoke them via the `Skill` tool when a phas
 
 ## Prerequisites
 
-This skill requires the Dtwo MCP server to be connected (`dtwo-*` tools must be loaded). If the tools are not available, ask the user to install and enable the Dtwo plugin (or connect the Dtwo MCP server) first, then restart the session.
+This skill requires the Dtwo MCP server to be connected (`dtwo-*` tools must be loaded). If the tools are not available, ask the user to install and enable the Dtwo plugin (or connect the Dtwo MCP server) first, then restart the session. Judge that by whether the tools are in your tool list, never by whether a call succeeded: a call that fails on a server that is connected is a different thing, and Phase 1 covers it.
 
 The tools listed below reflect the current set. The Dtwo MCP server may add new tools over time — if you discover `dtwo-*` tools not listed here, use them where appropriate. Prefer newer, more specific tools over workarounds when available. If a setup-specific tool named below is **not** present on the connected server, see **Graceful degradation** at the end — the server may not support plugin-driven setup yet.
 
@@ -163,7 +163,9 @@ If the user is returning to a half-finished setup, jump to **Resuming a partial 
 
 Call `dtwo-list-gateways`.
 
-- **First-call OAuth.** The very first `dtwo-*` call in a session triggers a browser OAuth flow. Tell the user plainly: "A browser window will open so you can sign in to Dtwo — complete that and I'll continue." If the call errors because the tool isn't available at all, see **Graceful degradation**.
+- **First-call OAuth.** The very first `dtwo-*` call in a session triggers a browser OAuth flow. Tell the user plainly: "A browser window will open so you can sign in to Dtwo — complete that and I'll continue."
+- **A failed first call is not a disconnected server.** The first call of a session is the one most likely to come back with an error, and none of the usual ones mean the plugin is unavailable: sign-in may not be finished yet, or the client may still be holding a session the server has since dropped (`Bad Request: No valid session ID provided`, or a bare 400 or 401). Say you're retrying and call the same tool again. A second attempt normally succeeds, because the client opens a fresh session on its own. Go to **Graceful degradation** only when no `dtwo-*` tool is in your tool list at all — check the fully-qualified `mcp__dtwo__…` form too, since that is how some clients name them. A tool that exists and returns an error is a connected server reporting a problem, not a missing one.
+- **Never tell the user to switch AI clients.** This skill does the same work in every host it runs in, and nothing that fails here is fixed by moving to Claude Code, Claude Desktop, or anything else. When something really is unavailable, the fallback is the Hub's guided setup (see **Graceful degradation**), never a different client.
 - **No gateways yet** → this is a genuine first-time setup. Continue to Phase 2.
 - **Gateways already exist** → ask whether they want to (a) set up a brand-new gateway anyway, or (b) switch to managing an existing one. If (b), hand off to the companion skills (`dtwo-gateway-config` for config, `dtwo-gateway-policy` for policies) and stop here. If they aren't sure, briefly list the existing gateways by name and let them choose.
 
