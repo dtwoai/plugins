@@ -380,10 +380,12 @@ Confirm with the user, then call `dtwo-deploy-gateway` `{ uid }`. Capture the re
 
 Call `dtwo-get-gateway-connection-info` `{ uid }` and render ready-to-paste connection instructions from the returned `mcpUrl`, `authMode`, `clientId`, and `callbackPort`. This works on every deployment type, self-hosted included: a `standard` gateway reports the same connection details as any other once it has a URL.
 
+**What comes back is your working material, not a report to read out.** Name a URL, client id, audience, or issuer only where the user has to put it somewhere themselves, and never to say that one isn't needed: "no client id required" only puzzles someone who never knew a client id existed. A user who asked you to connect the gateway for them wants to hear that it's connected.
+
 Read `authMode` before writing the instructions, because it decides what you can promise:
 
 - **`dtwo`**: the Dtwo-managed IdP. Sign-in needs nothing from the user beyond completing the browser flow. Use `clientId` where the client below asks for one.
-- **`custom`**: the user's own IdP. `mcpUrl`, `audience`, `issuer`, and `jwksUri` come back; `clientId` does not, and its absence is correct rather than a failure. Present the URL, say that sign-in goes through their own IdP, and name the returned issuer so they can see which one the gateway will accept. Where a client below wants a client id, tell them to use the one they registered with their IdP.
+- **`custom`**: the user's own IdP. `mcpUrl`, `audience`, `issuer`, and `jwksUri` come back; `clientId` does not, and its absence is correct rather than a failure. Say that sign-in goes through their own IdP. If they're connecting the client themselves, name the returned issuer too, so they can see which one the gateway will accept, and where a client below wants a client id, tell them to use the one they registered with their IdP.
 - **`none`**: authentication is off, so `mcpUrl` is all there is. Say plainly that anyone who can reach the URL can use the gateway, in case that isn't what they intended, and offer to go back to Phase 4 and configure it, which on a `standard` gateway means setting the URL first. It's a live gateway at this point, so treat this as the thing to fix rather than a footnote on the connection instructions.
 - **`unknown`**: the saved config couldn't be read, usually a YAML problem. Don't guess at connection instructions. Send the user back to the config (hand off to **dtwo-gateway-config**) and come back to this phase after it validates.
 
@@ -398,7 +400,7 @@ claude mcp add --transport http \
   <name> <mcpUrl>
 ```
 
-After it succeeds, tell the user the server is registered, that the OAuth flow completes in the browser on first use, and that they may need a new or reloaded session before the server shows up. Mention that other client options (the `.mcp.json` form, or Cursor) are available if they want to connect a different client, and show those only if they ask.
+After it succeeds, tell the user the server is registered, that the OAuth flow completes in the browser on first use, and that they may need a new or reloaded session before the server shows up. Name the server, and leave the connection parameters out: the command already carried the URL, no client id was needed, and listing either turns a finished job back into homework. Mention that other client options (the `.mcp.json` form, or Cursor) are available if they want to connect a different client, and show those only if they ask.
 
 **Shell NOT available (e.g. Claude Desktop).** Present all the connection options as copyable blocks for the user to apply themselves.
 
@@ -444,7 +446,7 @@ Cursor, an HTTP MCP server entry in `~/.cursor/mcp.json` (or a project-local `.c
 }
 ```
 
-**If `dtwo-get-gateway-connection-info` returns no `clientId`**, that's expected in two cases and isn't a problem in either: `authMode: custom`, where sign-in goes through the user's own IdP, and a tenant with no client application of its own. Present the `mcpUrl` and, for the clients above that take a client id, say where theirs comes from. The Claude Code and Claude Desktop paths need no client id at all.
+**If `dtwo-get-gateway-connection-info` returns no `clientId`**, that's expected in two cases and isn't a problem in either: `authMode: custom`, where sign-in goes through the user's own IdP, and a tenant with no client application of its own. Don't remark on it. The Claude Code and Claude Desktop paths never take a client id, so nothing is missing there; only Cursor's snippet has a field for one, and that's the one place to say where theirs comes from.
 
 **If the call errors because the gateway has no URL**, don't present partial instructions. Two causes, with different fixes:
 
