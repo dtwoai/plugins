@@ -113,6 +113,33 @@ Phase numbers, tool names, and schema fields (`dtwo-create-gateway`, `jwt_jwks_u
 - **Surface technical detail on request, not by default.** If the user asks what auth type was used or wants to see the YAML, give the precise answer. Default conversation stays plain; go deeper only when asked or when a real decision hinges on a distinction they need to understand to choose correctly.
 - **Exception: technical users.** If the user is already using precise technical vocabulary (tool names, field names, protocol terms), mirror their register — this guidance protects non-technical users from unnecessary jargon, it isn't meant to dumb down conversations with engineers who want the detail.
 
+## Where things are in the Dtwo Hub
+
+A few steps below can only be done in the Dtwo Hub, the web app, and the phases that send the user there
+say so. Naming a page or a field is not enough on its own: say where on the screen to look, so the user can
+follow the directions without hunting for them. The layout, so you can describe it accurately:
+
+- **Left sidebar**, three items top to bottom: **Dashboard**, **Gateways**, **Policies**. It collapses to
+  icons; the toggle for that sits at the top left of the page, just left of the breadcrumbs.
+- **The account menu** is at the very bottom of that left sidebar, on the user's own name. **Setup guide**
+  is in it, and that is the Hub's own version of this setup.
+- **A gateway's page**: click **Gateways** in the left sidebar, then the gateway's name in the list. Its
+  tabs run across the top of the page, in the middle: **Overview**, **Configuration**, **Policies**,
+  **Deployments**. A gateway that hasn't checked in yet shows **Registration** in place of Overview.
+- **Gateway URL** and **Callback URL** are on the **Configuration** tab, inside the **Authentication**
+  panel at the top of it. That panel is collapsed on a gateway that already has connection details, so it
+  may need opening first (the caret on its right-hand side). Both fields are only editable on a self-hosted
+  gateway, since Dtwo assigns the URL for the hosted and local types.
+- **Deploy**, **publish a version**, **version history**, and **delete** are behind the **⋯** button at the
+  top right of a gateway's page.
+- **Policies** in the left sidebar lists every policy in the organization. The ones attached to one
+  particular gateway are on that gateway's **Policies** tab.
+
+Write a click path the way the user walks it, naming the region at each hop: "In the left sidebar, click
+**Gateways** and open your gateway. On the **Configuration** tab, the **Authentication** panel at the top
+holds **Gateway URL**." An arrow chain of bare names (Hub → Gateways → Configuration) leaves out the part
+that actually helps.
+
 ## Companion skills
 
 This skill orchestrates the others. Invoke them via the `Skill` tool when a phase calls for their detail work (in other agents, use your host's equivalent skill-loading mechanism):
@@ -220,7 +247,7 @@ Call `dtwo-create-gateway` with `{ name, tags?, deploymentType }`. Capture the r
 
 **Set the gateway URL (`standard` only).** A `standard` gateway is created with no URL and no authentication, because its address is something only the user knows. Ask for the public URL MCP clients will call, then set it with `dtwo-update-gateway` `{ uid, url }`.
 
-Leaving it blank is a normal way through this setup, not a mistake to argue the user out of. Someone still standing up DNS, a load balancer, or a TLS certificate may not have the address for hours or days, and everything else (MCP servers, policies, the rest of the config) can be built out meanwhile. If they don't have it yet, say what's waiting on it and move on: the URL is the token audience the Dtwo-managed identity provider binds to, so that option can't be configured without it, and Phase 11 has no endpoint to hand a client. Their own identity provider can still be configured now, since they supply the audience themselves. Tell them they can pick this setup back up any time, or fill in the **Gateway URL** field from the Dtwo Hub, and that authentication is the step to return to once it's set.
+Leaving it blank is a normal way through this setup, not a mistake to argue the user out of. Someone still standing up DNS, a load balancer, or a TLS certificate may not have the address for hours or days, and everything else (MCP servers, policies, the rest of the config) can be built out meanwhile. If they don't have it yet, say what's waiting on it and move on: the URL is the token audience the Dtwo-managed identity provider binds to, so that option can't be configured without it, and Phase 11 has no endpoint to hand a client. Their own identity provider can still be configured now, since they supply the audience themselves. Tell them they can pick this setup back up any time, or set the address themselves in the Hub: **Gateways** in the left sidebar, then their gateway, then the **Gateway URL** field in the **Authentication** panel at the top of the **Configuration** tab. Either way, authentication is the step to return to once it's set.
 
 When they do have the URL, say what shape it takes, with an example: `https://gateway.example.com/mcp`. What the platform accepts:
 
@@ -233,7 +260,7 @@ Three errors are worth recognizing so you can explain them rather than just rela
 - **URL rejected as invalid** → the message names the reason (missing scheme, a query string, and so on). Ask for a corrected URL and call again.
 - **URL already registered with the identity provider** → another gateway is using it. Ask for a different one.
 - **Changing a URL that authentication is already bound to** → this isn't an error, but tell the user before doing it. The URL is the token audience, so changing it on a gateway already on the Dtwo-managed IdP re-registers its identity-provider API, and tokens minted for the old URL stop working: everyone reconnects. Setting a URL for the first time has no such cost.
-- **`url` rejected as an unknown input** → the connected Dtwo environment predates self-hosted URL support on the MCP surface. Don't try to work around it. Tell the user their gateway needs its **Gateway URL** field filled in from the Dtwo Hub, and continue from Phase 4 once they confirm it's saved.
+- **`url` rejected as an unknown input** → the connected Dtwo environment predates self-hosted URL support on the MCP surface. Don't try to work around it. Tell the user their gateway needs its **Gateway URL** field filled in from the Hub: **Gateways** in the left sidebar, then their gateway, then the field of that name in the **Authentication** panel at the top of the **Configuration** tab. Continue from Phase 4 once they confirm it's saved.
 
 **Callback URL.** Sign-in returns to `<gateway-url-without-/mcp>/oauth/callback` by default, so `https://gateway.example.com/mcp` gives `https://gateway.example.com/oauth/callback`. Self-hosted deployments often don't land there: a proxy, an ingress, or a separate auth host in front of the gateway can all put the redirect somewhere else, so expect this to differ more often than not. Ask the user where their OAuth redirect terminates, offer the default as the answer when it's right, and pass `callbackUrl` when it isn't.
 
@@ -502,10 +529,10 @@ Tell the user what you found ("Looks like your gateway exists with two MCP serve
 
 ## Graceful degradation
 
-If a setup-specific tool this skill relies on (`dtwo-create-gateway`, `dtwo-update-gateway`, `dtwo-set-gateway-auth`, `dtwo-get-gateway-connection-info`, `dtwo-get-gateway-activation`, `dtwo-refresh-gateway-activation`) is **not present** in your available tool list, the connected Dtwo environment doesn't support plugin-driven setup yet. Don't try to reconstruct these steps by hand. Instead, tell the user plainly and point them to the guided setup in their Dtwo Hub (their Dtwo Hub → Dashboard → Setup), which walks through the same journey in the web UI. The other companion skills still work for managing a gateway once it exists.
+If a setup-specific tool this skill relies on (`dtwo-create-gateway`, `dtwo-update-gateway`, `dtwo-set-gateway-auth`, `dtwo-get-gateway-connection-info`, `dtwo-get-gateway-activation`, `dtwo-refresh-gateway-activation`) is **not present** in your available tool list, the connected Dtwo environment doesn't support plugin-driven setup yet. Don't try to reconstruct these steps by hand. Instead, tell the user plainly and point them to the Hub's own guided setup, which walks through the same journey in the web app: open the account menu at the bottom of the left sidebar and choose **Setup guide**. The other companion skills still work for managing a gateway once it exists.
 
 ## Limitations
 
 - This skill orchestrates setup but does not itself own the config schema, policy lifecycle, or Rego — it hands those to the three companion skills.
-- It cannot delete a gateway (do that in the Dtwo Hub) or complete IdP-side setup for a custom identity provider (the user configures their IdP; the skill only records the JWKS parameters).
+- It cannot delete a gateway (do that in the Hub, from the **⋯** menu at the top right of the gateway's page) or complete IdP-side setup for a custom identity provider (the user configures their IdP; the skill only records the JWKS parameters).
 - Hosted provisioning and self-hosted activation happen partly outside the MCP surface (AWS provisioning, the user's Docker host) — the skill checks status and guides, but can't force those external steps to finish.

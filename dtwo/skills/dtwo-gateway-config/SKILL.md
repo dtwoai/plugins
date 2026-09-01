@@ -83,7 +83,7 @@ The steps above (tool names, YAML field names, the validate → save → publish
 
 The Dtwo MCP server does not expose a `delete-gateway` tool. `revert-gateway-config` restores a prior version — it does **not** delete.
 
-Deleting a gateway must be done via the **Dtwo web UI**. If a `dtwo-delete-gateway` tool later appears (see the tool-discovery note under Prerequisites), prefer it over the UI.
+Deleting a gateway must be done in the **Dtwo Hub**: click **Gateways** in the left sidebar, open the gateway, then choose **Delete** from the **⋯** menu at the top right of the page. If a `dtwo-delete-gateway` tool later appears (see the tool-discovery note under Prerequisites), prefer it over the UI.
 
 ## Identifying the Target Gateway
 
@@ -469,6 +469,6 @@ After deploying a gateway with configuration changes:
 
 - This skill cannot author or modify Rego policies — see the companion `dtwo-policy-rego` instructions
 - This skill cannot attach/detach policies on a pipeline, pin policy versions, or manage policy lifecycle — see the companion `dtwo-gateway-policy` instructions
-- This skill cannot delete a gateway via the MCP surface — deletion must be done in the Dtwo web UI
+- This skill cannot delete a gateway via the MCP surface — deletion must be done in the Dtwo Hub (open the gateway from **Gateways** in the left sidebar, then **Delete** in the **⋯** menu at the top right)
 - This skill cannot validate or auto-complete keys inside the `advanced` section — those keys are passed through verbatim, so the user is responsible for correctness
 - This skill cannot enumerate the MCP tools a server exposes until after the server is deployed and introspected — for tool discovery, see the companion `dtwo-gateway-policy` instructions
