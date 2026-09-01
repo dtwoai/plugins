@@ -20,39 +20,24 @@ You help a first-time user stand up their first Dtwo MCP gateway from nothing, c
 
 ## Overview to give the user first
 
-Before Phase 1, orient the user with a short, plain-language overview — this is their first impression of the whole journey, so keep it succinct. A sentence or two on what Dtwo actually is, a sentence or two on what you'll do together, plus the diagram below, is enough. Don't read the 12-phase list aloud; that level of detail belongs in the phases themselves, not the intro.
+Before Phase 1, orient the user with a short, plain-language overview — this is their first impression of the whole journey, so keep it succinct. A sentence or two on what Dtwo actually is, a sentence or two on what you'll do together, plus the list below, is enough. Don't read the 12-phase list aloud; that level of detail belongs in the phases themselves, not the intro.
 
-Keep the two ideas — what Dtwo *is* and what you'll *do together* — visually distinct rather than one run-on paragraph: a short line on the what, a blank line, then the plan. Word the plan sentence to mirror the six diagram steps in the same order (create, configure, add, add, connect, test), so the prose and the diagram tell the same story instead of drifting into different phrasing. Say something close to (adapt naturally, don't recite verbatim):
+Keep the two ideas — what Dtwo *is* and what you'll *do together* — visually distinct rather than one run-on paragraph: a short line on the what, a blank line, then the plan. Word the plan sentence to mirror the six steps in the same order (create, configure, add, add, connect, test), so the prose and the list tell the same story instead of drifting into different phrasing. Say something close to (adapt naturally, don't recite verbatim):
 
 > Dtwo is a gateway that sits between your AI client and the systems it talks to — every tool call passes through it, so policy can be applied before anything reaches your real systems.
 >
 > I'll get a working gateway running end to end: create your gateway, configure who's allowed to connect, add the MCP servers it'll front, add some policies so it actually enforces something, connect your AI client once it's live, and test that the policies actually work. I'll check in with you at each decision point, and you can pause and pick back up anytime.
 
-Then show the six stages as a compact diagram (each stage bundles several phases — don't diagram all 12 individually, it's too much for a first look). This skill runs in two different hosts, so pick the format that matches yours:
+Then show the six stages as a compact list (each stage bundles several phases — don't list all 12 individually, it's too much for a first look). Use this plain-text form, in a fenced code block, whatever host you are running in:
 
-- **Claude Cowork, claude.ai, or another chat surface that renders Markdown/Mermaid inline** — use the Mermaid flowchart:
-
-  ```mermaid
-  flowchart LR
-      A[Create your<br/>gateway] --> B[Configure<br/>auth]
-      B --> C[Add MCP<br/>servers]
-      C --> D[Add<br/>policies]
-      D --> E[Connect<br/>AI client]
-      E --> F[Test<br/>policies]
-  ```
-
-- **Claude Code (a terminal/CLI)** — Mermaid won't render there, and a horizontal box-and-arrow layout is fragile once it wraps at typical terminal widths. Use this vertical arrow chain instead, which renders reliably regardless of terminal width or font:
-
-  ```
-  1. Create your gateway
-  2. Configure auth
-  3. Add MCP servers
-  4. Add policies
-  5. Connect AI client
-  6. Test policies
-  ```
-
-If you're unsure which surface you're running in, default to the Claude Code (vertical) form — it's plain text and reads fine even on a host that could have rendered the Mermaid version.
+```
+1. Create your gateway
+2. Configure auth
+3. Add MCP servers
+4. Add policies
+5. Connect AI client
+6. Test policies
+```
 
 Only expand into more detail (naming every phase, tool names, YAML) if the user asks for it up front — the point of this overview is a quick sense of the shape of the journey, not a full table of contents.
 
@@ -60,10 +45,7 @@ Only expand into more detail (naming every phase, tool names, YAML) if the user 
 
 There are **six separate checkpoints** below, one per stage. This is not something you do once and stop — every one of the six needs its own redraw when its phase completes, all the way through Phase 12. Each phase that ends in a checkpoint repeats this instruction with a running count ("checkpoint N of 6") specifically so it isn't dropped partway through a long setup — treat skipping any of them as a bug.
 
-Redraw the six-step diagram from the overview at each checkpoint, so the user can see how far they've gotten. Reuse the same format (Mermaid or vertical list) you used the first time. Mark progress the way that fits each format:
-
-- **Vertical list** — prefix each finished step with a checkmark (`✅ `); leave steps not yet done as plain text.
-- **Mermaid** — leave the step labels as plain text and color the finished nodes instead. Add `classDef done fill:#1e8449,stroke:#2ecc71,color:#ffffff` right after the `flowchart LR` line, then tag each finished node with `:::done`. Don't add checkmark text inside Mermaid nodes.
+Redraw the six-step list from the overview at each checkpoint, so the user can see how far they've gotten. Same plain-text form as the overview, with a checkmark (`✅ `) in front of each finished step and the rest left as they are.
 
 Show it once per checkpoint, right after the phase work that completes it — don't hold everything back and redraw retroactively at the end.
 
@@ -76,19 +58,7 @@ Checkpoints:
 - After **Phase 11** (client connection registered) → also check off **Connect AI client**.
 - After **Phase 12**, resolve **Test policies**: if the policy test ran and confirmed enforcement, check it off — all six are now checked, so say something short marking setup as complete instead of describing what's next. If policies were skipped back in Phase 6, leave **Test policies** unchecked (or mark it "skipped") instead — but still say that same short setup-complete close so the user isn't stranded at 5/6 with no closing moment, and repeat the pass-through reminder that nothing is enforced until a policy is attached.
 
-Example, Mermaid form with the first three steps done:
-
-```mermaid
-flowchart LR
-    classDef done fill:#1e8449,stroke:#2ecc71,color:#ffffff
-    A[Create your<br/>gateway]:::done --> B[Configure<br/>auth]:::done
-    B --> C[Add MCP<br/>servers]:::done
-    C --> D[Add<br/>policies]
-    D --> E[Connect<br/>AI client]
-    E --> F[Test<br/>policies]
-```
-
-Example, vertical list form with the same three done:
+Example, with the first three steps done:
 
 ```
 1. ✅ Create your gateway
@@ -99,7 +69,7 @@ Example, vertical list form with the same three done:
 6. Test policies
 ```
 
-Keep the redraw brief: the diagram itself plus one short line about what's next (or, on the last checkpoint, that setup is complete) — don't re-explain steps already covered in the overview.
+Keep the redraw brief: the list itself plus one short line about what's next (or, on the last checkpoint, that setup is complete) — don't re-explain steps already covered in the overview.
 
 ## Communicating with the user
 
@@ -264,7 +234,7 @@ Three errors are worth recognizing so you can explain them rather than just rela
 
 **Callback URL.** Sign-in returns to `<gateway-url-without-/mcp>/oauth/callback` by default, so `https://gateway.example.com/mcp` gives `https://gateway.example.com/oauth/callback`. Self-hosted deployments often don't land there: a proxy, an ingress, or a separate auth host in front of the gateway can all put the redirect somewhere else, so expect this to differ more often than not. Ask the user where their OAuth redirect terminates, offer the default as the answer when it's right, and pass `callbackUrl` when it isn't.
 
-**Show progress — checkpoint 1 of 6, do this now.** Redraw the six-step diagram with only **Create your gateway** checked off. Five more checkpoints still need their own redraw later: Configure auth (Phase 4), Add MCP servers (Phase 5), Add policies (Phase 10), Connect AI client (Phase 11), Test policies (Phase 12) — don't stop doing this after this first one.
+**Show progress — checkpoint 1 of 6, do this now.** Redraw the six-step list with only **Create your gateway** checked off. Five more checkpoints still need their own redraw later: Configure auth (Phase 4), Add MCP servers (Phase 5), Add policies (Phase 10), Connect AI client (Phase 11), Test policies (Phase 12) — don't stop doing this after this first one.
 
 ### Phase 4 — Authentication
 
@@ -295,7 +265,7 @@ Then ask which one — still populate `AskUserQuestion` option descriptions from
 
 You don't need to do anything for client discovery: supplying `sso_issuer` turns on RFC 9728 resource metadata automatically, which is what lets spec-compliant MCP clients find the IdP from the gateway URL alone.
 
-**Show progress — checkpoint 2 of 6, do this now.** Redraw the diagram with **Create your gateway** and **Configure auth** both checked off. If authentication is parked waiting on a URL, leave **Configure auth** unchecked and say what it's waiting for. Still to come: Add MCP servers (Phase 5), Add policies (Phase 10), Connect AI client (Phase 11), Test policies (Phase 12).
+**Show progress — checkpoint 2 of 6, do this now.** Redraw the list with **Create your gateway** and **Configure auth** both checked off. If authentication is parked waiting on a URL, leave **Configure auth** unchecked and say what it's waiting for. Still to come: Add MCP servers (Phase 5), Add policies (Phase 10), Connect AI client (Phase 11), Test policies (Phase 12).
 
 ### Phase 5 — Add MCP servers
 
@@ -318,7 +288,7 @@ For each one the user picks, add an `mcp_servers` entry with just three fields: 
 
 Offer to add more than one server, from either group. Load the **dtwo-gateway-config** skill and follow its flow to edit `mcp_servers`, then `dtwo-save-gateway-draft-config` + `dtwo-validate-gateway-config`. Do not restate the config schema here, that skill owns it (including transport type, outbound auth variants, and secret-placeholder rules). If the user has no server in mind yet, it's fine to save an empty `mcp_servers` and add one later, but tell them the gateway won't front anything until a server is added.
 
-**Show progress — checkpoint 3 of 6, do this now.** Redraw the diagram with **Create your gateway**, **Configure auth**, and **Add MCP servers** checked off. Still to come: Add policies (Phase 10), Connect AI client (Phase 11), Test policies (Phase 12).
+**Show progress — checkpoint 3 of 6, do this now.** Redraw the list with **Create your gateway**, **Configure auth**, and **Add MCP servers** checked off. Still to come: Add policies (Phase 10), Connect AI client (Phase 11), Test policies (Phase 12).
 
 ### Phase 6 — Policies
 
@@ -402,7 +372,7 @@ Confirm with the user, then call `dtwo-deploy-gateway` `{ uid }`. Capture the re
 - Follow the polling and transient-error guidance in **dtwo-gateway-config** / **dtwo-gateway-policy** (a config deploy briefly restarts the gateway; a `502` during the restart window is expected and recovers, while `"MCP server is not connected"` means the user must reconnect).
 - **On failure**, surface the task error message plainly and offer concrete fixes (e.g. a config validation problem → back to Phase 5; provisioning not finished for hosted → wait and re-check `dtwo-get-gateway`; activation not completed for self-hosted → back to Phase 9; another deploy of the same gateway still running → wait for it and queue this one again).
 
-**Show progress — checkpoint 4 of 6, do this now.** Redraw the diagram with **Create your gateway**, **Configure auth**, **Add MCP servers**, and **Add policies** checked off. Still to come: Connect AI client (Phase 11), Test policies (Phase 12).
+**Show progress — checkpoint 4 of 6, do this now.** Redraw the list with **Create your gateway**, **Configure auth**, **Add MCP servers**, and **Add policies** checked off. Still to come: Connect AI client (Phase 11), Test policies (Phase 12).
 
 ### Phase 11 — Connect
 
@@ -481,7 +451,7 @@ Cursor, an HTTP MCP server entry in `~/.cursor/mcp.json` (or a project-local `.c
 
 Wait for the user to actually confirm the connection is registered before doing the following — don't assume it's done just because you presented the instructions, especially on the Claude Desktop / manual-config paths where you have no way to verify it yourself:
 
-**Show progress — checkpoint 5 of 6, do this now.** Redraw the diagram with every step checked off except **Test policies**. One checkpoint left, at Phase 12.
+**Show progress — checkpoint 5 of 6, do this now.** Redraw the list with every step checked off except **Test policies**. One checkpoint left, at Phase 12.
 
 Then move on to Phase 12 — setup isn't finished until the user has authenticated to the gateway and seen a policy do its job.
 
@@ -509,7 +479,7 @@ Don't paraphrase or describe the redaction/deny output in place of showing it �
 
 If the user skipped policies in Phase 6, skip the test, and remind them the gateway is currently a pass-through — nothing is enforced until a policy is attached. Don't stop there without a closing moment — still finish with a short setup-complete close, just without a policy test to point to.
 
-**Show progress — checkpoint 6 of 6, final one.** If the policy test ran, redraw the diagram with all six steps checked off. If the test was skipped, redraw it with **Test policies** left unchecked (or marked "skipped") and the other five checked. Either way, say something short marking setup as complete rather than describing what's next — a skipped test doesn't mean setup isn't done.
+**Show progress — checkpoint 6 of 6, final one.** If the policy test ran, redraw the list with all six steps checked off. If the test was skipped, redraw it with **Test policies** left unchecked (or marked "skipped") and the other five checked. Either way, say something short marking setup as complete rather than describing what's next — a skipped test doesn't mean setup isn't done.
 
 Close by telling them how to manage config and policies going forward with the companion skills (`dtwo-gateway-config`, `dtwo-gateway-policy`, `dtwo-policy-rego`).
 
