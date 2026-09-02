@@ -318,7 +318,7 @@ allows.
 Use `dtwo-set-gateway-pipelines` to attach policies to a gateway's ingress and/or egress pipelines. Each pipeline step requires:
 
 - `policyUid` — the policy's UID (from `dtwo-list-policies` or `dtwo-add-policy`)
-- `evalNamespace` — the Rego package name declared in the policy (e.g., `jira.ingress.readonly`)
+- `evalNamespace` — a label identifying this step within the pipeline. It has to be non-empty and unique among that pipeline's steps; beyond that the value is free (the Dtwo Hub writes `step_<random>`). It is **not** matched against the policy's Rego `package`, and it never reaches the gateway: the deploy parses the package out of the policy source, and the gateway keys policies by uid and by `(direction, package)`. Reusing the policy's package name here is a readable convention and nothing more, so the two differing is never the cause of a problem.
 - `policyVersion` (optional) — controls which version of the policy to use:
   - **Omit** — use the **draft** (current unpublished version). Use this when testing a draft policy.
   - **`0`** — use the **latest published** version. Requires at least one published version to exist.
@@ -336,7 +336,7 @@ Ingress and egress steps are independent arrays. Omitting a direction leaves it 
 
 After attaching or modifying policies, you **must** deploy the gateway for changes to take effect on the running instance.
 
-> **Self-lock risk before deploy.** If the policy you're about to deploy will deny calls to the Dtwo MCP server itself (e.g., a `default allow := false` policy with no management bypass, or a debug policy that denies all requests), and your MCP client routes `dtwo-*` tools through this gateway, the deploy will lock you out — recovery requires the Dtwo web UI. Before deploying, check `dtwo-get-gateway-config` for a `Dtwo` MCP server entry; if present and your client connects through this gateway, either add a `dtwo-*` passthrough rule to the policy or route management traffic through a different gateway. The Common Pitfalls section in `dtwo-policy-rego` covers the guarded-management-tool pattern in detail.
+> **Self-lock risk before deploy.** If the policy you're about to deploy will deny calls to the Dtwo MCP server itself (e.g., a `default allow := false` policy with no management bypass, or a debug policy that denies all requests), and your MCP client routes `dtwo-*` tools through this gateway, the deploy will lock you out — recovery means detaching the policy in the Dtwo Hub (click **Gateways** in the left sidebar, open the gateway, then its **Policies** tab). Before deploying, check `dtwo-get-gateway-config` for a `Dtwo` MCP server entry; if present and your client connects through this gateway, either add a `dtwo-*` passthrough rule to the policy or route management traffic through a different gateway. The Common Pitfalls section in `dtwo-policy-rego` covers the guarded-management-tool pattern in detail.
 
 **Does the gateway restart on deploy?** It depends on what changed:
 
@@ -357,13 +357,13 @@ After attaching or modifying policies, you **must** deploy the gateway for chang
 After deploying a gateway:
 
 1. Poll `dtwo-get-deployment` until it returns `status: "completed"`. For policy-only deploys, polling is uneventful — the gateway doesn't restart, so no transient errors are expected. For gateway-configuration deploys, the gateway restarts; if a poll call fails with a 502 error, retry — the gateway is still restarting. If you get `"MCP server is not connected"`, ask the user to reconnect, then resume polling. Once status is `"completed"`, the gateway is live and ready to test.
-2. Confirm the pipeline attachment landed as intended with `dtwo-get-gateway-pipelines`. Verify the expected policies are present at the expected step indexes, that `evalNamespace` matches each policy's `package` declaration, and that `policyVersion` pins match your intent (omitted = draft, `0` = latest published, `N` = pinned version).
+2. Confirm the pipeline attachment landed as intended with `dtwo-get-gateway-pipelines`. Verify the expected policies are present at the expected step indexes and that `policyVersion` pins match your intent (omitted = draft, `0` = latest published, `N` = pinned version).
 3. Test based on the policy's purpose:
    - **Access control policies** — verify that allowed operations succeed and denied operations return a reason message
    - **Transform policies** — verify that ingress transforms rewrite tool arguments as expected, and egress transforms redact or modify response data correctly
 4. Test individual policies in isolation first, then test the full pipeline — ordering of policies in a pipeline can affect the result (e.g., a transform in an earlier step may change data that a later step evaluates)
 5. If a policy isn't working as expected:
-   - **Blanket denies** (all tools blocked) — the most common cause is a package path mismatch between the policy's `package` declaration and the `evalNamespace` used when attaching. Verify they match exactly.
+   - **Blanket denies** (all tools blocked) — start with the Rego itself: a `default allow := false` with no rule that matches, or a syntax error anywhere in the bundle, which makes OPA fall back to denying everything. A step's `evalNamespace` differing from the policy's `package` is not a cause: the two are unrelated.
    - For deeper debugging, see the debugging guidance in the companion `dtwo-policy-rego` instructions (debug policies, blanket deny diagnosis)
 
 ## End-to-End Example
@@ -425,14 +425,14 @@ Deployment is the first live-state change. State it plainly and wait for confirm
 Loop on `dtwo-get-deployment` until `status: "completed"`. For this policy-only deploy, polling should be uneventful — no 502s, no reconnect. If you ever do see a `502 Bad Gateway` or `"MCP server is not connected"` during a poll, the deploy probably also pulled in a pending gateway-config change; handle as described in *Deploying*.
 
 ### 11. Verify the attachment landed
-Call `dtwo-get-gateway-pipelines` again. Confirm the new step is at the expected index with the right `evalNamespace` and the intended `policyVersion` (undefined for draft).
+Call `dtwo-get-gateway-pipelines` again. Confirm the new step is at the expected index with the intended `policyVersion` (undefined for draft).
 
 ### 12. Test both sides
 Invoke the guarded tool two ways:
 - **Deny case** — sensitive content. Expect an OPA denial error. Proves enforcement works.
 - **Allow case** — benign content. Expect success. Proves the policy is not over-blocking.
 
-If the deny case fails silently (the request goes through), the most common cause is an `evalNamespace` / `package` mismatch — verify both match exactly.
+If the deny case fails silently (the request goes through), check that the deploy completed and that the step is on the version you edited: a step pinned to `1` ignores draft edits. After that, use a debug policy to confirm the tool name and argument keys the rule matches on, per the debugging guidance in the companion `dtwo-policy-rego` instructions.
 
 ### 13. Ask before publishing
 Once both tests pass, **ask the user whether to publish**. They may want to tweak the Rego, add more test cases, or stabilize the draft in a later session before cutting a version — publishing is not reversible without a new version. If confirmed, call `dtwo-publish-policy` with a clear publish message (what the policy does + what was verified).
@@ -507,7 +507,7 @@ dtwo-add-policy(
 
 Markers can't be verified the way a single policy can — there is no tool to read active markers (see Marker constraints today), so verification is **behavioral and order-dependent**: a marker does nothing until its writer fires, and its effect is only visible through the reader's decision. The tenant+user scope (below) is what makes the negative case tricky, so mind it:
 
-1. **Confirm the deploy and attachment** as for any policy — poll `dtwo-get-deployment` to `completed`, then `dtwo-get-gateway-pipelines` to confirm both the writer and the reader landed with the expected `evalNamespace` and version pins.
+1. **Confirm the deploy and attachment** as for any policy — poll `dtwo-get-deployment` to `completed`, then `dtwo-get-gateway-pipelines` to confirm both the writer and the reader landed at the expected step indexes with the version pins you intended.
 2. **Trigger the writer first.** Make the tool call that satisfies the writer's condition (e.g. a response containing PII). This is what stamps the marker — nothing is active until the writer fires.
 3. **Then exercise the reader** (as the same user). Confirm the reader's guarded tool now denies (or transforms) as intended. The marker stays active until its TTL expires.
 4. **Confirm the negative case with a clean marker.** Either use a **short TTL and wait for it to expire**, or test as a **different user** who hasn't triggered the writer — then the reader's tool should succeed, proving it blocks only when the marker is active. Reopening the session as the *same* user does **not** clear the marker (tenant+user scope), so that is not a valid negative test.
