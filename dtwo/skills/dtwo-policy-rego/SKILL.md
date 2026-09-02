@@ -1208,7 +1208,7 @@ reasons contains sprintf("Debug - user: %s, subject.sub: %s, claims: %v", [
 
 Use this to confirm what specific claim *values* are present in `input.subject.claims` for the current caller. To enumerate just the *names* the tenant has observed (across all callers, without attaching a policy), prefer `dtwo-list-claims` from the Dtwo MCP server — tenant-wide by default, optionally scoped with `gatewayUid`.
 
-> **Self-lock warning.** An always-deny dump policy blocks **every** call on that gateway — including the `dtwo-*` management tools if your client routes through it — so you can lock yourself out. Attach it to a gateway you are *not* managing through, or be ready to detach via the Dtwo web UI. Full mechanism and the management-bypass pattern: see Common Pitfalls → "Self-locking with an always-deny ingress policy".
+> **Self-lock warning.** An always-deny dump policy blocks **every** call on that gateway — including the `dtwo-*` management tools if your client routes through it — so you can lock yourself out. Attach it to a gateway you are *not* managing through, or be ready to detach it in the Dtwo Hub (**Gateways** in the left sidebar, open the gateway, then its **Policies** tab). Full mechanism and the management-bypass pattern: see Common Pitfalls → "Self-locking with an always-deny ingress policy".
 
 To scope the debug to a specific tool pattern (e.g., only Atlassian tools):
 
@@ -1310,7 +1310,7 @@ Policies often contain hardcoded values like transition IDs, project keys, or to
   }
   ```
 
-  Place this near the top of your policy, before the deny conditions. If your gateway also fronts a different management surface, add similar passthroughs for that prefix. Recovery if you skip the bypass and lock yourself out: detach the policy via the Dtwo web UI, or via an MCP client that goes through a different gateway.
+  Place this near the top of your policy, before the deny conditions. If your gateway also fronts a different management surface, add similar passthroughs for that prefix. Recovery if you skip the bypass and lock yourself out: detach the policy in the Dtwo Hub (**Gateways** in the left sidebar, open the gateway, then its **Policies** tab), or via an MCP client that goes through a different gateway.
 
 ## Policy Store Catalog Contributions
 
