@@ -446,7 +446,7 @@ After publishing, call `dtwo-set-gateway-pipelines` again with `policyVersion: 1
 
 ## Managing Markers
 
-Markers are session-state flags that policies write and later policies read to gate on. They give the gateway a shared, tenant- and user-scoped, TTL-bounded "notepad" that survives across tool calls and across upstream MCP servers — a marker written during a Slack call is visible during a later Jira call for the same user (until its TTL expires). Use them to compose small single-purpose policies that signal to each other without shared code: a **writer** policy stamps a marker when it observes something (PII in a response, a production resource touched), and a **reader** policy on a different tool/pipeline/server gates on it.
+Markers are session-state flags that policies write and later policies read to gate on. They give the gateway a shared, tenant- and user-scoped, TTL-bounded "notepad" that survives across tool calls and across upstream MCP servers — a marker written during a Slack call is visible during a later Jira call for the same user (until it expires or is cleared). Use them to compose small single-purpose policies that signal to each other without shared code: a **writer** policy stamps a marker when it observes something (PII in a response, a production resource touched), and a **reader** policy on a different tool/pipeline/server gates on it.
 
 Marker tools are always available (they do not require `enable_intent_tools`). The full lifecycle — register, author writer + reader, attach, deploy — runs through this skill plus `dtwo-policy-rego` for the Rego. The Rego authoring patterns (emitting `session_writes["marker:<ns>:<id>"]`, walking `input.context.session.policies` to read, and the `writableKeySchema` gotchas) live in the companion `dtwo-policy-rego` instructions — load that skill for the writer/reader bodies.
 
@@ -622,6 +622,8 @@ Example: once `marker:acme:pii_detected` is set, a `set_intent` to `incident_res
 
 ## The registry as policy data — `data.dtwo.intent_registry`
 
+> **Not gated.** Despite the name, this document ships to every gateway and always carries `markers[]`, so this section applies whether or not intent capture is enabled.
+
 The vocabulary you register is not only a management surface: it is shipped into **every** gateway's policy bundle as OPA base data at `data.dtwo.intent_registry`, in the same atomic deploy as the Rego that reads it. A policy can therefore consult the registry at decision time instead of hard-coding the vocabulary. The document is always present and always fully populated — an empty tenant yields empty arrays, never a missing object — so a policy only handles empty lists, never an undefined registry.
 
 ```json
@@ -643,7 +645,7 @@ The vocabulary you register is not only a management surface: it is shipped into
 
 - Entries are keyed by **FQID** (`id`) — the same `name` the registry tools return. No UIDs appear in the data document.
 - `markers[]` is there regardless of whether intent capture is enabled, so a marker-only gateway can still read it (e.g. to surface a marker's registered `description` or `minimum_ttl_seconds` in a message).
-- `aliases`, `transitions_to` and `transitions_from` are **omitted when unrestricted** and `[]` when locked — so treat a missing field as "no restriction", not as an error.
+- `transitions_to` / `transitions_from` are **omitted when the move is unrestricted** and `[]` when it is locked — treat a missing field as "no restriction", not as an error. `aliases` is simply omitted when the entry has none.
 - It is the tenant's whole vocabulary, not a slice for this gateway: an entry appearing here does not mean a policy on this gateway writes or reads it.
 - Registry edits reach a gateway on its **next policy deploy**, not immediately — the data file rides the same bundle as the policies.
 
