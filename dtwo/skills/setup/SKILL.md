@@ -138,6 +138,8 @@ Setup-specific tools (may be newer — see Graceful degradation if any are missi
 | `dtwo-get-gateway-connection-info` | Fetch client connection details, on any deployment type. Input `{ uid }` → `{ mcpUrl, authMode, clientId?, audience?, issuer?, jwksUri?, domain?, callbackPort? }`. `authMode` tells you how much is filled in: `dtwo` carries the audience, issuer, JWKS URI, Auth0 domain, and the tenant's client id when it has one; `custom` carries the audience, issuer, and JWKS URI the gateway verifies against, and no client id; `none` means auth is off, so the URL is all there is; `unknown` means the saved config couldn't be read. `callbackPort` (33418) comes back for `localHttp` only. Errors when the gateway has no URL yet, which for `standard` means the `dtwo-update-gateway` step hasn't happened |
 | `dtwo-get-gateway-activation` | Fetch the **first-run** activation bundle for a **self-hosted** gateway. Input `{ uid }` → `{ activationId, activationCode, activationExpiresAt, composeText, composeFileName, activationCommand, minted }`. The activation code is never stored, so in practice every call mints a fresh pair and returns `minted: true`, invalidating any previously issued one; the pair is single-use and lasts 24 hours. Call it once per activation attempt. Use `activationId` and `activationCode` to write the `dtwo.env` file described in Phase 9 rather than running `activationCommand`, which still returns an older `.env`-writing form. `composeText` carries the `443:443`→`80:80` port swap for `localHttp`. Errors for `hostedAws` (nothing to activate, since provisioning is managed) |
 | `dtwo-refresh-gateway-activation` | Mint a fresh activation pair for a `localHttp` or `standard` gateway that is already up, invalidating any previously issued one. Input `{ uid }` → the same fields as `dtwo-get-gateway-activation`. Again, take `activationId` and `activationCode` and rewrite `dtwo.env`; its `activationCommand` is an older `docker compose down` / `.env` form. Re-register with `docker compose --env-file dtwo.env up -d --force-recreate`, which recreates the container on the image it already has. For a host that has never come up, use `dtwo-get-gateway-activation` instead, since its flow pulls the image. Errors for `hostedAws`: refreshing would invalidate the credential the provisioning instance is using |
+| `dtwo-record-setup-progress` | Record the closing setup steps on the account, so the Dtwo Hub shows setup as finished instead of asking the user to confirm work you already did with them. Input `{ steps }`, any of `connectClient` \| `testPolicies` \| `plugin`. Steps merge with anything already recorded, so call it as each one lands rather than all at the end. Only these three are accepted; everything earlier (gateway, MCP servers, policies, deploy) the platform reads from the account itself |
+| `dtwo-get-setup-progress` | Read back which closing steps are already recorded. Input `{}` → `{ completedSetupSteps, completedAssertedSteps }`. Useful when resuming an interrupted setup |
 
 Existing lifecycle tools this skill leans on (documented in the companion skills):
 
@@ -455,6 +457,8 @@ Cursor, an HTTP MCP server entry in `~/.cursor/mcp.json` (or a project-local `.c
 
 Wait for the user to actually confirm the connection is registered before doing the following — don't assume it's done just because you presented the instructions, especially on the Claude Desktop / manual-config paths where you have no way to verify it yourself:
 
+**Record the step.** Once they've confirmed, call `dtwo-record-setup-progress` `{ steps: ["connectClient"] }`. Nothing on the platform can see a client being registered, so the Dtwo Hub would otherwise still ask them to confirm it by hand. Don't mention the call; if it fails, carry on with setup and don't raise it (see **Graceful degradation**).
+
 **Show progress — checkpoint 5 of 6, do this now.** Redraw the list with every step checked off except **Test policies**. One checkpoint left, at Phase 12.
 
 Then move on to Phase 12 — setup isn't finished until the user has authenticated to the gateway and seen a policy do its job.
@@ -483,6 +487,13 @@ Don't paraphrase or describe the redaction/deny output in place of showing it �
 
 If the user skipped policies in Phase 6, skip the test, and remind them the gateway is currently a pass-through — nothing is enforced until a policy is attached. Don't stop there without a closing moment — still finish with a short setup-complete close, just without a policy test to point to.
 
+**Record the closing steps.** Call `dtwo-record-setup-progress` once with every step that actually happened, so the Dtwo Hub reflects the setup you just ran instead of asking the user to confirm it again:
+
+- `testPolicies`, only if the policy test above ran and the gateway's own response showed the policy firing. Leave it out if policies were skipped in Phase 6 or the test didn't happen; a skipped test is a genuinely unfinished step, and the Hub should keep offering it.
+- `plugin`, only if you're running as the installed Dtwo plugin (the usual case in Claude Code). Leave it out if you got here another way, such as the Dtwo MCP server connected on its own in a chat surface.
+
+So a full run in Claude Code sends `{ steps: ["testPolicies", "plugin"] }`. Same as Phase 11: don't narrate the call, and if it fails, finish setup normally without raising it.
+
 **Show progress — checkpoint 6 of 6, final one.** If the policy test ran, redraw the list with all six steps checked off. If the test was skipped, redraw it with **Test policies** left unchecked (or marked "skipped") and the other five checked. Either way, say something short marking setup as complete rather than describing what's next — a skipped test doesn't mean setup isn't done.
 
 Close by telling them how to manage config and policies going forward with the companion skills (`dtwo-gateway-config`, `dtwo-gateway-policy`, `dtwo-policy-rego`).
@@ -498,12 +509,15 @@ Setup can be interrupted. Before starting from scratch, infer what's already don
 3. `dtwo-get-gateway-config` — is `gateway.authentication` set (Phase 4)? Are there `mcp_servers` entries (Phase 5)? A missing `authentication` block on an already-deployed gateway means it is running with client authentication off: say so, and offer that as the first thing to pick up.
 4. `dtwo-get-gateway-pipelines` — are policies attached (Phases 6–7)?
 5. Published version present and a completed deployment (`dtwo-get-gateway-deployments`)? → Phases 8–10 done; likely just needs **Connect** (Phase 11) and **Authenticate and test** (Phase 12).
+6. `dtwo-get-setup-progress`: which closing steps did an earlier run already record (Phases 11 and 12)? Treat these as a hint rather than proof: they say a previous run got that far, not that the client still works. Confirm with the user before skipping one. Re-recording is harmless in any case, since the tool merges.
 
 Tell the user what you found ("Looks like your gateway exists with two MCP servers but no policies attached yet — want to pick up at the policies step?") and continue from there rather than redoing completed work.
 
 ## Graceful degradation
 
-If a setup-specific tool this skill relies on (`dtwo-create-gateway`, `dtwo-update-gateway`, `dtwo-set-gateway-auth`, `dtwo-get-gateway-connection-info`, `dtwo-get-gateway-activation`, `dtwo-refresh-gateway-activation`) is **not present** in your available tool list, the connected Dtwo environment doesn't support plugin-driven setup yet. Don't try to reconstruct these steps by hand. Instead, tell the user plainly and point them to the Hub's own guided setup, which walks through the same journey in the web app: open the account menu at the bottom of the left sidebar and choose **Setup guide**. The other companion skills still work for managing a gateway once it exists.
+The progress-recording tools (`dtwo-record-setup-progress`, `dtwo-get-setup-progress`) are the one exception to everything below: they only keep the Dtwo Hub's view of setup in step with what you did, so if either is missing or a call fails, carry on and finish setup as normal. Don't retry, don't mention it, and don't let it become the last thing the user hears. The only cost is that the Hub still lists the closing steps as unconfirmed, and the user can tick them off there.
+
+If any other setup-specific tool this skill relies on (`dtwo-create-gateway`, `dtwo-update-gateway`, `dtwo-set-gateway-auth`, `dtwo-get-gateway-connection-info`, `dtwo-get-gateway-activation`, `dtwo-refresh-gateway-activation`) is **not present** in your available tool list, the connected Dtwo environment doesn't support plugin-driven setup yet. Don't try to reconstruct these steps by hand. Instead, tell the user plainly and point them to the Hub's own guided setup, which walks through the same journey in the web app: open the account menu at the bottom of the left sidebar and choose **Setup guide**. The other companion skills still work for managing a gateway once it exists.
 
 ## Limitations
 
