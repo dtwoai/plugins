@@ -125,6 +125,8 @@ Markers are session-state flags that one policy writes and other policies read t
 | `dtwo-update-marker` | Update mutable fields on a customer-tier marker (`description`, `tags`, `minimumTtlSeconds`) |
 | `dtwo-delete-marker` | Delete a customer-tier marker. Platform-managed entries cannot be deleted |
 
+What you register here is also visible to policy Rego as OPA data at `data.dtwo.intent_registry` — see The registry as policy data.
+
 ### Intent Registry Tools (conditional — feature-gated)
 
 > **Availability gate — read this before surfacing anything about intents.** The intent tools below are only registered when the Dtwo MCP server is deployed with `enable_intent_tools: true`. **Marker tools (above) are always available; intent tools are not.** Before mentioning intent capture, intent registries, transitions, or intent/marker compatibility to the user, confirm the relevant `dtwo-*-intent*` tools are actually present in your available tool list. **If they are absent, the server is not configured for intent capture — do not present intent capture, the intent registry, transitions, or compatibility to the user, and do not attempt to call these tools.** Treat this subsection and the "Intent Capture" section below as inert in that case. Markers work fully without intent capture, so continue to use them normally.
@@ -452,7 +454,7 @@ Marker tools are always available (they do not require `enable_intent_tools`). T
 
 **Start simple — the minimal marker is a boolean flag.** A writer stamps `marker:<ns>:<flag>` when it observes a condition; a reader denies (or transforms) whenever that key is present. Presence *is* the signal — no value semantics needed. That flag pattern (the PII example used throughout this section) is the recommended starting point; reach for value-carrying markers only when a flag won't do. Counters and other read-modify-write markers are possible but more involved — a self-incrementing writer has to read its own prior value and re-emit on every call, which keeps refreshing (pinning) the TTL — so they aren't a good first marker.
 
-**Know these limits before you design:** no runtime inspection (verify behaviorally), no manual clearing (a marker lifts only on TTL expiry), and tenant+user scope (state survives reconnects/new sessions until TTL). Full detail — and why each bites — is under **Marker constraints today** below.
+**Know these limits before you design:** no runtime inspection (verify behaviorally), tenant+user scope (state survives reconnects and new sessions until it lifts), and no agent-side clearing — a marker lifts either when its TTL expires or when a **person** approves a clear in a browser, which an agent can request but cannot complete. Full detail — and why each bites — is under **Clearing a marker** and **Marker constraints today** below.
 
 ### Registering a marker
 
@@ -503,6 +505,24 @@ dtwo-add-policy(
 
 **Deploy-time validator.** The deploy hard-rejects if any attached policy declares a `writableKeySchema` marker key that isn't in the registry, reporting which key is unregistered. This is separate from the key's structural validation (allowed characters, reserved prefixes), which the backend applies when the policy is saved — the registry-existence check runs at deploy time. Register the marker *before* attaching a policy that writes it.
 
+### Clearing a marker
+
+A marker has two exits: its TTL expires, or a **person approves a clear**. The second one is the fast path, and it is the one your deny reasons should offer first — a marker set at the start of an hour-long TTL can otherwise block someone for the rest of that hour over a condition they have already dealt with.
+
+**An agent can request a clear; it cannot complete one.** Requesting returns a URL and nothing else. The person opens it, signs in interactively at the identity provider (a fresh login, even if they are already signed in), picks what to clear from a list the gateway builds, and confirms. Everything after the request happens in a browser, authenticated as a human.
+
+What that shape means when you design a marker or word a deny reason:
+
+- **The clear is not a management tool.** It arrives as an argument-less tool on the platform tool surface the gateway injects — `clear_markers`, alongside `clear_intent` and `set_intent` (on the wire, `dtwo-platform-intent-clear_markers`). There is no `dtwo-*` call that lifts a marker, and nothing to declare per policy.
+- **No arguments, deliberately.** The agent cannot name a key, so it cannot choose the target. The confirm page enumerates what is actually live and unexpired in the caller's scope, and the person selects from that list.
+- **The approver must be the same identity as the caller.** The browser login is matched against the identity the agent is calling with, so a person clears their own session state — not another user's. One login authorizes exactly one clear.
+- **Markers and intent clear separately.** `clear_markers` offers every live `marker:` instance in scope, and flags one that is held by more than one writer — clearing a single holder leaves the marker standing, so each holder is acknowledged on its own. `clear_intent` only ever offers the platform-captured intent. An approved marker clear can never drop the intent, and the reverse holds too.
+- **It is armed per gateway.** Clearing requires the `gateway.session_control` block in the gateway config (see `dtwo-gateway-config`). Where it is not configured the request comes back with a readable "not configured on this gateway" refusal that points at the TTL instead — handle that answer rather than assuming the flow is available. It fails closed throughout: nothing is ever half-cleared.
+- **Treat the request as a state change.** Offer it when a marker is actually blocking someone, and confirm with the user before requesting — the same way you would before `set_intent`. Don't fire it speculatively to "reset" a session.
+- **The request, the authorization and the commit are each recorded** in the gateway's event stream, so a clear is answerable after the fact: who approved it, when, and which instances went.
+
+**Wording deny reasons for this.** A reader policy's `reason` is what the blocked person actually sees, so it should name the fast exit first and keep the TTL as the fallback — see the deny-reason guidance in `dtwo-policy-rego` → Session State & Markers → Reading a marker.
+
 ### Verifying a marker pipeline
 
 Markers can't be verified the way a single policy can — there is no tool to read active markers (see Marker constraints today), so verification is **behavioral and order-dependent**: a marker does nothing until its writer fires, and its effect is only visible through the reader's decision. The tenant+user scope (below) is what makes the negative case tricky, so mind it:
@@ -510,9 +530,9 @@ Markers can't be verified the way a single policy can — there is no tool to re
 1. **Confirm the deploy and attachment** as for any policy — poll `dtwo-get-deployment` to `completed`, then `dtwo-get-gateway-pipelines` to confirm both the writer and the reader landed at the expected step indexes with the version pins you intended.
 2. **Trigger the writer first.** Make the tool call that satisfies the writer's condition (e.g. a response containing PII). This is what stamps the marker — nothing is active until the writer fires.
 3. **Then exercise the reader** (as the same user). Confirm the reader's guarded tool now denies (or transforms) as intended. The marker stays active until its TTL expires.
-4. **Confirm the negative case with a clean marker.** Either use a **short TTL and wait for it to expire**, or test as a **different user** who hasn't triggered the writer — then the reader's tool should succeed, proving it blocks only when the marker is active. Reopening the session as the *same* user does **not** clear the marker (tenant+user scope), so that is not a valid negative test.
+4. **Confirm the negative case with a clean marker.** Use a **short TTL and wait for it to expire**, test as a **different user** who hasn't triggered the writer, or — on a gateway with clearing armed — **request a clear and approve it** (see Clearing a marker). Then the reader's tool should succeed, proving it blocks only when the marker is active. Reopening the session as the *same* user does **not** clear the marker (tenant+user scope), so that is not a valid negative test.
 
-**Tip — validate with a short TTL.** A production-length TTL (say an hour) makes iterating painful: a marker stamped in one test stays set for that user until it expires and masks the next attempt. During validation, set the writer's `writableKeySchema.ttlSeconds` short (e.g. 30–60s) so it clears on its own between iterations. (Since the floor isn't enforced, a short `ttlSeconds` deploys regardless; set the marker's `minimumTtlSeconds` to match via `dtwo-update-marker` so the registry still reflects intent.) Once validated, raise the writer's `ttlSeconds` to the production length with `dtwo-update-policy` (and `minimumTtlSeconds` to match), then republish/redeploy.
+**Tip — validate with a short TTL.** A production-length TTL (say an hour) makes iterating painful: a marker stamped in one test stays set for that user until it expires and masks the next attempt. During validation, set the writer's `writableKeySchema.ttlSeconds` short (e.g. 30–60s) so it clears on its own between iterations. (Since the floor isn't enforced, a short `ttlSeconds` deploys regardless; set the marker's `minimumTtlSeconds` to match via `dtwo-update-marker` so the registry still reflects intent.) Once validated, raise the writer's `ttlSeconds` to the production length with `dtwo-update-policy` (and `minimumTtlSeconds` to match), then republish/redeploy. (A short TTL is about **iterating quickly**, not about the only way out of a marker — approving a clear resets one on demand, but it takes a browser round trip each time, so the short TTL is still the better loop for repeated tests.)
 
 Watch for these:
 
@@ -532,7 +552,7 @@ Skipping a step makes the next deploy fail (a policy still claims to write a mar
 ### Marker constraints today
 
 - **No "list active markers" tool.** `dtwo-list-markers` returns the registry *vocabulary* (the markers that are defined), not which markers are currently set on a given session. A policy can read active markers at evaluation time via `input.context.session.policies` (that's how reader policies work), but there is no MCP tool to query a session's live marker state on demand.
-- **No "clear marker" tool.** Markers lift on their own when their TTL expires; there is no MCP tool to unset one. To recover from a marker that is blocking a user, wait out the TTL — a new session for the same user does **not** clear it (state is scoped to tenant + user, not per connection).
+- **No agent-side clear.** There is no management tool that unsets a marker, and no `dtwo-*` call that lifts one. A marker lifts on TTL expiry, or through the human-approved clear flow described under **Clearing a marker** — which the agent can only *start*. Reopening the session as the same user does **not** clear it (state is scoped to tenant + user, not per connection).
 - **Multiple writers land in separate per-writer slots.** If two policies declare and emit the same marker key, each write lands under its own writer UID; readers get "any-writer" semantics by walking `session.policies.*`. Prefer one canonical writer per marker.
 
 ## Intent Capture (conditional — feature-gated)
@@ -554,14 +574,14 @@ Two policies do the enforcement:
 
 **These are platform-managed policies — end users do not author, attach, copy, or modify them, and you should not offer to.** They are **automatically injected** when intent capture is enabled (`gateway.intent.enabled`); the platform owns their bodies and wiring (the auto-injected in-container intent server, internal UIDs), and their Rego may not be visible to users. If a user asks to write or change intent-capture Rego, decline and point them at the platform-managed feature rather than reconstructing it. The only intent surface users drive is the **registry** — the intent vocabulary, transitions, and marker compatibility (below), when the tools are enabled.
 
-**Gating a tenant policy on the current intent** is allowed, though — a user policy may *read* the captured intent to decide access (e.g. "only allow this tool under the `internal:debug`/`internal:explore` intents" — compare against the full FQIDs, not the short form). When it does, it must read intent **only** through the platform helper `data.dtwo.lib.intent_match.*`, never via a direct `input.context.session.policies` read (a raw read is spoofable and couples to internals). The category values to compare against are the intent FQIDs from `dtwo-list-intents`. The Rego belongs to the companion `dtwo-policy-rego` skill — see its Intent-capture policies → Reading the session intent.
+**Gating a tenant policy on the current intent** is allowed, though — a user policy may *read* the captured intent to decide access (e.g. "only allow this tool under the `internal:debug`/`internal:explore` intents" — compare against the full FQIDs, not the short form). When it does, it must read intent **only** through the platform helper `data.dtwo.lib.intent_match.*`, never via a direct `input.context.session.policies` read (a raw read is spoofable and couples to internals). The category values to compare against are the intent FQIDs from `dtwo-list-intents`. And it may **decide** on the intent but must **never return it** — do not interpolate the intent, or its caller-supplied `description`, into a deny `reason` or a transform; name the rule that fired instead. The Rego belongs to the companion `dtwo-policy-rego` skill — see its Intent-capture policies → Reading the session intent.
 
 ### Intent transitions (discoverability)
 
 Moving between intents is itself governed, and a `set_intent` can be **denied for two independent reasons** — in both cases the current intent stays unchanged. This surprises authors mid-test:
 
 - **`intent_change_disallowed` — transition rules.** The registry forbids that from→to move. Each entry carries `transitionsFromMode` (`ALL` / `RESTRICTED` / `NONE`) and, when `RESTRICTED`, an `allowedTransitionsFrom` list of the intents you may arrive *from*. Inspect it with `dtwo-list-intents` (or `dtwo-list-intent-transitions` when present). To reach a restricted target you may need an intermediate hop (e.g. `explore → debug → deploy` when `deploy` only allows arrival from `debug`/`review`/`incident_response`).
-- **`intent_marker_incompatible` — an active marker blocks the target.** If a currently-set marker is registered incompatible with the intent you're switching *to*, the capture policy denies the `set_intent` (see Intent/marker compatibility below). So a marker stamped earlier in the session can make an otherwise-legal transition fail — and because markers only lift on TTL expiry (no clear tool), the transition stays blocked until the marker ages out. If a `set_intent` fails and the transition rules allow it, check for an active incompatible marker.
+- **`intent_marker_incompatible` — an active marker blocks the target.** If a currently-set marker is registered incompatible with the intent you're switching *to*, the capture policy denies the `set_intent` (see Intent/marker compatibility below). So a marker stamped earlier in the session can make an otherwise-legal transition fail. If a `set_intent` fails and the transition rules allow it, check for an active incompatible marker: the way out is to clear that marker (**Clearing a marker** above) or wait for it to expire — the transition stays blocked until one of the two happens.
 
 Both are distinct from any tenant gate you author on the intent value.
 
@@ -595,6 +615,35 @@ dtwo-create-intent-compatibility(
 Example: once `marker:acme:pii_detected` is set, a `set_intent` to `incident_response` is blocked — the session already touched sensitive data.
 
 **Set-time enforcement only.** The check runs at `set_intent` time. A marker raised *after* an intent is set does **not** retroactively invalidate the current intent. Markers accumulate; intents are validated at the decision point. Tell users this plainly so they don't design around a symmetric re-check that doesn't exist.
+
+## The registry as policy data — `data.dtwo.intent_registry`
+
+The vocabulary you register is not only a management surface: it is shipped into **every** gateway's policy bundle as OPA base data at `data.dtwo.intent_registry`, in the same atomic deploy as the Rego that reads it. A policy can therefore consult the registry at decision time instead of hard-coding the vocabulary. The document is always present and always fully populated — an empty tenant yields empty arrays, never a missing object — so a policy only handles empty lists, never an undefined registry.
+
+```json
+{
+  "intents": [
+    { "id": "acme:deploy", "description": "…",
+      "aliases": ["ship"],
+      "transitions_from": ["acme:review"] }
+  ],
+  "markers": [
+    { "id": "marker:acme:pii_detected", "description": "…",
+      "minimum_ttl_seconds": 3600 }
+  ],
+  "compatibility": [
+    { "intent": "acme:deploy", "excluded_marker": "marker:acme:pii_detected" }
+  ]
+}
+```
+
+- Entries are keyed by **FQID** (`id`) — the same `name` the registry tools return. No UIDs appear in the data document.
+- `markers[]` is there regardless of whether intent capture is enabled, so a marker-only gateway can still read it (e.g. to surface a marker's registered `description` or `minimum_ttl_seconds` in a message).
+- `aliases`, `transitions_to` and `transitions_from` are **omitted when unrestricted** and `[]` when locked — so treat a missing field as "no restriction", not as an error.
+- It is the tenant's whole vocabulary, not a slice for this gateway: an entry appearing here does not mean a policy on this gateway writes or reads it.
+- Registry edits reach a gateway on its **next policy deploy**, not immediately — the data file rides the same bundle as the policies.
+
+The Rego for reading it belongs to `dtwo-policy-rego`; the platform's own intent enforcement reads this same document.
 
 ## Limitations
 

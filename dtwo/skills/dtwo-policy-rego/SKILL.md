@@ -984,7 +984,7 @@ allow := false if {
     _pii_active
 }
 
-reason := "PII was detected earlier in this session; outbound Slack sends are blocked. Wait for the marker TTL to expire." if {
+reason := "PII was detected earlier in this session; outbound Slack sends are blocked. To lift the block now, ask for a session clear and approve it in your browser; otherwise it lifts when the marker expires." if {
     lower(input.resource.name) == "slack-mcp-slack-send-message"
     _pii_active
 }
@@ -992,7 +992,55 @@ reason := "PII was detected earlier in this session; outbound Slack sends are bl
 
 - The walk-all-writers pattern (`some writer_uid; input.context.session.policies[writer_uid][key]`) is "present under *any* writer is truthy." To trust only a specific writer, filter on `writer_uid == "<known-uid>"`.
 - **This pattern is for reading *marker* keys only.** Do **not** use it — or any direct `input.context.session.policies` read — to read the platform **intent** (see Intent-capture policies → Reading the session intent). "Present under any writer" is exactly wrong for intent: a tenant policy could stamp an intent-shaped value under its own writer slot and a walk-all-writers read would honour it, spoofing the session intent. Read intent only through the platform helper, which is pinned to the trusted intent-capture slot.
-- Deny reasons are user-visible — explain what to do about the block (e.g. "wait for the marker TTL to expire"). Avoid "start a new session": marker state is scoped to tenant + user and survives reconnecting, so a new session for the same user won't clear it.
+- **Deny reasons are user-visible — give the path out, fastest first.** State what happened and what the person can do about it. A marker has two exits, and they are not equal: a **human-approved clear** lifts it in under a minute, and **TTL expiry** lifts it eventually. Offer the clear first and keep TTL as the fallback — a reason that mentions only the TTL tells someone to wait an hour for something they could have resolved immediately. Phrase it so it reads correctly either way ("ask for a session clear … otherwise it lifts when the marker expires"), because clearing is armed per gateway: where it is not configured, the clear request returns a readable "not configured on this gateway" refusal and the TTL half of your sentence still holds. See `dtwo-gateway-policy` → Clearing a marker for the mechanics.
+- **Avoid "start a new session"** — marker state is scoped to tenant + user and survives reconnecting, so a new session for the same user won't clear it.
+- **Never build a reason out of the session intent.** A reason may say *that* the current intent failed a gate; it must not carry the intent itself — do not interpolate `current_intent(input)` or its `description` into `reason` or into a transform. Name the rule that fired instead. Full rule under Intent-capture policies → Reading the session intent.
+
+### Reading the registry (`data.dtwo.intent_registry`)
+
+The marker (and, where enabled, intent) vocabulary is shipped into every gateway's policy bundle as OPA base data at `data.dtwo.intent_registry`, in the same atomic deploy as the Rego — so a policy can consult the registry at decision time instead of hard-coding what it knows about a key. The document is always defined and always fully shaped (empty arrays for an empty tenant), so a read needs no "registry missing" branch; a *specific* entry can of course be absent.
+
+The reader from **Reading a marker** above, with its message sourced from the registry instead of a string pasted into the policy:
+
+```rego
+package acme.ingress.pii_gate
+
+import future.keywords.if
+import future.keywords.in
+
+default allow := true
+
+_key := "marker:acme:pii_detected"
+
+_pii_active if {
+    some writer_uid
+    input.context.session.policies[writer_uid][_key]
+}
+
+# The registered description, so the message tracks the registry rather
+# than a string pasted into the policy.
+_registered_description := d if {
+    some m in data.dtwo.intent_registry.markers
+    m.id == _key
+    d := m.description
+}
+
+allow := false if {
+    lower(input.resource.name) == "slack-mcp-slack-send-message"
+    _pii_active
+}
+
+reason := sprintf("Blocked: %s. To lift the block now, ask for a session clear and approve it in your browser; otherwise it lifts when the marker expires.", [_registered_description]) if {
+    lower(input.resource.name) == "slack-mcp-slack-send-message"
+    _pii_active
+}
+```
+
+- Entries are keyed by **FQID** (`id`) — `marker:<ns>:<id>` for markers, `<ns>:<name>` for intents. No UIDs appear in the data document.
+- `markers[]` carries `id`, `description` and `minimum_ttl_seconds`; `intents[]` carries `id`, `description`, and optionally `aliases` / `transitions_to` / `transitions_from`; `compatibility[]` carries `intent` and `excluded_marker`. A transitions field is **omitted when unrestricted** and `[]` when locked — treat missing as "no restriction".
+- Registry text is authored by your own admins, so it is safe to surface in a reason — unlike the session intent, which must never be echoed (see Reading the session intent).
+- **Give any registry-derived string a fallback.** A lookup that finds nothing is *undefined*, not empty — and an undefined term makes the whole `reason` undefined, so the deny lands with no message at all. Add a `default _registered_description := "<plain wording>"`, or a second `reason` rule that omits the lookup.
+- Registry edits reach the gateway on its **next policy deploy**, not immediately.
 
 ### `writableKeySchema` (attached via `dtwo-add-policy` / `dtwo-update-policy`)
 
@@ -1061,7 +1109,7 @@ reason := "This tool is only permitted under the 'default', 'debug', or 'explore
 Notes:
 
 - **Availability — safe to reference on any gateway.** The `dtwo.lib.intent_match` library is shipped into **every** policy bundle unconditionally (independent of the intent flag), so a reference to `data.dtwo.lib.intent_match.*` always resolves and compiles — it will *not* cause an "undefined function" bundle failure when intent capture is off. It only returns real values when intent capture is enabled; with it off there's no captured intent, so `current_intent` is undefined and `category_in` is simply always `false` — meaning a gate like the one above would deny the gated tool on a no-intent gateway. Design the default accordingly (and see the availability gate at the top of this section before surfacing intent behavior at all).
-- **Never echo the intent value into a deny `reason` or a `transform`.** The intent `description` is free text the caller supplied; use the intent for the *decision*, not for output.
+- **Never echo the intent value into a deny `reason` or a `transform`.** Use the intent for the *decision*, never as content the agent reads back: do not interpolate `current_intent(input)` or `current_category(input)` — and above all not the intent `description` — into `decision.reason`, and do not place it in `decision.transforms[]`. Two independent reasons. The `description` is free text the *caller* supplied, so echoing it round-trips unvalidated caller text through your policy's output. And the intent is a governance input: a policy that reflects it back turns it into a channel the agent can read, which is exactly what it is not for. Say which rule denied ("this tool is not permitted under the current session intent"), not what the intent was. Registry text is a different matter — that is authored by your admins and is safe to surface (see Reading the registry).
 - **A `default allow := false` gate still risks self-lock** if it fronts the Dtwo MCP server — keep the non-gated-tool passthrough (as above) so `dtwo-*` management calls are unaffected. See the self-lock pitfall in Common Pitfalls.
 
 ### Closed pipeline — your policies may not enforce on `set_intent`
