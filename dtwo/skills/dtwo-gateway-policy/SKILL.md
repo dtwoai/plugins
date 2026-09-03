@@ -517,7 +517,7 @@ A marker has two exits: its TTL expires, or a **person approves a clear**. The s
 
 What the shape means when you design a marker or word a deny reason:
 
-- **The clear is not a management tool.** It arrives as an argument-less tool on the platform tool surface the gateway injects — `clear_markers`, alongside `clear_intent` and `set_intent` (on the wire, `dtwo-platform-intent-clear_markers`). There is no `dtwo-*` call that lifts a marker, and nothing to declare per policy.
+- **The clear is not a management tool.** It arrives as an argument-less tool on the platform tool surface the gateway injects — `clear_markers`, alongside `clear_intent` and `set_intent` (on the wire, `dtwo-platform-intent-clear-markers` — the federated name is hyphenated throughout). There is no `dtwo-*` call that lifts a marker, and nothing to declare per policy.
 - **No arguments, deliberately.** The agent cannot name a key, so it cannot choose the target. The confirm page enumerates what is actually live and unexpired in the caller's scope, and the person selects from that list.
 - **The approver must be the same identity as the caller.** The browser login is matched against the identity the agent is calling with, so a person clears their own session state — not another user's. One login authorizes exactly one clear.
 - **Markers and intent clear separately.** `clear_markers` offers every live `marker:` instance in scope, and flags one that is held by more than one writer — clearing a single holder leaves the marker standing, so each holder is acknowledged on its own. `clear_intent` only ever offers the platform-captured intent. An approved marker clear can never drop the intent, and the reverse holds too.

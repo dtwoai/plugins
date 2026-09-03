@@ -1018,7 +1018,10 @@ _pii_active if {
 }
 
 # The registered description, so the message tracks the registry rather
-# than a string pasted into the policy.
+# than a string pasted into the policy. The `default` is load-bearing:
+# without it an unregistered key leaves the whole `reason` undefined.
+default _registered_description := "a sensitive-data marker is set on this session"
+
 _registered_description := d if {
     some m in data.dtwo.intent_registry.markers
     m.id == _key
@@ -1039,7 +1042,7 @@ reason := sprintf("Blocked: %s. To lift the block now, ask for a session clear a
 - Entries are keyed by **FQID** (`id`) — `marker:<ns>:<id>` for markers, `<ns>:<name>` for intents. No UIDs appear in the data document.
 - `markers[]` carries `id`, `description` and `minimum_ttl_seconds`; `intents[]` carries `id`, `description`, and optionally `aliases` / `transitions_to` / `transitions_from`; `compatibility[]` carries `intent` and `excluded_marker`. A transitions field is **omitted when unrestricted** and `[]` when locked — treat missing as "no restriction".
 - Registry text is authored by your own admins, so it is safe to surface in a reason — unlike the session intent, which must never be echoed (see Reading the session intent).
-- **Give any registry-derived string a fallback.** A lookup that finds nothing is *undefined*, not empty — and an undefined term makes the whole `reason` undefined, so the deny lands with no message at all. Add a `default _registered_description := "<plain wording>"`, or a second `reason` rule that omits the lookup.
+- **Give any registry-derived string a fallback** — the `default` line above is not decoration. A lookup that finds nothing is *undefined*, not empty, and an undefined term makes the whole `reason` undefined: the call still denies, but the person sees no message at all. A `default` on the lookup rule fixes it, as does a second `reason` rule that omits the lookup.
 - Registry edits reach the gateway on its **next policy deploy**, not immediately.
 
 ### `writableKeySchema` (attached via `dtwo-add-policy` / `dtwo-update-policy`)
