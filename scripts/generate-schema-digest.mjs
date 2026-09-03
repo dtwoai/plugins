@@ -573,6 +573,7 @@ function renderOAuthVariant(filtered) {
     'grant_type', 'scopes',
     'issuer', 'client_id', 'client_secret', 'token_url',
     'authorization_url', 'redirect_uri', 'pkce_enabled',
+    'token_endpoint_auth_method', 'omit_resource',
   ];
   const rows = fieldOrder
     .map(name => fieldByName(oauth, name))
