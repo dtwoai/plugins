@@ -135,7 +135,7 @@
           "schemaDefault": null,
           "deployDefault": null,
           "target": null,
-          "description": "Human-gated session clearing (session-control) registration: the IdP app the browser ceremony authenticates against. Arms the platform clear tools and the browser clear ceremony when `intent.enabled: true`, or when `clearing.enabled: true` on a gateway that uses markers without intent capture. The ceremony issuer is not configured here — it is always `gateway.authentication.jwks_info.jwt_issuer` (the same tenant issues both the inbound tokens and the browser-login ID tokens), and the deploy derives `SESSION_CONTROL_ISSUER` from it."
+          "description": "Human-gated session clearing (session-control) registration: the IdP app the browser ceremony authenticates against. Arms the platform clear tools and the browser clear ceremony when `intent.enabled: true`, or when `clearing.enabled: true` on a gateway that uses markers without intent capture. A gateway using Dtwo authentication needs no credentials here — it gets its organization's platform-provisioned app — but prefer `clearing: {enabled: true}` over an empty block, so the block states what it does: an empty one arms only while `intent.enabled` is true and parks inert otherwise. `client_id` is only needed for a gateway trusting a customer-run IdP, and `redirect_uri` only for one the browser reaches at a different origin than its token audience. The ceremony issuer is not configured here — it is always `gateway.authentication.jwks_info.jwt_issuer` (the same tenant issues both the inbound tokens and the browser-login ID tokens), and the deploy derives `SESSION_CONTROL_ISSUER` from it."
         },
         {
           "name": "log_level",
@@ -643,7 +643,7 @@
           "deployDefault": [],
           "target": "SSRF_ALLOWED_NETWORKS",
           "description": "CIDR allowlist for outbound connections; JSON-encoded in the env file.",
-          "rationale": "Set to the specific CIDRs your MCP servers live on when the gateway must reach private hosts — prefer this surgical allowlist over the blanket `allow_private_networks=true`, since every range you add widens the gateway's outbound attack surface.",
+          "rationale": "Set to the specific CIDRs your MCP servers live on when the gateway must reach private hosts — prefer this surgical allowlist over the blanket `allow_private_networks=true`, since every range you add widens the gateway's outbound attack surface. Shared address space `100.64.0.0/10` (CGNAT — every Tailscale node address, for example) is blocked on every server registration and config import since ContextForge 1.0.7, above every other SSRF setting; a CIDR here that lies wholly inside `100.64.0.0/10` (e.g. `100.64.0.0/10` itself or your tailnet subnet) re-permits those addresses. Broad entries such as `100.0.0.0/8` or `0.0.0.0/0` do not.",
           "targetKind": "envVar"
         },
         {
@@ -704,11 +704,11 @@
     {
       "path": "gateway.session_control",
       "title": "gateway.session_control",
-      "description": "Human-gated session clearing (session-control) registration: the IdP app the browser ceremony authenticates against. Arms the platform clear tools and the browser clear ceremony when `intent.enabled: true`, or when `clearing.enabled: true` on a gateway that uses markers without intent capture. The ceremony issuer is not configured here — it is always `gateway.authentication.jwks_info.jwt_issuer` (the same tenant issues both the inbound tokens and the browser-login ID tokens), and the deploy derives `SESSION_CONTROL_ISSUER` from it.",
+      "description": "Human-gated session clearing (session-control) registration: the IdP app the browser ceremony authenticates against. Arms the platform clear tools and the browser clear ceremony when `intent.enabled: true`, or when `clearing.enabled: true` on a gateway that uses markers without intent capture. A gateway using Dtwo authentication needs no credentials here — it gets its organization's platform-provisioned app — but prefer `clearing: {enabled: true}` over an empty block, so the block states what it does: an empty one arms only while `intent.enabled` is true and parks inert otherwise. `client_id` is only needed for a gateway trusting a customer-run IdP, and `redirect_uri` only for one the browser reaches at a different origin than its token audience. The ceremony issuer is not configured here — it is always `gateway.authentication.jwks_info.jwt_issuer` (the same tenant issues both the inbound tokens and the browser-login ID tokens), and the deploy derives `SESSION_CONTROL_ISSUER` from it.",
       "fields": [
         {
           "name": "client_id",
-          "required": true,
+          "required": false,
           "type": "string",
           "constraints": ["min length: 1", "matches `/^[\\x21-\\x7E]+$/`"],
           "enumValues": null,
@@ -716,8 +716,22 @@
           "schemaDefault": null,
           "deployDefault": null,
           "target": "SESSION_CONTROL_CLIENT_ID",
-          "description": "Public client id of the dedicated session-control OAuth app (native, PKCE, no client secret).",
-          "rationale": "Register a dedicated public client at your IdP for the clear ceremony (authorization-code + PKCE, no refresh grant) and paste its client id here. Do not reuse the gateway API client.",
+          "description": "Public client id of the dedicated session-control OAuth app (native, PKCE, no client secret). Optional on a gateway authenticating against Dtwo's Auth0: the platform provisions one per organization and renders it at deploy. An explicit value always wins.",
+          "rationale": "Leave unset on a gateway using Dtwo authentication. Set it only when the gateway trusts your own IdP: the ceremony app must live in the IdP that issues the gateway's inbound tokens, so register a dedicated public client there (authorization-code + PKCE, no refresh grant) and paste its client id here. Do not reuse the gateway API client.",
+          "targetKind": "envVar"
+        },
+        {
+          "name": "redirect_uri",
+          "required": false,
+          "type": "string",
+          "constraints": ["min length: 1"],
+          "enumValues": null,
+          "audience": "user",
+          "schemaDefault": null,
+          "deployDefault": null,
+          "target": "SESSION_CONTROL_REDIRECT_URI",
+          "description": "Callback URL the browser clear ceremony redirects to, overriding the one the gateway derives from its own token audience. Must be an absolute `https://` URL (`http://` only on localhost, 127.0.0.1, or [::1]). Optional: leave it unset unless the browser reaches the gateway at a different origin than its audience. An explicit value always wins, and the platform allow-lists it verbatim on the IdP application.",
+          "rationale": "Leave unset in almost all cases — the gateway derives `<origin of the first jwt_audience>/session-control/clear/callback` and the platform registers that. Set it when a reverse proxy or split-horizon DNS puts the browser on a different origin than the audience: give the URL the browser can actually reach, at the root path (`/mcp/*` routes to the streamable-HTTP handler, which rejects browser GETs).",
           "targetKind": "envVar"
         },
         {
@@ -744,6 +758,12 @@
           "message": "While clearing is armed, `gateway.authentication` must be enabled with `jwks_info` — the ceremony binds every clear to the authenticated caller identity, so an unauthenticated inbound leg has nothing to bind."
         },
         {
+          "message": "A gateway that authenticates against an IdP other than Dtwo's Auth0 must set `client_id`: the platform provisions a ceremony app only in its own tenant, and the deploy fails rather than arming a gateway whose ceremony has no application to authenticate against."
+        },
+        {
+          "message": "`redirect_uri`, when set, replaces the callback the gateway would derive from the first entry of `jwt_audience`, and is the URL the platform allow-lists on the IdP application. Unset, ordering within a comma-separated `jwt_audience` decides the callback."
+        },
+        {
           "message": "While clearing is armed, `jwt_issuer` must be a normalized HTTPS URL (it becomes the ceremony issuer via `SESSION_CONTROL_ISSUER`) and `jwt_audience` must not be blank."
         }
       ]
@@ -764,7 +784,7 @@
           "deployDefault": null,
           "target": "platform.session_control.clearing.enabled",
           "description": "Arm human-gated clearing of session intent and markers. Unset follows `gateway.intent.enabled`. `false` while intent is enabled is a deploy error (clearing cannot be withdrawn where markers can block).",
-          "rationale": "Leave unset in almost all cases — clearing arms automatically wherever intent capture is on and this block is configured. Set `true` explicitly on a gateway that runs marker-writing policies WITHOUT intent capture, which otherwise has no targeted clear path and can only wait for a marker to expire.",
+          "rationale": "Write `true` whenever you want clearing. It is only strictly *required* on a gateway that runs marker-writing policies WITHOUT intent capture — with intent capture on, the block arms on its own — but stating it makes the block say what it does rather than leaving that to `gateway.intent.enabled`, and it keeps clearing armed if intent capture is later turned off. `false` while intent capture is on is rejected: clearing cannot be withdrawn where markers can block.",
           "targetKind": "platform"
         }
       ]
@@ -1194,6 +1214,20 @@
           "secret": true
         },
         {
+          "name": "token_endpoint_auth_method",
+          "required": false,
+          "type": "enum",
+          "constraints": [],
+          "enumValues": ["client_secret_basic", "client_secret_post"],
+          "audience": "user",
+          "schemaDefault": null,
+          "deployDefault": null,
+          "target": "sotw.oauth_config.token_endpoint_auth_method",
+          "description": "How the client authenticates to the token endpoint.",
+          "rationale": "Defaults to `client_secret_post`, which sends `client_id`/`client_secret` in the request body. Set `client_secret_basic` for providers that require an HTTP Basic header and reject a body secret with `invalid_client` — Airtable is one. Ignored on the DCR path: when `issuer` drives dynamic client registration the gateway overwrites this with the method it registered under, so set it only alongside an explicit `client_id`/`client_secret`.",
+          "targetKind": "sotwPath"
+        },
+        {
           "name": "token_url",
           "required": false,
           "type": "URL",
@@ -1275,6 +1309,20 @@
           "target": "sotw.oauth_config.pkce_enabled",
           "description": "Enable PKCE on the authorization flow.",
           "rationale": "Enable for public clients where leaking the `client_secret` is a risk.",
+          "targetKind": "sotwPath"
+        },
+        {
+          "name": "omit_resource",
+          "required": false,
+          "type": "boolean",
+          "constraints": [],
+          "enumValues": null,
+          "audience": "user",
+          "schemaDefault": null,
+          "deployDefault": null,
+          "target": "sotw.oauth_config.omit_resource",
+          "description": "Omit the RFC 8707 resource parameter from OAuth authorize/token requests.",
+          "rationale": "Escape hatch for providers that reject or mishandle the `resource` parameter on authorize, token-exchange, and refresh requests.",
           "targetKind": "sotwPath"
         },
         {
@@ -1362,6 +1410,9 @@
       "crossFieldConstraints": [
         {
           "message": "OAuth requires either \"issuer\" or all of \"client_id\", \"client_secret\", and \"token_url\""
+        },
+        {
+          "message": "\"token_endpoint_auth_method: client_secret_basic\" requires \"client_secret\""
         }
       ]
     },
@@ -1441,6 +1492,15 @@
       "key": "CACHE_TYPE"
     },
     {
+      "key": "CPEX_CONTROL_TELEMETRY_DB_ENABLED"
+    },
+    {
+      "key": "CPEX_CONTROL_TELEMETRY_ENABLED"
+    },
+    {
+      "key": "CSRF_ENABLED"
+    },
+    {
       "key": "D2_TENANT_ID"
     },
     {
@@ -1509,6 +1569,9 @@
       "schemaPath": "gateway.log_level"
     },
     {
+      "key": "MCPGATEWAY_A2A_ENABLED"
+    },
+    {
       "key": "MCPGATEWAY_ADMIN_API_ENABLED"
     },
     {
@@ -1571,6 +1634,13 @@
     },
     {
       "key": "SESSION_CONTROL_ISSUER"
+    },
+    {
+      "key": "SESSION_CONTROL_REDIRECT_URI",
+      "schemaPath": "gateway.session_control.redirect_uri"
+    },
+    {
+      "key": "SOTW_DELETE_POLICY"
     },
     {
       "key": "SOTW_ENABLED",

@@ -45,7 +45,7 @@ export const SCHEMA_ARTIFACT_VERSION = '1.1.0';
  * in reviewed source. It cannot stop a PR that bumps both the artifact and
  * this constant — judging that change is still review's job.
  */
-export const EXPECTED_SCHEMA_ARTIFACT_SHA256 = '7da03dec3c066d3ca74a9a25173017dd63b0e8a04eea167dce3eec4ae19fad1d';
+export const EXPECTED_SCHEMA_ARTIFACT_SHA256 = '7f65aa88eb1bacf4f118660611cf715446b1a4e0536c399973dda67876b9fd1a';
 
 /**
  * `platform` is emitted by the currently vendored artifact (every

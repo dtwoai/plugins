@@ -32,14 +32,14 @@ import { fileURLToPath } from 'node:url';
 import { ConfigSchema, parseConfig, VALIDATOR_BUNDLE_VERSION } from '../vendor/config-validator.bundle.mjs';
 
 /** Shape pin. See the module docstring for what this does and does not catch. */
-export const EXPECTED_VALIDATOR_BUNDLE_VERSION = '2.0.0';
+export const EXPECTED_VALIDATOR_BUNDLE_VERSION = '3.0.0';
 
 /**
  * sha256 of the vendored bundle's bytes. Asserted by
  * `__tests__/schemaDigest.test.ts`, not at module load. Bump this together
  * with `EXPECTED_VALIDATOR_BUNDLE_VERSION` when the bundle is re-vendored.
  */
-export const EXPECTED_VALIDATOR_BUNDLE_SHA256 = 'd5d07962a80a47e3ccc7a9550e6b56650321bed2d3a541d932c70f167d5c9bda';
+export const EXPECTED_VALIDATOR_BUNDLE_SHA256 = '971e2d7ccb7a2e28f35a899b510697d73d0606a0083825af7feead3b0e47ee16';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
