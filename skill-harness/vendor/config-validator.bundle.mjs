@@ -17468,7 +17468,7 @@ var SessionControlClearingSchema = external_exports.object({
       description: "Arm human-gated clearing of session intent and markers. Unset follows `gateway.intent.enabled`. `false` while intent is enabled is a deploy error (clearing cannot be withdrawn where markers can block).",
       target: "platform.session_control.clearing.enabled",
       audience: "user",
-      rationale: "Leave unset in almost all cases \u2014 clearing arms automatically wherever intent capture is on and this block is configured. Set `true` explicitly on a gateway that runs marker-writing policies WITHOUT intent capture, which otherwise has no targeted clear path and can only wait for a marker to expire."
+      rationale: "Write `true` whenever you want clearing. It is only strictly *required* on a gateway that runs marker-writing policies WITHOUT intent capture \u2014 with intent capture on, the block arms on its own \u2014 but stating it makes the block say what it does rather than leaving that to `gateway.intent.enabled`, and it keeps clearing armed if intent capture is later turned off. `false` while intent capture is on is rejected: clearing cannot be withdrawn where markers can block."
     })
   )
 }).strict();
@@ -17507,7 +17507,7 @@ var SessionControlSchema = external_exports.object({
   )
 }).strict().meta(
   meta3({
-    description: "Human-gated session clearing (session-control) registration: the IdP app the browser ceremony authenticates against. Arms the platform clear tools and the browser clear ceremony when `intent.enabled: true`, or when `clearing.enabled: true` on a gateway that uses markers without intent capture. An empty block is the normal shape on a gateway using Dtwo authentication, which gets its organization's platform-provisioned app; `client_id` is only needed for a gateway trusting a customer-run IdP, and `redirect_uri` only for one the browser reaches at a different origin than its token audience. The ceremony issuer is not configured here \u2014 it is always `gateway.authentication.jwks_info.jwt_issuer` (the same tenant issues both the inbound tokens and the browser-login ID tokens), and the deploy derives `SESSION_CONTROL_ISSUER` from it.",
+    description: "Human-gated session clearing (session-control) registration: the IdP app the browser ceremony authenticates against. Arms the platform clear tools and the browser clear ceremony when `intent.enabled: true`, or when `clearing.enabled: true` on a gateway that uses markers without intent capture. A gateway using Dtwo authentication needs no credentials here \u2014 it gets its organization's platform-provisioned app \u2014 but prefer `clearing: {enabled: true}` over an empty block, so the block states what it does: an empty one arms only while `intent.enabled` is true and parks inert otherwise. `client_id` is only needed for a gateway trusting a customer-run IdP, and `redirect_uri` only for one the browser reaches at a different origin than its token audience. The ceremony issuer is not configured here \u2014 it is always `gateway.authentication.jwks_info.jwt_issuer` (the same tenant issues both the inbound tokens and the browser-login ID tokens), and the deploy derives `SESSION_CONTROL_ISSUER` from it.",
     crossFieldConstraints: [
       "`clearing.enabled` unset follows `gateway.intent.enabled`; an explicit `true` arms clearing even with intent capture off (the markers-only deployment).",
       "`clearing.enabled: false` while `gateway.intent.enabled: true` is rejected (clearing cannot be withdrawn where markers can block).",

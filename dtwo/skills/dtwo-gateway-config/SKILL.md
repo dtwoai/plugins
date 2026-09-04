@@ -118,7 +118,7 @@ This subsection is generated from `schema-reference.json` by `scripts/generate-s
 | `gateway.authentication.oauth_dcr` | OAuth Dynamic Client Registration overrides. Defaults are auto-derived from mcp_servers; set fields here to override (typically to disable DCR/discovery for IdPs that pre-provision clients). |
 | `gateway.ssrf` | SSRF protection overrides. Strict defaults apply when omitted. |
 | `gateway.intent` | Gateway session-intent controls. |
-| `gateway.session_control` | Human-gated session clearing (session-control) registration: the IdP app the browser ceremony authenticates against. Arms the platform clear tools and the browser clear ceremony when `intent.enabled: true`, or when `clearing.enabled: true` on a gateway that uses markers without intent capture. An empty block is the normal shape on a gateway using Dtwo authentication, which gets its organization's platform-provisioned app; `client_id` is only needed for a gateway trusting a customer-run IdP, and `redirect_uri` only for one the browser reaches at a different origin than its token audience. The ceremony issuer is not configured here — it is always `gateway.authentication.jwks_info.jwt_issuer` (the same tenant issues both the inbound tokens and the browser-login ID tokens), and the deploy derives `SESSION_CONTROL_ISSUER` from it. |
+| `gateway.session_control` | Human-gated session clearing (session-control) registration: the IdP app the browser ceremony authenticates against. Arms the platform clear tools and the browser clear ceremony when `intent.enabled: true`, or when `clearing.enabled: true` on a gateway that uses markers without intent capture. A gateway using Dtwo authentication needs no credentials here — it gets its organization's platform-provisioned app — but prefer `clearing: {enabled: true}` over an empty block, so the block states what it does: an empty one arms only while `intent.enabled` is true and parks inert otherwise. `client_id` is only needed for a gateway trusting a customer-run IdP, and `redirect_uri` only for one the browser reaches at a different origin than its token audience. The ceremony issuer is not configured here — it is always `gateway.authentication.jwks_info.jwt_issuer` (the same tenant issues both the inbound tokens and the browser-login ID tokens), and the deploy derives `SESSION_CONTROL_ISSUER` from it. |
 | `gateway.session_control.clearing` | Arming control for human-gated clearing. |
 | `mcp_servers[]` | One entry per upstream MCP server. `name` and `url` required. |
 | `mcp_servers[].authentication` | Discriminated union keyed on `type`; outbound auth from gateway to the upstream server. 7 variants (see table). |
@@ -265,7 +265,7 @@ Gateway session-intent controls.
 
 #### `gateway.session_control` — human-gated clearing registration
 
-Human-gated session clearing (session-control) registration: the IdP app the browser ceremony authenticates against. Arms the platform clear tools and the browser clear ceremony when `intent.enabled: true`, or when `clearing.enabled: true` on a gateway that uses markers without intent capture. An empty block is the normal shape on a gateway using Dtwo authentication, which gets its organization's platform-provisioned app; `client_id` is only needed for a gateway trusting a customer-run IdP, and `redirect_uri` only for one the browser reaches at a different origin than its token audience. The ceremony issuer is not configured here — it is always `gateway.authentication.jwks_info.jwt_issuer` (the same tenant issues both the inbound tokens and the browser-login ID tokens), and the deploy derives `SESSION_CONTROL_ISSUER` from it.
+Human-gated session clearing (session-control) registration: the IdP app the browser ceremony authenticates against. Arms the platform clear tools and the browser clear ceremony when `intent.enabled: true`, or when `clearing.enabled: true` on a gateway that uses markers without intent capture. A gateway using Dtwo authentication needs no credentials here — it gets its organization's platform-provisioned app — but prefer `clearing: {enabled: true}` over an empty block, so the block states what it does: an empty one arms only while `intent.enabled` is true and parks inert otherwise. `client_id` is only needed for a gateway trusting a customer-run IdP, and `redirect_uri` only for one the browser reaches at a different origin than its token audience. The ceremony issuer is not configured here — it is always `gateway.authentication.jwks_info.jwt_issuer` (the same tenant issues both the inbound tokens and the browser-login ID tokens), and the deploy derives `SESSION_CONTROL_ISSUER` from it.
 
 | Field | Required | Type | Default | Target | Guidance (from artifact) |
 |---|---|---|---|---|---|
@@ -291,7 +291,7 @@ Arming control for human-gated clearing.
 
 | Field | Required | Type | Default | Target | Guidance (from artifact) |
 |---|---|---|---|---|---|
-| `enabled` | no | boolean | `not declared` | `platform.session_control.clearing.enabled` | Leave unset in almost all cases — clearing arms automatically wherever intent capture is on and this block is configured. Set `true` explicitly on a gateway that runs marker-writing policies WITHOUT intent capture, which otherwise has no targeted clear path and can only wait for a marker to expire. |
+| `enabled` | no | boolean | `not declared` | `platform.session_control.clearing.enabled` | Write `true` whenever you want clearing. It is only strictly *required* on a gateway that runs marker-writing policies WITHOUT intent capture — with intent capture on, the block arms on its own — but stating it makes the block say what it does rather than leaving that to `gateway.intent.enabled`, and it keeps clearing armed if intent capture is later turned off. `false` while intent capture is on is rejected: clearing cannot be withdrawn where markers can block. |
 
 #### `mcp_servers[]` — required and optional top-level fields
 
@@ -382,7 +382,7 @@ Every field marked `secret: true` in the artifact. Emit a self-describing placeh
 - **`targetKind: platform`** — value is applied as a platform-side control at the named `platform.*` path rather than written to the gateway env file.
 - **`targetKind: sotwPath`** — value is written into the SOTW YAML at the named dotted path (e.g. `sotw.url`, `sotw.oauth_config.client_secret`). Read the `Target` column per field; do not infer a field's target from its section.
 
-<!-- schema-reference.json sha256:fa2daf563c0a2637de5eb508d31d3745adae06cdd58ca6b78773620750a392b2 -->
+<!-- schema-reference.json sha256:7f65aa88eb1bacf4f118660611cf715446b1a4e0536c399973dda67876b9fd1a -->
 
 <!-- END SCHEMA DIGEST -->
 
