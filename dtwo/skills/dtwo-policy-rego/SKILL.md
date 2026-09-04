@@ -984,7 +984,7 @@ allow := false if {
     _pii_active
 }
 
-reason := "PII was detected earlier in this session; outbound Slack sends are blocked. To lift the block now, ask for a session clear and approve it in your browser; otherwise it lifts when the marker expires." if {
+reason := "PII was detected earlier in this session; outbound Slack sends are blocked. To lift the block now, ask your agent to request a session clear and approve it in your browser; otherwise it lifts when the marker expires." if {
     lower(input.resource.name) == "slack-mcp-slack-send-message"
     _pii_active
 }
@@ -992,7 +992,7 @@ reason := "PII was detected earlier in this session; outbound Slack sends are bl
 
 - The walk-all-writers pattern (`some writer_uid; input.context.session.policies[writer_uid][key]`) is "present under *any* writer is truthy." To trust only a specific writer, filter on `writer_uid == "<known-uid>"`.
 - **This pattern is for reading *marker* keys only.** Do **not** use it — or any direct `input.context.session.policies` read — to read the platform **intent** (see Intent-capture policies → Reading the session intent). "Present under any writer" is exactly wrong for intent: a tenant policy could stamp an intent-shaped value under its own writer slot and a walk-all-writers read would honour it, spoofing the session intent. Read intent only through the platform helper, which is pinned to the trusted intent-capture slot.
-- **Deny reasons are user-visible — give the path out, fastest first.** State what happened and what the person can do about it. A marker has two exits, and they are not equal: a **human-approved clear** lifts it in under a minute, and **TTL expiry** lifts it eventually. Offer the clear first and keep TTL as the fallback — a reason that mentions only the TTL tells someone to wait an hour for something they could have resolved immediately. Phrase it so it reads correctly either way ("ask for a session clear … otherwise it lifts when the marker expires"), because clearing is armed per gateway: where it is not configured, the clear request returns a readable "not configured on this gateway" refusal and the TTL half of your sentence still holds. Word it as a recovery the person authorizes, not as a way around the decision — the clear needs their explicit approval in a browser precisely so an agent cannot use it to shrug off a block (see `dtwo-gateway-policy` → Clearing a marker for the mechanics and the reasoning).
+- **Deny reasons are user-visible — give the path out, fastest first.** State what happened and what the person can do about it. A marker has two exits, and they are not equal: a **human-approved clear** lifts it in under a minute, and **TTL expiry** lifts it eventually. Offer the clear first and keep TTL as the fallback — a reason that mentions only the TTL tells someone to wait an hour for something they could have resolved immediately. Phrase it so it reads correctly either way ("ask your agent to request a session clear … otherwise it lifts when the marker expires"). Address the ask to the person's agent, not the person: the only way to start a clear is the platform tool call, so someone reading your reason in a log or the Hub has nothing to click, because clearing is armed per gateway: where it is not armed the clear tool may not be in the agent's tool list at all, and where it is present but unarmed the request returns a readable "not configured on this gateway" refusal — either way the TTL half of your sentence still holds. Word it as a recovery the person authorizes, not as a way around the decision — the clear needs their explicit approval in a browser precisely so an agent cannot use it to shrug off a block (see `dtwo-gateway-policy` → Clearing a marker for the mechanics and the reasoning).
 - **Avoid "start a new session"** — marker state is scoped to tenant + user and survives reconnecting, so a new session for the same user won't clear it.
 - **Never build a reason out of the session intent.** A reason may say *that* the current intent failed a gate; it must not carry the intent itself — do not interpolate `current_intent(input)` or its `description` into `reason` or into a transform. Name the rule that fired instead. Full rule under Intent-capture policies → Reading the session intent.
 
@@ -1033,7 +1033,7 @@ allow := false if {
     _pii_active
 }
 
-reason := sprintf("Blocked: %s. To lift the block now, ask for a session clear and approve it in your browser; otherwise it lifts when the marker expires.", [_registered_description]) if {
+reason := sprintf("Blocked: %s. To lift the block now, ask your agent to request a session clear and approve it in your browser; otherwise it lifts when the marker expires.", [_registered_description]) if {
     lower(input.resource.name) == "slack-mcp-slack-send-message"
     _pii_active
 }
