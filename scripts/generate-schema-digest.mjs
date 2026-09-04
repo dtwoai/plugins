@@ -569,6 +569,10 @@ function renderOAuthVariant(filtered) {
   // Cross-field-constraint conditional fields
   const conditional = new Set(['issuer', 'client_id', 'client_secret', 'token_url']);
 
+  // Ordered allowlist: a field newly added to the artifact is DROPPED here
+  // rather than appended blindly. That is safe only because the coverage check
+  // at the end of this script refuses to write the digest until the field is
+  // placed deliberately — if you hit that error, add the name here.
   const fieldOrder = [
     'grant_type', 'scopes',
     'issuer', 'client_id', 'client_secret', 'token_url',
