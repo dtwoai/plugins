@@ -1,0 +1,71 @@
+# Sources (verified 2026-09-06):
+#   - RFC 6749 §3.3 — `scope` is OPTIONAL on authorization and token requests;
+#     when it is absent the server applies a pre-defined default. Some
+#     providers go further and reject any `scope` parameter outright with
+#     `invalid_scope` (Docebo is the public example). The gateway sends no
+#     `scope` parameter when `scopes` is omitted or `[]`.
+# Schema ref: dtwo/skills/dtwo-gateway-config/schema-reference.json (the vendored schema artifact in this repo)
+#   mcp_servers[].authentication (oauth).scopes — optional, schemaDefault [].
+#
+# Endpoint shapes are the generic `https://<domain>/oauth2/authorize` and
+# `/oauth2/token`; the domain is a placeholder, not a vendor URL.
+id: docebo-oauth-no-scopes
+tier: aspirational
+tags: [docebo, oauth, authorization_code, no_scopes, provider_quirk]
+user_prompt: |
+  Add our Docebo LMS MCP server to the gateway. It runs at
+  https://mcp.lms.acme.example/mcp (streamable HTTP). Docebo's OAuth2 app
+  uses the authorization code flow: authorize at
+  https://lms.acme.example/oauth2/authorize, token at
+  https://lms.acme.example/oauth2/token, redirect URI
+  https://gateway.acme.example/oauth/callback. Use placeholders for the
+  client_id and client_secret. Docebo rejects any scope parameter with
+  invalid_scope, so the gateway must not send one. My Auth0 tenant is
+  acme.us.auth0.com, audience https://api.acme.com.
+followups:
+  - match: /audience/i
+    reply: "https://api.acme.com"
+expect:
+  must_validate: true
+  required_paths:
+    - gateway.authentication.jwks_info.jwt_algorithm
+    - gateway.authentication.jwks_info.jwt_jwks_uri
+    - gateway.authentication.jwks_info.jwt_issuer
+    - gateway.authentication.jwks_info.jwt_audience
+    - mcp_servers[0].name
+    - mcp_servers[0].url
+    - mcp_servers[0].authentication.type
+    - mcp_servers[0].authentication.grant_type
+    - mcp_servers[0].authentication.authorization_url
+    - mcp_servers[0].authentication.token_url
+    - mcp_servers[0].authentication.redirect_uri
+    - mcp_servers[0].authentication.client_id
+    - mcp_servers[0].authentication.client_secret
+  forbidden_paths:
+    - mcp_servers[0].authentication.issuer
+  value_constraints:
+    - path: "mcp_servers[0].authentication.type"
+      equals: oauth
+    - path: "mcp_servers[0].authentication.grant_type"
+      equals: authorization_code
+    - path: "mcp_servers[0].authentication.authorization_url"
+      regex: "^https://.+/oauth2/authorize$"
+    - path: "mcp_servers[0].authentication.token_url"
+      regex: "^https://.+/oauth2/token$"
+    - path: "mcp_servers[0].authentication.redirect_uri"
+      regex: "^https://"
+    - path: "mcp_servers[0].authentication.client_id"
+      regex: "^<?(REPLACE_|PLACEHOLDER_|CHANGE_?ME|YOUR[_-]|your[_-])|^\\$\\{"
+    - path: "mcp_servers[0].authentication.client_secret"
+      regex: "^<?(REPLACE_|PLACEHOLDER_|CHANGE_?ME|YOUR[_-]|your[_-])|^\\$\\{"
+    # The axis under test: no non-empty scopes. `max_length: 0` accepts an
+    # omitted `scopes` key (counted as length 0) as well as an explicit `[]`,
+    # and rejects any list with an entry.
+    - path: "mcp_servers[0].authentication.scopes"
+      max_length: 0
+  semantic_rubric:
+    - "Emits no scopes — the key is omitted or set to [] — because the provider rejects any scope parameter; does not invent openid/profile/offline_access or vendor-looking scopes"
+    - "grant_type is authorization_code with client_id + client_secret + token_url + authorization_url + redirect_uri; issuer is NOT set (this is not a DCR provider)"
+    - "Explains, briefly, that with no scope parameter the provider applies the access configured on the client registration"
+    - "Leaves SSRF defaults intact (public-shaped hostname, nothing private)"
+clarifying_question_expected: false

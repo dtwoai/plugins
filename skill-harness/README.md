@@ -25,7 +25,9 @@ failing check marks the sample as failed; the per-prompt pass-rate is
 | `secrets_are_placeholders` | Every `secret: true` leaf is absent or holds a placeholder matching `/^<?(REPLACE_\|PLACEHOLDER_\|CHANGE_?ME\|YOUR[_-]\|your[_-])\|^\$\{/`. |
 
 Plus per-fixture `required_paths`, `forbidden_paths`, and
-`value_constraints` (regex / equals / min_length).
+`value_constraints` (regex / equals / min_length / max_length — the last
+counts an absent path as length 0, so `max_length: 0` reads "absent or
+empty").
 
 `semantic_rubric` bullets are accepted but not yet evaluated (deferred to
 an LLM-judge pass).

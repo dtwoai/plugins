@@ -23,7 +23,9 @@ expect:
   value_constraints:
     - { path: mcp_servers[0].authentication.type, equals: oauth }
     - { path: mcp_servers[0].authentication.scopes, min_length: 1 }
-    - { path: mcp_servers[0].name, regex: "(?i)atlassian" }
+    # or, for a provider that rejects any scope parameter — absent counts as 0:
+    # - { path: mcp_servers[0].authentication.scopes, max_length: 0 }
+    - { path: mcp_servers[0].name, regex: "[Aa]tlassian" }   # JS RegExp syntax — no inline (?i) flags
   semantic_rubric:                   # optional; v1.1 LLM-judge only — not evaluated here
     - "Uses DCR path (issuer set, no client_id/client_secret)"
   safe_default_opt_out:              # optional; explicit bypass of the safe-default check
@@ -59,7 +61,7 @@ Use concrete array indices (e.g. `mcp_servers[0].authentication.type`).
 The harness normalizes `[0]` → `[]` internally when comparing against
 the allowed-path set, and uses the concrete form for value lookup.
 
-## Phase 2 battery (28 fixtures: 12 required + 16 aspirational)
+## Phase 2 battery (30 fixtures: 12 required + 18 aspirational)
 
 The plan's full 40-prompt target is **intentionally deferred** until
 Tier-2 runs reveal where the skill struggles — we steer remaining
@@ -84,7 +86,7 @@ revisit trigger.
 | Compound      | `advanced-custom-env-var`               | Custom env var via `gateway.advanced` (not a reserved key)                |
 | Compound      | `log-level-debug`                       | Typed `gateway.log_level: TRACE` (no `advanced` fallback)                 |
 
-### Aspirational (16) — tracked, non-blocking
+### Aspirational (18) — tracked, non-blocking
 
 | Axis           | ID                                      | Exercises                                                                 |
 |----------------|-----------------------------------------|---------------------------------------------------------------------------|
@@ -104,6 +106,8 @@ revisit trigger.
 | SSRF           | `ssrf-allow-private-networks`           | `allow_private_networks: true` (co-located EC2); exercises `safe_default_opt_out` on this seed path |
 | SSRF           | `ssrf-allowed-networks-cidrs`           | Surgical CIDR allowlist (`array<string>`); forbids the blanket-private flip |
 | Typed scalar   | `mcp-server-refresh-interval`           | `mcp_servers[].refresh_interval_seconds` typed integer (ms-vs-s gotcha)   |
+| Provider quirk | `ms365-entra-oauth-code`                | Entra `authorization_code` with static client triple + `redirect_uri`; `host.docker.internal` SSRF opt-out |
+| Provider quirk | `docebo-oauth-no-scopes`                | Provider rejects any `scope` parameter: `scopes` omitted or `[]` (`max_length: 0`), `authorization_code`, no DCR |
 
 Required is CI-blocking at 100% per-prompt (not average). Aspirational is
 tracked and reports into the Tier-2 summary but does not gate merges;

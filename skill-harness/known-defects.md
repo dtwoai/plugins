@@ -138,22 +138,6 @@ that closed it.
   are the fixtures that *do* exercise SSRF opening on purpose;
   they declare `safe_default_opt_out` explicitly.
 
-## 4. Vendored validator bundle lags the vendored schema artifact
-
-- **ID** — `validator-bundle-drift`
-- **Fixture** — none; this is a harness defect, not a skill defect.
-- **First observed** — 2026-08-18 (schema-reference re-vendor).
-- **Status** — `open`.
-- **Impact** — `skill-harness/vendor/config-validator.bundle.mjs` and `dtwo/skills/dtwo-gateway-config/schema-reference.json` are generated from the same schema in the product repo but are vendored independently. Only the artifact was refreshed in this change, so the two disagree, and the rubric reads both: `must_validate` / `no_dropped_keys` use the bundle, `no_hallucinated_keys` uses the artifact. Confirmed divergences:
-  - `gateway.session_control.*` and `gateway.intent.*` are documented, user-facing fields in the artifact but are strict-rejected by the bundle as unrecognized keys. A config that correctly uses them passes the hallucination check and fails validation — the rubric scores a correct answer as a failure.
-  - `jwt_issuer_verification: false` and `jwt_audience_verification: false` are rejected by the artifact's cross-field constraint but accepted by the bundle. The `safe_defaults_preserved` seed is the only check that catches this today.
-  - `HTTP_SERVER` is no longer a reserved key in the artifact but is still rejected inside `gateway.advanced` by the bundle.
-  - `JWT_REQUIRED_ORG_ID`, `SESSION_CONTROL_CLIENT_ID` and `SESSION_CONTROL_ISSUER` are newly reserved in the artifact but are accepted inside `gateway.advanced` by the bundle.
-- **Repro rate** — n/a (deterministic; not a sampled bench signal).
-- **Hypothesis** — Not a hypothesis but a known cause: the two vendored files have no shared version or provenance record, and `VALIDATOR_BUNDLE_VERSION` is a hand-maintained shape constant that did not move across the bundle's content drift, so it cannot signal staleness. The bundle has not been refreshed since it was first vendored.
-- **Caveat** — The list above is what a targeted probe surfaced, not an exhaustive diff. Any bundle-enforced rule may disagree with the artifact until both are re-vendored from the same source revision.
-- **Harness action** — The bundle is deliberately NOT refreshed in this change: doing so is a behavioural change to every rubric run and is scoped to its own follow-up. `EXPECTED_VALIDATOR_BUNDLE_VERSION` in `src/validatorBundle.ts` pins the currently vendored bundle and points here. Until the follow-up lands, do not add fixtures that exercise `gateway.session_control` or `gateway.intent`, and read a `must_validate` pass on the token-validation flags as unproven rather than as evidence of correctness.
-
 ---
 
 ## Resolved
@@ -173,3 +157,16 @@ that closed it.
 - **Hypothesis** — Not a hypothesis but a known cause: the two vendored files have no shared version or provenance record, and `VALIDATOR_BUNDLE_VERSION` is a hand-maintained shape constant that did not move across the bundle's content drift, so it cannot signal staleness. The bundle had not been refreshed since it was first vendored.
 - **Caveat** — The divergence list above is what a targeted probe surfaced, not an exhaustive diff. The resolution sidesteps the caveat by re-vendoring both files from the same source revision rather than patching the listed items.
 - **Harness action** — Resolved by the #34 refresh: both vendored files now come from the same product-repo revision, `EXPECTED_VALIDATOR_BUNDLE_SHA256` pins the refreshed bundle's bytes, and a targeted re-probe confirmed every divergence listed above is closed (`session_control`/`intent` validate, `*_verification: false` is rejected, `HTTP_SERVER` is accepted in `gateway.advanced`, the three newly reserved keys are rejected there). The interim fixture freeze is lifted: fixtures MAY now exercise `gateway.session_control` and `gateway.intent`, and a `must_validate` pass on the token-validation flags is evidence again. The structural gap — no shared provenance record between the two vendored files — remains; the sha256 pin plus the digest's embedded artifact sha are what stand in for one.
+- **Re-vendor log** — 2026-09-06: both files refreshed together again from the product-repo change that made OAuth `scopes` optional; validator bundle 4.0.0 (sha verified against that revision's committed sidecar), schema artifact generatorVersion 1.1.0. Probe: omitted / `[]` / bare-null `scopes` all parse to `[]`; `scopes: [""]`, `token_endpoint_auth_method: none` and a singular `scope:` key ("did you mean scopes") are rejected.
+
+### 5. `regex` and `min_length` value constraints were stripped at fixture parse
+
+- **ID** — `value-constraints-stripped-at-parse`
+- **Fixture** — every fixture carrying a `regex` or `min_length` constraint (37 + 12 at the time).
+- **First observed** — 2026-09-06, while adding the `max_length` kind.
+- **Status** — `resolved` (same change: union reordered, members made strict, battery-level test added in `fixtures.test.ts`).
+- **Impact** — `ValueConstraintSchema` listed `EqualsConstraint` (`equals: z.unknown()`) first in the zod union. `z.unknown()` accepts an absent key and a plain object strips unknown keys, so `{ path, regex }` and `{ path, min_length }` both parsed as an equals-constraint reduced to `{ path }`. `constraintKind` then fell through to `min_length` with an undefined bound, and `len < undefined` is always false: every `regex` and `min_length` assertion in the battery passed unconditionally. `equals` constraints were unaffected, as were `required_paths` / `forbidden_paths`, so the bench was never blind — only the value-shape assertions (URL shapes, placeholder spellings, scope counts) were.
+- **Repro rate** — n/a (deterministic).
+- **Hypothesis** — Known cause, above. No fixture ever exercised a failing regex in a unit test; `rubric.test.ts` covered `equals` only.
+- **Caveat** — Past bench results that turned on a `regex` / `min_length` pass are unproven, not disproven. Expect some aspirational pass-rates to drop on the next live run now that the constraints bite; that is the harness telling the truth, not a skill regression.
+- **Harness action** — Specific kinds match first, all members are `strictObject` (a misspelt key is now a fixture-load error), `EqualsConstraint` refines on key presence, and `fixtures.test.ts` asserts every constraint keeps exactly one kind key after parse. `rubric.test.ts` gained failing-regex and failing-min_length cases.
