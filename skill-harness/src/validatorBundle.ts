@@ -31,15 +31,27 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ConfigSchema, parseConfig, VALIDATOR_BUNDLE_VERSION } from '../vendor/config-validator.bundle.mjs';
 
-/** Shape pin. See the module docstring for what this does and does not catch. */
-export const EXPECTED_VALIDATOR_BUNDLE_VERSION = '2.0.0';
+/**
+ * Shape pin. See the module docstring for what this does and does not catch.
+ *
+ * Provenance of the current vendor (2026-09-06): bundle 4.0.0 and the schema
+ * artifact were byte-copied together from the product-repo revision that made
+ * OAuth `scopes` optional; the sha below was verified against that
+ * revision's committed `validator-bundle.sha256` sidecar. Over 2.0.0 the
+ * bundle adds three `must_validate` rejections — an unimplemented
+ * `token_endpoint_auth_method`, `client_secret_basic` without a
+ * `client_secret` (both 3.0.0), and a singular `scope` key on an oauth block
+ * (4.0.0, "did you mean scopes") — and stops rejecting an omitted or empty
+ * `scopes` list.
+ */
+export const EXPECTED_VALIDATOR_BUNDLE_VERSION = '4.0.0';
 
 /**
  * sha256 of the vendored bundle's bytes. Asserted by
  * `__tests__/schemaDigest.test.ts`, not at module load. Bump this together
  * with `EXPECTED_VALIDATOR_BUNDLE_VERSION` when the bundle is re-vendored.
  */
-export const EXPECTED_VALIDATOR_BUNDLE_SHA256 = 'd5d07962a80a47e3ccc7a9550e6b56650321bed2d3a541d932c70f167d5c9bda';
+export const EXPECTED_VALIDATOR_BUNDLE_SHA256 = 'd286b15fd04cb5a782fad26ed797a6347c0fbb00eef987355812853ba44488a0';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 

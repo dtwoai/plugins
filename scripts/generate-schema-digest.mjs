@@ -196,9 +196,10 @@ function defaultCell(field) {
  * as opposed to one written at deploy time — the security-posture booleans
  * (`jwt_issuer_verification` and friends) carry it and previously rendered
  * `not declared` even though the gateway applies `true`.
- * And `—` does not say "required fields have no default":
- * `gateway.authentication.enabled` is required and carries
- * `schemaDefault: true`. It says only that this particular field declares none.
+ * And `—` says only that this particular required field declares no default —
+ * not that required fields never have one (the artifact reports every field
+ * with a schema default as optional, since a default makes it omittable, but
+ * nothing prevents a required field from declaring one).
  */
 const DEFAULT_COLUMN_LEGEND = [
   'Reading the **`Default`** column in the tables below: `` `value` (schema) ``, `` `value` (deploy) `` and `` `value` (gateway) `` are defaults the artifact declares — filled by the schema itself, by deploy-time config, or applied by the gateway at runtime when the deployed env leaves the field unset. **`not declared`** marks an optional field whose default the artifact does not record — the gateway still decides at runtime, but unlike `(gateway)` the value does not travel in this table; read the Guidance column, which states the effective behavior where the artifact records it. **`—`** marks a required field with no declared default — you must supply a value.',
@@ -569,23 +570,28 @@ function renderOAuthVariant(filtered) {
   // Cross-field-constraint conditional fields
   const conditional = new Set(['issuer', 'client_id', 'client_secret', 'token_url']);
 
+  // Preferred ordering for the load-bearing fields; every other user-audience
+  // field in the section follows in artifact order. This list used to BE the
+  // table, so when the artifact grew `token_endpoint_auth_method` and
+  // `omit_resource` they rendered nowhere — assertDigestCoverage caught it.
   const fieldOrder = [
     'grant_type', 'scopes',
     'issuer', 'client_id', 'client_secret', 'token_url',
     'authorization_url', 'redirect_uri', 'pkce_enabled',
   ];
-  const rows = fieldOrder
-    .map(name => fieldByName(oauth, name))
-    .filter(Boolean)
-    .map(f => {
-      let req = 'no';
-      if (variantRequired.has(f.name)) req = 'yes (variant)';
-      else if (conditional.has(f.name)) req = 'conditional';
-      const type = f.secret ? `${f.type}, **secret**` : f.type;
-      const target = f.target ? `\`${f.target}\`` : '—';
-      const rationale = f.rationale ?? f.description ?? '';
-      return `| \`${f.name}\` | ${req} | ${escapePipe(type)} | ${target} | ${escapePipe(rationale)} |`;
-    });
+  const ordered = [
+    ...fieldOrder.map(name => fieldByName(oauth, name)).filter(Boolean),
+    ...oauth.fields.filter(f => !fieldOrder.includes(f.name)),
+  ];
+  const rows = ordered.map(f => {
+    let req = 'no';
+    if (variantRequired.has(f.name)) req = 'yes (variant)';
+    else if (conditional.has(f.name)) req = 'conditional';
+    const type = f.secret ? `${typeCell(f)}, **secret**` : typeCell(f);
+    const target = f.target ? `\`${f.target}\`` : '—';
+    const rationale = f.rationale ?? f.description ?? '';
+    return `| \`${f.name}\` | ${req} | ${escapePipe(type)} | ${defaultCell(f)} | ${target} | ${escapePipe(rationale)} |`;
+  });
 
   return [
     '#### OAuth variant — fields and the load-bearing cross-field rule',
@@ -598,10 +604,10 @@ function renderOAuthVariant(filtered) {
     '- **DCR shape:** `issuer` is set. `client_id`, `client_secret`, and `token_url` may be omitted — the gateway discovers/registers them.',
     '- **Static-credentials shape:** `client_id` AND `client_secret` AND `token_url` are all set. `issuer` is not required.',
     '',
-    'Setting some but not all of `client_id` / `client_secret` / `token_url` without `issuer` is invalid. Both shapes still require `type: oauth`, `grant_type`, and `scopes`.',
+    'Setting some but not all of `client_id` / `client_secret` / `token_url` without `issuer` is invalid. Both shapes still require `type: oauth` and `grant_type`. `scopes` is optional: omit it (or set `[]`) for providers that reject any `scope` parameter — the gateway then sends none — otherwise list the provider\'s documented scopes; on the DCR (`issuer`-only) path an omitted `scopes` registers the client with no scopes at all — the gateway\'s own DCR default does not apply.',
     '',
-    '| Field | Required | Type | Target | Rationale (from artifact) |',
-    '|---|---|---|---|---|',
+    '| Field | Required | Type | Default | Target | Rationale (from artifact) |',
+    '|---|---|---|---|---|---|',
     ...rows,
     '',
   ].join('\n');
@@ -817,10 +823,11 @@ function assertDigestCoverage(artifact, filtered, digest) {
   // CALLING defaultCell: a gate that calls the renderer it polices mutates
   // in lockstep with it and can never fire on a defaultCell regression.
   // Every user-facing table that has a Default column routes it through
-  // defaultCell, so there are no per-renderer exceptions. The mcp_servers
-  // tables render no Default column at all, and no user-audience field
-  // there declares a default today; if one ever does, this clause fails the
-  // build until those tables grow one.
+  // defaultCell, so there are no per-renderer exceptions. Of the mcp_servers
+  // tables only the OAuth variant renders a Default column (grown when
+  // `scopes` gained `schemaDefault: []`); if a user-audience field in another
+  // mcp_servers table ever declares a default, this clause fails the build
+  // until that table grows one too.
   const declared = v => v !== null && v !== undefined;
   const digestLines = digest.split('\n');
   for (const section of filtered.sections) {
