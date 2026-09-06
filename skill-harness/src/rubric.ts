@@ -176,6 +176,30 @@ export function evaluateRubric(fixture: Fixture, rawYaml: string, artifact: Sche
   for (const c of fixture.expect.value_constraints ?? []) {
     const actual = getAtPath(parsedForChecks, c.path);
     const kind = constraintKind(c);
+    if (kind === 'max_length') {
+      // The one kind that tolerates an absent target: absent counts as length
+      // 0, so `max_length: 0` reads "absent or empty" (see MaxLengthConstraint
+      // in fixtureSchema.ts for why forbidden_paths cannot say that).
+      const max = (c as { max_length: number }).max_length;
+      let len: number | null = 0;
+      if (actual !== undefined) {
+        len = typeof actual === 'string' || Array.isArray(actual) ? actual.length : null;
+      }
+      if (len === null) {
+        failures.push({
+          check: 'value_constraints',
+          message: `value_constraint max_length target is not a string/array at ${c.path}`,
+          path: c.path,
+        });
+      } else if (len > max) {
+        failures.push({
+          check: 'value_constraints',
+          message: `value_constraint max_length failed at ${c.path}: expected ≤ ${max}, got ${len}`,
+          path: c.path,
+        });
+      }
+      continue;
+    }
     if (actual === undefined) {
       failures.push({
         check: 'value_constraints',
@@ -203,8 +227,21 @@ export function evaluateRubric(fixture: Fixture, rawYaml: string, artifact: Sche
         });
       } else {
         // Unanchored by default — use the pattern as authored. Fixtures
-        // that want anchoring embed `^`/`$` explicitly.
-        const re = new RegExp(pattern);
+        // that want anchoring embed `^`/`$` explicitly. JS RegExp syntax
+        // only: an unparseable pattern (an inline `(?i)` flag, say) is a
+        // scored failure naming the fixture's mistake, not a thrown error
+        // that aborts the bench sample.
+        let re: RegExp;
+        try {
+          re = new RegExp(pattern);
+        } catch (e) {
+          failures.push({
+            check: 'value_constraints',
+            message: `value_constraint regex at ${c.path} is not a valid JS RegExp: /${pattern}/ (${e instanceof Error ? e.message : String(e)})`,
+            path: c.path,
+          });
+          continue;
+        }
         if (!re.test(actual)) {
           failures.push({
             check: 'value_constraints',

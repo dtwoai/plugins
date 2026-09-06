@@ -8,7 +8,7 @@ import { loadSchemaArtifact } from '../schemaArtifact.js';
 describe('fixtures', () => {
   const fixtures = loadFixtures();
 
-  it('loads the Phase 2 fixture battery (12 required + 17 aspirational)', () => {
+  it('loads the Phase 2 fixture battery (12 required + 18 aspirational)', () => {
     const ids = fixtures.map(f => f.id).sort();
     assert.deepEqual(ids, [
       'advanced-custom-env-var',
@@ -24,6 +24,7 @@ describe('fixtures', () => {
       'cognito-oauth-client-credentials',
       'contradictory-dcr-with-secret',
       'contradictory-grant-with-redirect',
+      'docebo-oauth-no-scopes',
       'entra-oauth-client-credentials',
       'github-copilot-mcp-authheaders',
       'github-oauth-client-credentials',
@@ -44,7 +45,27 @@ describe('fixtures', () => {
     const required = fixtures.filter(f => f.tier === 'required').length;
     const aspirational = fixtures.filter(f => f.tier === 'aspirational').length;
     assert.equal(required, 12, 'expected 12 required fixtures');
-    assert.equal(aspirational, 17, 'expected 17 aspirational fixtures');
+    assert.equal(aspirational, 18, 'expected 18 aspirational fixtures');
+  });
+
+  it('every value_constraint keeps exactly one kind key after parse', () => {
+    // Regression for `value-constraints-stripped-at-parse` (known-defects.md):
+    // with a plain `equals: z.unknown()` object first in the union, every
+    // `regex` / `min_length` constraint parsed to a bare `{ path }`.
+    const KINDS = ['equals', 'regex', 'min_length', 'max_length'];
+    let seen = 0;
+    for (const f of fixtures) {
+      for (const c of f.expect.value_constraints ?? []) {
+        const kinds = Object.keys(c).filter(k => KINDS.includes(k));
+        assert.deepEqual(
+          kinds.length,
+          1,
+          `fixture ${f.id}: constraint on ${c.path} lost its kind: ${JSON.stringify(c)}`,
+        );
+        seen++;
+      }
+    }
+    assert.ok(seen >= 100, `anti-vacuity: expected the battery to carry >= 100 value_constraints, saw ${seen}`);
   });
 
   it('every fixture re-parses against FixtureSchema', () => {

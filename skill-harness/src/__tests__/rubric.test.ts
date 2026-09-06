@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import type { Fixture } from '../fixtureSchema.js';
+import { constraintKind, type Fixture, FixtureSchema } from '../fixtureSchema.js';
 import { loadFixtures } from '../fixtures.js';
 import { evaluateRubric } from '../rubric.js';
 import { loadSchemaArtifact } from '../schemaArtifact.js';
@@ -282,6 +282,118 @@ mcp_servers:
     assert.ok(
       r.failures.some(f => f.check === 'no_dropped_keys'),
       `expected no_dropped_keys failure but got ${JSON.stringify(r.failures, null, 2)}`,
+    );
+  });
+});
+
+describe('value_constraints — kinds are enforced', () => {
+  // Minimal static-credentials shape. `scopesLine` is the only thing that
+  // varies: '' omits the key, 'scopes: []' / 'scopes: [read]' set it.
+  function makeOauthYaml(scopesLine: string): string {
+    return `
+gateway:
+  authentication:
+    enabled: true
+    jwks_info:
+      jwt_algorithm: RS256
+      jwt_jwks_uri: https://acme.us.auth0.com/.well-known/jwks.json
+      jwt_issuer: https://acme.us.auth0.com/
+      jwt_audience: https://api.acme.com
+mcp_servers:
+  - name: lms
+    url: https://mcp.lms.acme.example/mcp
+    authentication:
+      type: oauth
+      grant_type: authorization_code
+      client_id: "<REPLACE_WITH_CLIENT_ID>"
+      client_secret: "<REPLACE_WITH_CLIENT_SECRET>"
+      authorization_url: https://lms.acme.example/oauth2/authorize
+      token_url: https://lms.acme.example/oauth2/token
+      redirect_uri: https://gateway.acme.example/oauth/callback
+${scopesLine ? `      ${scopesLine}\n` : ''}`;
+  }
+
+  function withConstraints(constraints: unknown[]): Fixture {
+    return FixtureSchema.parse({
+      id: 'probe',
+      tier: 'aspirational',
+      user_prompt: 'probe',
+      expect: { must_validate: true, value_constraints: constraints },
+    });
+  }
+
+  const valueFailures = (r: ReturnType<typeof evaluateRubric>) =>
+    r.failures.filter(f => f.check === 'value_constraints');
+
+  it('regex and min_length survive fixture parsing (regression: they used to parse as a bare equals)', () => {
+    const f = withConstraints([
+      { path: 'mcp_servers[0].name', regex: '^zzz$' },
+      { path: 'mcp_servers[0].authentication.scopes', min_length: 3 },
+    ]);
+    assert.deepEqual(
+      f.expect.value_constraints?.map(c => constraintKind(c)),
+      ['regex', 'min_length'],
+    );
+    const r = evaluateRubric(f, makeOauthYaml('scopes: [read]'), artifact);
+    const msgs = valueFailures(r).map(x => x.message);
+    assert.equal(msgs.length, 2, `expected both constraints to fail, got ${JSON.stringify(r.failures, null, 2)}`);
+    assert.match(msgs[0], /regex failed/);
+    assert.match(msgs[1], /min_length failed .* expected ≥ 3, got 1/);
+  });
+
+  it('scores an unparseable regex as a constraint failure instead of throwing', () => {
+    // `(?i)` inline flags are PCRE, not JS. Before the kinds were enforced the
+    // pattern never ran; now it must fail the sample with a message that
+    // names the fixture's mistake rather than abort the bench.
+    const f = withConstraints([{ path: 'mcp_servers[0].name', regex: '(?i)lms' }]);
+    let r: ReturnType<typeof evaluateRubric> | undefined;
+    assert.doesNotThrow(() => {
+      r = evaluateRubric(f, makeOauthYaml(''), artifact);
+    });
+    const msgs = valueFailures(r as ReturnType<typeof evaluateRubric>).map(x => x.message);
+    assert.equal(msgs.length, 1);
+    assert.match(msgs[0], /not a valid JS RegExp: \/\(\?i\)lms\//);
+  });
+
+  it('rejects a constraint with a misspelt or missing kind at fixture-load time', () => {
+    assert.throws(() => withConstraints([{ path: 'mcp_servers[0].name', min_len: 1 }]));
+    assert.throws(() => withConstraints([{ path: 'mcp_servers[0].name' }]));
+  });
+
+  it('max_length: 0 passes when scopes is omitted (absent counts as length 0)', () => {
+    const f = withConstraints([{ path: 'mcp_servers[0].authentication.scopes', max_length: 0 }]);
+    const r = evaluateRubric(f, makeOauthYaml(''), artifact);
+    assert.deepEqual(valueFailures(r), [], JSON.stringify(r.failures, null, 2));
+  });
+
+  it('max_length: 0 passes when scopes is an explicit empty list', () => {
+    const f = withConstraints([{ path: 'mcp_servers[0].authentication.scopes', max_length: 0 }]);
+    const r = evaluateRubric(f, makeOauthYaml('scopes: []'), artifact);
+    assert.deepEqual(valueFailures(r), [], JSON.stringify(r.failures, null, 2));
+  });
+
+  it('max_length: 0 fails when scopes carries an entry', () => {
+    const f = withConstraints([{ path: 'mcp_servers[0].authentication.scopes', max_length: 0 }]);
+    const r = evaluateRubric(f, makeOauthYaml('scopes: [read]'), artifact);
+    const msgs = valueFailures(r).map(x => x.message);
+    assert.equal(msgs.length, 1);
+    assert.match(msgs[0], /max_length failed .* expected ≤ 0, got 1/);
+  });
+
+  it('max_length fails on a non-string/array target that is present', () => {
+    const f = withConstraints([{ path: 'gateway.authentication.enabled', max_length: 0 }]);
+    const r = evaluateRubric(f, makeOauthYaml(''), artifact);
+    assert.match(valueFailures(r)[0]?.message ?? '', /max_length target is not a string\/array/);
+  });
+
+  it('the docebo fixture passes on a scopeless authorization_code config and fails once a scope appears', () => {
+    const docebo = fixtures.find(x => x.id === 'docebo-oauth-no-scopes');
+    if (!docebo) throw new Error('docebo-oauth-no-scopes fixture not found');
+    const ok = evaluateRubric(docebo, makeOauthYaml(''), artifact);
+    assert.equal(ok.passed, true, JSON.stringify(ok.failures, null, 2));
+    const bad = evaluateRubric(docebo, makeOauthYaml('scopes: [openid]'), artifact);
+    assert.ok(
+      bad.failures.some(x => x.check === 'value_constraints' && x.path === 'mcp_servers[0].authentication.scopes'),
     );
   });
 });
