@@ -1155,13 +1155,17 @@ default allow := true
 # means reading back at our own slot. Same two-step as above: create, then update.
 _self_uid := "REPLACE-WITH-THIS-POLICY-UID"
 
-# The id comes from the response body, never from the caller's arguments.
-_key := k if {
+# Bind the whole response object, then derive from it — other rules below
+# need more than the id.
+_issue := obj if {
     lower(input.resource.name) == "atlassian-getjiraissue"
     some text in input.payload.text
-    k := json.unmarshal(text).key
-    is_string(k)
+    obj := json.unmarshal(text)
+    is_string(obj.key)
 }
+
+# The id comes from the response body, never from the caller's arguments.
+_key := _issue.key
 
 _slot  := object.get(object.get(input.context.session, "policies", {}), _self_uid, {})
 _prior := [x | some x in object.get(_slot, ["marker:acme:issue_read", "issue_keys"], []); is_string(x)]
@@ -1189,6 +1193,58 @@ Three things that trip people up here:
   list above dedupes and keeps only the most recent 12. An oversized value is rejected as
   `VALUE_TOO_LARGE`, and because that code honours `onDrop`, a writer declaring
   `"deny_request"` will **deny the tool call** rather than quietly skip the write.
+
+#### One read, two markers — opposite directions
+
+Nothing says a policy writes only one key. A single writer can emit several, and the
+interesting case is emitting a **grant and a restriction from the same event**, because that
+is usually what the event means: reading a confidential ticket both proves you have read it
+(so you may comment on it) and puts sensitive content in the session (so you may not post it
+outbound). Same fact, two gates, pointing opposite ways.
+
+Extending the writer above with a second key, conditional on the response content:
+
+```rego
+_labels := [lower(l) |
+    some l in object.get(_issue, ["fields", "labels"], [])
+    is_string(l)
+]
+
+# GRANT — every issue actually read (unconditional).
+session_writes["marker:acme:issue_read"] := {"issue_keys": _keys} if { _key }
+
+# RESTRICTION — only when the issue carries the `confidential` label. The value
+# carries the key so a downstream deny can name what caused it.
+session_writes["marker:acme:confidential_seen"] := {"issue_key": _key} if {
+    _key
+    "confidential" in _labels
+}
+```
+
+Declare **both** keys in the policy's `writableKeySchema` — a write to an undeclared key is
+dropped, so a schema listing only the first would silently lose the second:
+
+```json
+[
+  {"name": "marker:acme:issue_read",
+   "jsonSchema": "{\"type\":\"object\",\"properties\":{\"issue_keys\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"maxItems\":12}},\"required\":[\"issue_keys\"],\"additionalProperties\":false}",
+   "ttlSeconds": 900, "onDrop": "deny_request"},
+  {"name": "marker:acme:confidential_seen",
+   "jsonSchema": "{\"type\":\"object\",\"properties\":{\"issue_key\":{\"type\":\"string\"}},\"required\":[\"issue_key\"],\"additionalProperties\":false}",
+   "ttlSeconds": 900, "onDrop": "deny_request"}
+]
+```
+
+Two notes on doing this deliberately rather than by accident:
+
+- **The two keys are read by different policies, with different trust needs.** The grant is
+  read with its writer **pinned** (above); the restriction can be read with the any-writer
+  walk, since extra emitters only make it more cautious. One writer, two readers, two
+  different read idioms.
+- **Both keys count against the per-decision and per-session caps**, and each carries its own
+  TTL. Give the restriction a TTL at least as long as the grant if a downstream policy
+  assumes both are present together — otherwise the restriction can expire first and leave a
+  grant standing on its own.
 
 #### What this does not give you
 
