@@ -1045,6 +1045,117 @@ reason := sprintf("Blocked: %s. To lift the block now, ask your agent to request
 - **Give any registry-derived string a fallback** — the `default` line above is not decoration. A lookup that finds nothing is *undefined*, not empty, and an undefined term makes the whole `reason` undefined: the call still denies, but the person sees no message at all. A `default` on the lookup rule fixes it, as does a second `reason` rule that omits the lookup.
 - Registry edits reach the gateway on its **next policy deploy**, not immediately.
 
+### Markers that grant (the allow direction)
+
+Every example above uses a marker to **take a capability away**: something happened, so
+something is now blocked. A marker can just as well **give one** — the tool is off by
+default and a marker turns it on, so the agent *earns* access by doing the right thing
+first rather than holding a standing privilege. "You may not comment on a ticket you have
+not read" and "you may not delete a file you have not copied" are the same shape.
+
+The mechanism is identical. Four things change, and the first is a security property
+rather than a style preference.
+
+**Pin the writer's UID — do not walk all writers.** The walk-all-writers read is correct
+for a deny marker: more emitters can only make the gate more cautious. Invert the marker
+and it inverts too — *any* policy that can write that key now mints the grant. As the
+caveat under **Marker vs. general session key** says, session state is not
+access-isolated, so a marker that unlocks something makes its writer an authorization
+decision point. Name that writer:
+
+```rego
+# Deny direction — "did anyone see PII?" Any writer may answer.
+_pii_active if {
+    some writer_uid
+    input.context.session.policies[writer_uid]["marker:acme:pii_detected"]
+}
+
+# Allow direction — "did THE reviewer policy record this?" Exactly one writer may answer.
+_reviewer_uid := "01a08244-c1ae-71ff-938a-e21e46c9124c"   # the writer policy's UID
+
+_reviewed_keys := object.get(
+    object.get(object.get(input.context.session, "policies", {}), _reviewer_uid, {}),
+    ["marker:acme:issue_read", "issue_keys"],
+    [],
+)
+```
+
+**The gate now denies on absence, so read fail-closed.** *Marker Rego gotchas* below says
+to structure gates so the marker's **presence** denies — that is the deny direction. A
+grant gate is the mirror image: absent state must mean *no grant*, and therefore deny.
+Reach every field through nested `object.get` with defaults, as above, so a missing
+session, a missing writer slot or an absent `args` object all resolve to "not granted"
+instead of leaving the rule undefined.
+
+**Scope it to the resource, and put the id in the value.** A grant is rarely "you may
+comment"; it is "you may comment *on this issue*". The id cannot go in the key — a
+`writableKeySchema` enumerates key names under `additionalProperties: false`, so a
+per-resource key is impossible — so carry it in the **value** and compare against the
+argument of the call being judged:
+
+```rego
+_requested := object.get(object.get(input.payload, "args", {}), "issueIdOrKey", "")
+
+_has_read if {
+    is_string(_requested)
+    _requested != ""
+    _requested in _reviewed_keys
+}
+
+allow := false if {
+    lower(input.resource.name) == "atlassian-addcommenttojiraissue"
+    not _has_read
+}
+```
+
+**Take the id from the response, not the request.** Write the marker on **egress**. A
+`tool_post_invoke` payload is `{name, text}` and carries **no arguments**, which sounds
+like a limitation and is actually the point: the id comes from what the upstream really
+returned, so a caller cannot mark a resource it never fetched, and a call that failed
+upstream grants nothing. This does require a tool whose response names its resource — a
+Jira issue and a Drive file's metadata both do; a raw content read may not, in which case
+the grant cannot be resource-scoped on that tool.
+
+#### Accumulating across calls
+
+A grant marker usually holds a *set* — every issue read so far. The writer reads its own
+prior value and writes the extended list, which means the writer needs **its own UID**:
+
+```rego
+_self_uid := "01a08244-c1ae-71ff-938a-e21e46c9124c"   # this policy's own UID
+
+_slot  := object.get(object.get(input.context.session, "policies", {}), _self_uid, {})
+_prior := [x | some x in object.get(_slot, ["marker:acme:issue_read", "issue_keys"], []); is_string(x)]
+
+_deduped := sort({k | some k in array.concat(_prior, [_key])})
+_keys    := array.slice(_deduped, max([0, count(_deduped) - 12]), count(_deduped))
+
+session_writes["marker:acme:issue_read"] := {"issue_keys": _keys} if { _key }
+```
+
+Three things that trip people up here:
+
+- **A policy cannot know its own UID until it exists.** Create the policy with a
+  placeholder, take the UID from the `dtwo-add-policy` response, then `dtwo-update-policy`
+  with the real value. The shipped intent-capture policies use the same two-step, with a
+  `REPLACE-WITH-…` placeholder.
+- **Writes apply *after* the decision.** A read sees the state left by *previous*
+  requests, never the write this decision is about to make. That is what makes "read A,
+  read B, then act on A" work — and it is also why a policy cannot count within a single
+  request.
+- **Keep the value bounded.** A value is capped at **1 KB**, a single decision may write
+  at most **16 keys**, and one session holds at most **64 keys**. That is why the list
+  above dedupes and keeps only the most recent 12. Exceed the value cap and the write is
+  rejected — with `onDrop: "deny_request"`, that rejection denies the tool call.
+
+#### What this does not give you
+
+A grant gate is not a single-use token. Two calls issued in parallel are both evaluated
+against the state left by *earlier* requests, so both can be allowed before either write
+lands. Recording "already used" in a marker makes the record correct, not the gate
+exclusive. Treat a grant as **single-use for sequential calls** and say so plainly rather
+than implying exactly-once.
+
 ### `writableKeySchema` (attached via `dtwo-add-policy` / `dtwo-update-policy`)
 
 The Rego emits the write; the `writableKeySchema` on the policy record tells the gateway what shape the write must have. It is set through the lifecycle tools (see `dtwo-gateway-policy`), not inside the Rego, but the Rego author owns getting the value shape right. Each entry has `name` (the marker key, matching the registry exactly), `jsonSchema` (a stringified JSON object — a JSON Schema — for the value), `ttlSeconds` (should be ≥ the marker's registered `minimumTtlSeconds` — not enforced yet, so keep them in sync manually), and `onDrop` (`"drop"` — silently drop a schema-failing write; `"deny_request"` — hard-deny the tool call).
@@ -1056,7 +1167,7 @@ Marker-key *shape* is validated server-side (the backend on save, and at deploy)
 - **`time.now_ns()` must stay an integer.** Use `time.now_ns()` raw for timestamp fields typed `integer` in the schema. Dividing in Rego (e.g. `time.now_ns() / 1000000`) produces a **float**, which fails a `"type": "integer"` schema — and with `onDrop: "deny_request"` that silently-authored bug will block the tool call.
 - **Match the key exactly.** The `session_writes` key, the `writableKeySchema` `name`, and the registered marker FQID must all be the identical `marker:<namespace>:<id>` string. A mismatch drops the write.
 - **Multiple writers land in separate slots.** If two policies declare and emit the same key, each write lands under its own writer UID; the walk-all-writers read finds either. Prefer one canonical writer per marker.
-- **Reads fail open on absent state.** If `input.context.session.policies` is missing or the marker was never written, the `_active` helper simply doesn't match — the reader allows. Structure high-sensitivity gates so the *presence* of the marker is what denies, not its absence (that's the intended semantics: no signal → nothing to block).
+- **Reads fail open on absent state.** If `input.context.session.policies` is missing or the marker was never written, the `_active` helper simply doesn't match — the reader allows. Structure high-sensitivity gates so the *presence* of the marker is what denies, not its absence (that's the intended semantics: no signal → nothing to block). A marker that *grants* a capability inverts this and must read fail-closed instead — see **Markers that grant**.
 
 ## Intent-capture policies (conditional — feature-gated)
 
