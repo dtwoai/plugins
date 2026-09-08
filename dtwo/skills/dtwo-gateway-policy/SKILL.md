@@ -557,7 +557,7 @@ Skipping a step makes the next deploy fail (a policy still claims to write a mar
 
 - **No "list active markers" tool.** `dtwo-list-markers` returns the registry *vocabulary* (the markers that are defined), not which markers are currently set on a given session. A policy can read active markers at evaluation time via `input.context.session.policies` (that's how reader policies work), but there is no MCP tool to query a session's live marker state on demand.
 - **No agent-side clear — by design, not by omission.** There is no management tool that unsets a marker, and no `dtwo-*` call that lifts one, because state an agent can remove does not constrain that agent. A marker lifts on TTL expiry, or through the human-approved clear flow described under **Clearing a marker** — which the agent can only *start*. Reopening the session as the same user does **not** clear it (state is scoped to tenant + user, not per connection).
-- **Multiple writers land in separate per-writer slots.** If two policies declare and emit the same marker key, each write lands under its own writer UID; readers get "any-writer" semantics by walking `session.policies.*`. Prefer one canonical writer per marker.
+- **Multiple writers land in separate per-writer slots.** If two policies declare and emit the same marker key, each write lands under its own writer UID; readers get "any-writer" semantics by walking `session.policies.*`. Prefer one canonical writer per marker. Any-writer is the right default for a marker that *blocks* something — but a marker that *grants* a capability must instead pin its writer's UID, or any policy able to write that key can mint the grant (see `dtwo-policy-rego` → Markers that grant).
 
 ## Intent Capture (conditional — feature-gated)
 
