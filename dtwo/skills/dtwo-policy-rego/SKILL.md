@@ -992,7 +992,7 @@ reason := "PII was detected earlier in this session; outbound Slack sends are bl
 
 - The walk-all-writers pattern (`some writer_uid; input.context.session.policies[writer_uid][key]`) is "present under *any* writer is truthy." To trust only a specific writer, filter on `writer_uid == "<known-uid>"`.
 - **This pattern is for reading *marker* keys only.** Do **not** use it — or any direct `input.context.session.policies` read — to read the platform **intent** (see Intent-capture policies → Reading the session intent). "Present under any writer" is exactly wrong for intent: a tenant policy could stamp an intent-shaped value under its own writer slot and a walk-all-writers read would honour it, spoofing the session intent. Read intent only through the platform helper, which is pinned to the trusted intent-capture slot.
-- **Deny reasons are user-visible — give the path out, fastest first.** State what happened and what the person can do about it. A marker has two exits, and they are not equal: a **human-approved clear** lifts it in under a minute, and **TTL expiry** lifts it eventually. Offer the clear first and keep TTL as the fallback — a reason that mentions only the TTL tells someone to wait an hour for something they could have resolved immediately. Phrase it so it reads correctly either way ("ask your agent to request a session clear … otherwise it lifts when the marker expires"). Address the ask to the person's agent, not the person: the only way to start a clear is the platform tool call, so someone reading your reason in a log or the Hub has nothing to click, because clearing is armed per gateway: where it is not armed the clear tool may not be in the agent's tool list at all, and where it is present but unarmed the request returns a readable "not configured on this gateway" refusal — either way the TTL half of your sentence still holds. Word it as a recovery the person authorizes, not as a way around the decision — the clear needs their explicit approval in a browser precisely so an agent cannot use it to shrug off a block (see `dtwo-gateway-policy` → Clearing a marker for the mechanics and the reasoning).
+- **Deny reasons are user-visible — give the path out, fastest first.** State what happened and what the person can do about it. A marker has two exits, and they are not equal: a **human-approved clear** lifts it in under a minute, and **TTL expiry** lifts it eventually. Offer the clear first and keep TTL as the fallback — a reason that mentions only the TTL tells someone to wait an hour for something they could have resolved immediately. Phrase it so it reads correctly either way ("ask your agent to request a session clear … otherwise it lifts when the marker expires"). Address the ask to the person's agent, not the person: the only way to start a clear is the platform tool call, so someone reading your reason in a log or the Hub has nothing to click. Keep the TTL half of the sentence even so — clearing is armed per gateway, and where it is not armed the clear tool may be missing from the agent's tool list altogether, or present but answering with a readable "not configured on this gateway" refusal; either way the TTL is the exit that still holds. Word it as a recovery the person authorizes, not as a way around the decision — the clear needs their explicit approval in a browser precisely so an agent cannot use it to shrug off a block (see `dtwo-gateway-policy` → Clearing a marker for the mechanics and the reasoning).
 - **Avoid "start a new session"** — marker state is scoped to tenant + user and survives reconnecting, so a new session for the same user won't clear it.
 - **Never build a reason out of the session intent.** A reason may say *that* the current intent failed a gate; it must not carry the intent itself — do not interpolate `current_intent(input)` or its `description` into `reason` or into a transform. Name the rule that fired instead. Full rule under Intent-capture policies → Reading the session intent.
 
@@ -1071,7 +1071,7 @@ _pii_active if {
 
 # Allow direction — "did THE reviewer policy record this?" Exactly one writer may answer.
 _reviewed_keys := object.get(
-    object.get(object.get(input.context.session, "policies", {}), _reviewer_uid, {}),
+    object.get(object.get(input.context.session, "policies", {}), _writer_uid, {}),
     ["marker:acme:issue_read", "issue_keys"],
     [],
 )
@@ -1152,7 +1152,7 @@ import future.keywords.in
 default allow := true
 
 # THIS policy's own UID — session writes are keyed by writer, so accumulating
-# means reading back at our own slot. Same two-step as above: create, then update.
+# means reading back at our own slot. Two-step: create, then update (see below).
 _self_uid := "REPLACE-WITH-THIS-POLICY-UID"
 
 # Bind the whole response object, then derive from it — other rules below
@@ -1210,7 +1210,7 @@ _labels := [lower(l) |
     is_string(l)
 ]
 
-# GRANT — every issue actually read (unconditional).
+# GRANT — the same rule as above, repeated so the two sit side by side.
 session_writes["marker:acme:issue_read"] := {"issue_keys": _keys} if { _key }
 
 # RESTRICTION — only when the issue carries the `confidential` label. The value
@@ -1265,7 +1265,7 @@ Marker-key *shape* is validated server-side (the backend on save, and at deploy)
 - **`time.now_ns()` must stay an integer.** Use `time.now_ns()` raw for timestamp fields typed `integer` in the schema. Dividing in Rego (e.g. `time.now_ns() / 1000000`) produces a **float**, which fails a `"type": "integer"` schema — and with `onDrop: "deny_request"` that silently-authored bug will block the tool call.
 - **Match the key exactly.** The `session_writes` key, the `writableKeySchema` `name`, and the registered marker FQID must all be the identical `marker:<namespace>:<id>` string. A mismatch drops the write.
 - **Multiple writers land in separate slots.** If two policies declare and emit the same key, each write lands under its own writer UID; the walk-all-writers read finds either. Prefer one canonical writer per marker.
-- **Reads fail open on absent state.** If `input.context.session.policies` is missing or the marker was never written, the `_active` helper simply doesn't match — the reader allows. Structure high-sensitivity gates so the *presence* of the marker is what denies, not its absence (that's the intended semantics: no signal → nothing to block). A marker that *grants* a capability inverts this and must read fail-closed instead — see **Markers that grant**.
+- **Reads fail open on absent state.** If `input.context.session.policies` is missing or the marker was never written, the `_pii_active` helper simply doesn't match — the reader allows. Structure high-sensitivity gates so the *presence* of the marker is what denies, not its absence (that's the intended semantics: no signal → nothing to block). A marker that *grants* a capability inverts this and must read fail-closed instead — see **Markers that grant**.
 
 ## Intent-capture policies (conditional — feature-gated)
 
