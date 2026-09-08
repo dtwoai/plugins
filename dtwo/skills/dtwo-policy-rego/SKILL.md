@@ -1047,21 +1047,20 @@ reason := sprintf("Blocked: %s. To lift the block now, ask your agent to request
 
 ### Markers that grant (the allow direction)
 
-Every example above uses a marker to **take a capability away**: something happened, so
-something is now blocked. A marker can just as well **give one** — the tool is off by
-default and a marker turns it on, so the agent *earns* access by doing the right thing
-first rather than holding a standing privilege. "You may not comment on a ticket you have
-not read" and "you may not delete a file you have not copied" are the same shape.
+Every marker example above **takes a capability away**: something happened, so something is
+now blocked. A marker can just as well **give one** — the tool is off by default and a
+marker turns it on, so the agent *earns* access by doing the right thing first instead of
+holding a standing privilege. "You may not comment on a ticket you have not read" and "you
+may not delete a file you have not copied" are the same shape.
 
-The mechanism is identical. Four things change, and the first is a security property
-rather than a style preference.
+The mechanism is identical. Four things change, and the first is a security property rather
+than a style preference.
 
-**Pin the writer's UID — do not walk all writers.** The walk-all-writers read is correct
-for a deny marker: more emitters can only make the gate more cautious. Invert the marker
-and it inverts too — *any* policy that can write that key now mints the grant. As the
-caveat under **Marker vs. general session key** says, session state is not
-access-isolated, so a marker that unlocks something makes its writer an authorization
-decision point. Name that writer:
+**Pin the writer's UID — do not walk all writers.** The walk-all-writers read is correct for
+a deny marker: more emitters can only make the gate more cautious. Invert the marker and it
+inverts too — *any* policy that can write that key now mints the grant. As the caveat under
+**Marker vs. general session key** says, session state is not access-isolated, so a marker
+that unlocks something makes its writer an authorization decision point:
 
 ```rego
 # Deny direction — "did anyone see PII?" Any writer may answer.
@@ -1071,8 +1070,6 @@ _pii_active if {
 }
 
 # Allow direction — "did THE reviewer policy record this?" Exactly one writer may answer.
-_reviewer_uid := "01a08244-c1ae-71ff-938a-e21e46c9124c"   # the writer policy's UID
-
 _reviewed_keys := object.get(
     object.get(object.get(input.context.session, "policies", {}), _reviewer_uid, {}),
     ["marker:acme:issue_read", "issue_keys"],
@@ -1080,20 +1077,40 @@ _reviewed_keys := object.get(
 )
 ```
 
-**The gate now denies on absence, so read fail-closed.** *Marker Rego gotchas* below says
-to structure gates so the marker's **presence** denies — that is the deny direction. A
-grant gate is the mirror image: absent state must mean *no grant*, and therefore deny.
-Reach every field through nested `object.get` with defaults, as above, so a missing
-session, a missing writer slot or an absent `args` object all resolve to "not granted"
-instead of leaving the rule undefined.
+**The gate now denies on absence, so read fail-closed.** *Marker Rego gotchas* below says to
+structure gates so the marker's **presence** denies — that is the deny direction. A grant
+gate is the mirror image: absent state must mean *no grant*, and therefore deny. Reach every
+field through nested `object.get` with defaults so a missing session, a missing writer slot
+or an absent `args` object all resolve to "not granted" rather than leaving the rule
+undefined.
 
 **Scope it to the resource, and put the id in the value.** A grant is rarely "you may
 comment"; it is "you may comment *on this issue*". The id cannot go in the key — a
 `writableKeySchema` enumerates key names under `additionalProperties: false`, so a
-per-resource key is impossible — so carry it in the **value** and compare against the
-argument of the call being judged:
+per-resource key is impossible. Carry it in the **value** and compare against the argument of
+the call being judged:
 
 ```rego
+package acme.ingress.comment_requires_read
+
+import future.keywords.if
+import future.keywords.in
+
+# Allow broadly, deny the one narrow case — never `default allow := false` on a
+# gateway that also fronts management tools.
+default allow := true
+
+# The paired writer policy's UID. Replace after creating that policy; while the
+# placeholder stands no slot matches, so every comment denies — an unconfigured
+# pair fails closed and says so.
+_writer_uid := "REPLACE-WITH-WRITER-POLICY-UID"
+
+_reviewed_keys := object.get(
+    object.get(object.get(input.context.session, "policies", {}), _writer_uid, {}),
+    ["marker:acme:issue_read", "issue_keys"],
+    [],
+)
+
 _requested := object.get(object.get(input.payload, "args", {}), "issueIdOrKey", "")
 
 _has_read if {
@@ -1106,27 +1123,50 @@ allow := false if {
     lower(input.resource.name) == "atlassian-addcommenttojiraissue"
     not _has_read
 }
+
+reason := "Commenting on an issue requires that this session has read that same issue first. Read it, then retry; reading a different issue does not unlock this one." if {
+    lower(input.resource.name) == "atlassian-addcommenttojiraissue"
+    not _has_read
+}
 ```
 
 **Take the id from the response, not the request.** Write the marker on **egress**. A
-`tool_post_invoke` payload is `{name, text}` and carries **no arguments**, which sounds
-like a limitation and is actually the point: the id comes from what the upstream really
-returned, so a caller cannot mark a resource it never fetched, and a call that failed
-upstream grants nothing. This does require a tool whose response names its resource — a
-Jira issue and a Drive file's metadata both do; a raw content read may not, in which case
-the grant cannot be resource-scoped on that tool.
+`tool_post_invoke` payload is `{name, text}` and carries **no arguments**, which sounds like
+a limitation and is the point: the id comes from what the upstream actually returned, so a
+caller cannot mark a resource it never fetched, and a call that failed upstream grants
+nothing. This does require a tool whose response names its resource — a Jira issue and a
+Drive file's metadata both do; a raw content read may not, in which case the grant cannot be
+resource-scoped on that tool.
 
 #### Accumulating across calls
 
 A grant marker usually holds a *set* — every issue read so far. The writer reads its own
-prior value and writes the extended list, which means the writer needs **its own UID**:
+prior value and writes the extended list, so it needs **its own UID**:
 
 ```rego
-_self_uid := "01a08244-c1ae-71ff-938a-e21e46c9124c"   # this policy's own UID
+package acme.egress.issue_read_writer
+
+import future.keywords.if
+import future.keywords.in
+
+default allow := true
+
+# THIS policy's own UID — session writes are keyed by writer, so accumulating
+# means reading back at our own slot. Same two-step as above: create, then update.
+_self_uid := "REPLACE-WITH-THIS-POLICY-UID"
+
+# The id comes from the response body, never from the caller's arguments.
+_key := k if {
+    lower(input.resource.name) == "atlassian-getjiraissue"
+    some text in input.payload.text
+    k := json.unmarshal(text).key
+    is_string(k)
+}
 
 _slot  := object.get(object.get(input.context.session, "policies", {}), _self_uid, {})
 _prior := [x | some x in object.get(_slot, ["marker:acme:issue_read", "issue_keys"], []); is_string(x)]
 
+# Deduplicate and keep the value bounded — see the cap below.
 _deduped := sort({k | some k in array.concat(_prior, [_key])})
 _keys    := array.slice(_deduped, max([0, count(_deduped) - 12]), count(_deduped))
 
@@ -1135,26 +1175,28 @@ session_writes["marker:acme:issue_read"] := {"issue_keys": _keys} if { _key }
 
 Three things that trip people up here:
 
-- **A policy cannot know its own UID until it exists.** Create the policy with a
-  placeholder, take the UID from the `dtwo-add-policy` response, then `dtwo-update-policy`
-  with the real value. The shipped intent-capture policies use the same two-step, with a
-  `REPLACE-WITH-…` placeholder.
-- **Writes apply *after* the decision.** A read sees the state left by *previous*
-  requests, never the write this decision is about to make. That is what makes "read A,
-  read B, then act on A" work — and it is also why a policy cannot count within a single
-  request.
-- **Keep the value bounded.** A value is capped at **1 KB**, a single decision may write
-  at most **16 keys**, and one session holds at most **64 keys**. That is why the list
-  above dedupes and keeps only the most recent 12. Exceed the value cap and the write is
-  rejected — with `onDrop: "deny_request"`, that rejection denies the tool call.
+- **A policy cannot know its own UID until it exists.** Create it with the placeholder, take
+  the UID from the `dtwo-add-policy` response, then `dtwo-update-policy` with the real value.
+  The shipped intent-capture policies use exactly this two-step.
+- **Writes apply *after* the evaluation that emitted them.** A policy never sees the write it
+  is currently making, so it cannot read-then-write a value in one decision. It *does* see
+  writes committed by **earlier evaluations of the same request** — an earlier pipeline step,
+  or ingress when the read happens on egress — as well as everything from previous requests.
+  That is what makes "read A, read B, then act on A" work, and what lets an ingress step mark
+  a call that a later step gates on.
+- **Keep the value bounded.** A value is capped at **1 KB**, one decision may write at most
+  **16 keys**, and a session holds at most **64 keys** (and 16 KB in total). That is why the
+  list above dedupes and keeps only the most recent 12. An oversized value is rejected as
+  `VALUE_TOO_LARGE`, and because that code honours `onDrop`, a writer declaring
+  `"deny_request"` will **deny the tool call** rather than quietly skip the write.
 
 #### What this does not give you
 
 A grant gate is not a single-use token. Two calls issued in parallel are both evaluated
-against the state left by *earlier* requests, so both can be allowed before either write
-lands. Recording "already used" in a marker makes the record correct, not the gate
-exclusive. Treat a grant as **single-use for sequential calls** and say so plainly rather
-than implying exactly-once.
+against the state left by earlier evaluations, so both can be allowed before either write
+lands. Recording "already used" in a marker makes the record correct, not the gate exclusive.
+Treat a grant as **single-use for sequential calls** and say so plainly rather than implying
+exactly-once.
 
 ### `writableKeySchema` (attached via `dtwo-add-policy` / `dtwo-update-policy`)
 
