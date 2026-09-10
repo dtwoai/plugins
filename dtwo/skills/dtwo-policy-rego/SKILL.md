@@ -984,7 +984,7 @@ allow := false if {
     _pii_active
 }
 
-reason := "PII was detected earlier in this session; outbound Slack sends are blocked. Wait for the marker TTL to expire." if {
+reason := "PII was detected earlier in this session; outbound Slack sends are blocked. To lift the block now, ask your agent to request a session clear and approve it in your browser; otherwise it lifts when the marker expires." if {
     lower(input.resource.name) == "slack-mcp-slack-send-message"
     _pii_active
 }
@@ -992,7 +992,267 @@ reason := "PII was detected earlier in this session; outbound Slack sends are bl
 
 - The walk-all-writers pattern (`some writer_uid; input.context.session.policies[writer_uid][key]`) is "present under *any* writer is truthy." To trust only a specific writer, filter on `writer_uid == "<known-uid>"`.
 - **This pattern is for reading *marker* keys only.** Do **not** use it — or any direct `input.context.session.policies` read — to read the platform **intent** (see Intent-capture policies → Reading the session intent). "Present under any writer" is exactly wrong for intent: a tenant policy could stamp an intent-shaped value under its own writer slot and a walk-all-writers read would honour it, spoofing the session intent. Read intent only through the platform helper, which is pinned to the trusted intent-capture slot.
-- Deny reasons are user-visible — explain what to do about the block (e.g. "wait for the marker TTL to expire"). Avoid "start a new session": marker state is scoped to tenant + user and survives reconnecting, so a new session for the same user won't clear it.
+- **Deny reasons are user-visible — give the path out, fastest first.** State what happened and what the person can do about it. A marker has two exits, and they are not equal: a **human-approved clear** lifts it in under a minute, and **TTL expiry** lifts it eventually. Offer the clear first and keep TTL as the fallback — a reason that mentions only the TTL tells someone to wait an hour for something they could have resolved immediately. Phrase it so it reads correctly either way ("ask your agent to request a session clear … otherwise it lifts when the marker expires"). Address the ask to the person's agent, not the person: the only way to start a clear is the platform tool call, so someone reading your reason in a log or the Hub has nothing to click. Keep the TTL half of the sentence even so — clearing is armed per gateway, and where it is not armed the clear tool may be missing from the agent's tool list altogether, or present but answering with a readable "not configured on this gateway" refusal; either way the TTL is the exit that still holds. Word it as a recovery the person authorizes, not as a way around the decision — the clear needs their explicit approval in a browser precisely so an agent cannot use it to shrug off a block (see `dtwo-gateway-policy` → Clearing a marker for the mechanics and the reasoning).
+- **Avoid "start a new session"** — marker state is scoped to tenant + user and survives reconnecting, so a new session for the same user won't clear it.
+- **Never build a reason out of the session intent.** A reason may say *that* the current intent failed a gate; it must not carry the intent itself — do not interpolate `current_intent(input)` or its `description` into `reason` or into a transform. Name the rule that fired instead. Full rule under Intent-capture policies → Reading the session intent.
+
+### Reading the registry (`data.dtwo.intent_registry`)
+
+The marker (and, where enabled, intent) vocabulary is shipped into every gateway's policy bundle as OPA base data at `data.dtwo.intent_registry`, in the same atomic deploy as the Rego — so a policy can consult the registry at decision time instead of hard-coding what it knows about a key. The document is always defined and always fully shaped (empty arrays for an empty tenant), so a read needs no "registry missing" branch; a *specific* entry can of course be absent.
+
+The reader from **Reading a marker** above, with its message sourced from the registry instead of a string pasted into the policy:
+
+```rego
+package acme.ingress.pii_gate
+
+import future.keywords.if
+import future.keywords.in
+
+default allow := true
+
+_key := "marker:acme:pii_detected"
+
+_pii_active if {
+    some writer_uid
+    input.context.session.policies[writer_uid][_key]
+}
+
+# The registered description, so the message tracks the registry rather
+# than a string pasted into the policy. The `default` is load-bearing:
+# without it an unregistered key leaves the whole `reason` undefined.
+default _registered_description := "a sensitive-data marker is set on this session"
+
+_registered_description := d if {
+    some m in data.dtwo.intent_registry.markers
+    m.id == _key
+    d := m.description
+}
+
+allow := false if {
+    lower(input.resource.name) == "slack-mcp-slack-send-message"
+    _pii_active
+}
+
+reason := sprintf("Blocked: %s. To lift the block now, ask your agent to request a session clear and approve it in your browser; otherwise it lifts when the marker expires.", [_registered_description]) if {
+    lower(input.resource.name) == "slack-mcp-slack-send-message"
+    _pii_active
+}
+```
+
+- Entries are keyed by **FQID** (`id`) — `marker:<ns>:<id>` for markers, `<ns>:<name>` for intents. No UIDs appear in the data document.
+- `markers[]` carries `id`, `description` and `minimum_ttl_seconds`; `intents[]` carries `id`, `description`, and optionally `aliases` / `transitions_to` / `transitions_from`; `compatibility[]` carries `intent` and `excluded_marker`. A transitions field is **omitted when unrestricted** and `[]` when locked — treat missing as "no restriction".
+- Registry text is authored by your own admins, so it is safe to surface in a reason — unlike the session intent, which must never be echoed (see Reading the session intent).
+- **Give any registry-derived string a fallback** — the `default` line above is not decoration. A lookup that finds nothing is *undefined*, not empty, and an undefined term makes the whole `reason` undefined: the call still denies, but the person sees no message at all. A `default` on the lookup rule fixes it, as does a second `reason` rule that omits the lookup.
+- Registry edits reach the gateway on its **next policy deploy**, not immediately.
+
+### Markers that grant (the allow direction)
+
+Every marker example above **takes a capability away**: something happened, so something is
+now blocked. A marker can just as well **give one** — the tool is off by default and a
+marker turns it on, so the agent *earns* access by doing the right thing first instead of
+holding a standing privilege. "You may not comment on a ticket you have not read" and "you
+may not delete a file you have not copied" are the same shape.
+
+The mechanism is identical. Four things change, and the first is a security property rather
+than a style preference.
+
+**Pin the writer's UID — do not walk all writers.** The walk-all-writers read is correct for
+a deny marker: more emitters can only make the gate more cautious. Invert the marker and it
+inverts too — *any* policy that can write that key now mints the grant. As the caveat under
+**Marker vs. general session key** says, session state is not access-isolated, so a marker
+that unlocks something makes its writer an authorization decision point:
+
+```rego
+# Deny direction — "did anyone see PII?" Any writer may answer.
+_pii_active if {
+    some writer_uid
+    input.context.session.policies[writer_uid]["marker:acme:pii_detected"]
+}
+
+# Allow direction — "did THE reviewer policy record this?" Exactly one writer may answer.
+_reviewed_keys := object.get(
+    object.get(object.get(input.context.session, "policies", {}), _writer_uid, {}),
+    ["marker:acme:issue_read", "issue_keys"],
+    [],
+)
+```
+
+**The gate now denies on absence, so read fail-closed.** *Marker Rego gotchas* below says to
+structure gates so the marker's **presence** denies — that is the deny direction. A grant
+gate is the mirror image: absent state must mean *no grant*, and therefore deny. Reach every
+field through nested `object.get` with defaults so a missing session, a missing writer slot
+or an absent `args` object all resolve to "not granted" rather than leaving the rule
+undefined.
+
+**Scope it to the resource, and put the id in the value.** A grant is rarely "you may
+comment"; it is "you may comment *on this issue*". The id cannot go in the key — a
+`writableKeySchema` enumerates key names under `additionalProperties: false`, so a
+per-resource key is impossible. Carry it in the **value** and compare against the argument of
+the call being judged:
+
+```rego
+package acme.ingress.comment_requires_read
+
+import future.keywords.if
+import future.keywords.in
+
+# Allow broadly, deny the one narrow case — never `default allow := false` on a
+# gateway that also fronts management tools.
+default allow := true
+
+# The paired writer policy's UID. Replace after creating that policy; while the
+# placeholder stands no slot matches, so every comment denies — an unconfigured
+# pair fails closed and says so.
+_writer_uid := "REPLACE-WITH-WRITER-POLICY-UID"
+
+_reviewed_keys := object.get(
+    object.get(object.get(input.context.session, "policies", {}), _writer_uid, {}),
+    ["marker:acme:issue_read", "issue_keys"],
+    [],
+)
+
+_requested := object.get(object.get(input.payload, "args", {}), "issueIdOrKey", "")
+
+_has_read if {
+    is_string(_requested)
+    _requested != ""
+    _requested in _reviewed_keys
+}
+
+allow := false if {
+    lower(input.resource.name) == "atlassian-addcommenttojiraissue"
+    not _has_read
+}
+
+reason := "Commenting on an issue requires that this session has read that same issue first. Read it, then retry; reading a different issue does not unlock this one." if {
+    lower(input.resource.name) == "atlassian-addcommenttojiraissue"
+    not _has_read
+}
+```
+
+**Take the id from the response, not the request.** Write the marker on **egress**. A
+`tool_post_invoke` payload is `{name, text}` and carries **no arguments**, which sounds like
+a limitation and is the point: the id comes from what the upstream actually returned, so a
+caller cannot mark a resource it never fetched, and a call that failed upstream grants
+nothing. This does require a tool whose response names its resource — a Jira issue and a
+Drive file's metadata both do; a raw content read may not, in which case the grant cannot be
+resource-scoped on that tool.
+
+#### Accumulating across calls
+
+A grant marker usually holds a *set* — every issue read so far. The writer reads its own
+prior value and writes the extended list, so it needs **its own UID**:
+
+```rego
+package acme.egress.issue_read_writer
+
+import future.keywords.if
+import future.keywords.in
+
+default allow := true
+
+# THIS policy's own UID — session writes are keyed by writer, so accumulating
+# means reading back at our own slot. Two-step: create, then update (see below).
+_self_uid := "REPLACE-WITH-THIS-POLICY-UID"
+
+# Bind the whole response object, then derive from it — other rules below
+# need more than the id.
+_issue := obj if {
+    lower(input.resource.name) == "atlassian-getjiraissue"
+    some text in input.payload.text
+    obj := json.unmarshal(text)
+    is_string(obj.key)
+}
+
+# The id comes from the response body, never from the caller's arguments.
+_key := _issue.key
+
+_slot  := object.get(object.get(input.context.session, "policies", {}), _self_uid, {})
+_prior := [x | some x in object.get(_slot, ["marker:acme:issue_read", "issue_keys"], []); is_string(x)]
+
+# Deduplicate and keep the value bounded — see the cap below.
+_deduped := sort({k | some k in array.concat(_prior, [_key])})
+_keys    := array.slice(_deduped, max([0, count(_deduped) - 12]), count(_deduped))
+
+session_writes["marker:acme:issue_read"] := {"issue_keys": _keys} if { _key }
+```
+
+Three things that trip people up here:
+
+- **A policy cannot know its own UID until it exists.** Create it with the placeholder, take
+  the UID from the `dtwo-add-policy` response, then `dtwo-update-policy` with the real value.
+  The shipped intent-capture policies use exactly this two-step.
+- **Writes apply *after* the evaluation that emitted them.** A policy never sees the write it
+  is currently making, so it cannot read-then-write a value in one decision. It *does* see
+  writes committed by **earlier evaluations of the same request** — an earlier pipeline step,
+  or ingress when the read happens on egress — as well as everything from previous requests.
+  That is what makes "read A, read B, then act on A" work, and what lets an ingress step mark
+  a call that a later step gates on.
+- **Keep the value bounded.** A value is capped at **1 KB**, one decision may write at most
+  **16 keys**, and a session holds at most **64 keys** (and 16 KB in total). That is why the
+  list above dedupes and keeps only the most recent 12. An oversized value is rejected as
+  `VALUE_TOO_LARGE`, and because that code honours `onDrop`, a writer declaring
+  `"deny_request"` will **deny the tool call** rather than quietly skip the write.
+
+#### One read, two markers — opposite directions
+
+Nothing says a policy writes only one key. A single writer can emit several, and the
+interesting case is emitting a **grant and a restriction from the same event**, because that
+is usually what the event means: reading a confidential ticket both proves you have read it
+(so you may comment on it) and puts sensitive content in the session (so you may not post it
+outbound). Same fact, two gates, pointing opposite ways.
+
+Extending the writer above with a second key, conditional on the response content:
+
+```rego
+_labels := [lower(l) |
+    some l in object.get(_issue, ["fields", "labels"], [])
+    is_string(l)
+]
+
+# GRANT — the same rule as above, repeated so the two sit side by side.
+session_writes["marker:acme:issue_read"] := {"issue_keys": _keys} if { _key }
+
+# RESTRICTION — only when the issue carries the `confidential` label. The value
+# carries the key so a downstream deny can name what caused it.
+session_writes["marker:acme:confidential_seen"] := {"issue_key": _key} if {
+    _key
+    "confidential" in _labels
+}
+```
+
+Declare **both** keys in the policy's `writableKeySchema` — a write to an undeclared key is
+dropped, so a schema listing only the first would silently lose the second:
+
+```json
+[
+  {"name": "marker:acme:issue_read",
+   "jsonSchema": "{\"type\":\"object\",\"properties\":{\"issue_keys\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"maxItems\":12}},\"required\":[\"issue_keys\"],\"additionalProperties\":false}",
+   "ttlSeconds": 900, "onDrop": "deny_request"},
+  {"name": "marker:acme:confidential_seen",
+   "jsonSchema": "{\"type\":\"object\",\"properties\":{\"issue_key\":{\"type\":\"string\"}},\"required\":[\"issue_key\"],\"additionalProperties\":false}",
+   "ttlSeconds": 900, "onDrop": "deny_request"}
+]
+```
+
+Two notes on doing this deliberately rather than by accident:
+
+- **The two keys are read by different policies, with different trust needs.** The grant is
+  read with its writer **pinned** (above); the restriction can be read with the any-writer
+  walk, since extra emitters only make it more cautious. One writer, two readers, two
+  different read idioms.
+- **Both keys count against the per-decision and per-session caps**, and each carries its own
+  TTL. Give the restriction a TTL at least as long as the grant if a downstream policy
+  assumes both are present together — otherwise the restriction can expire first and leave a
+  grant standing on its own.
+
+#### What this does not give you
+
+A grant gate is not a single-use token. Two calls issued in parallel are both evaluated
+against the state left by earlier evaluations, so both can be allowed before either write
+lands. Recording "already used" in a marker makes the record correct, not the gate exclusive.
+Treat a grant as **single-use for sequential calls** and say so plainly rather than implying
+exactly-once.
 
 ### `writableKeySchema` (attached via `dtwo-add-policy` / `dtwo-update-policy`)
 
@@ -1005,7 +1265,7 @@ Marker-key *shape* is validated server-side (the backend on save, and at deploy)
 - **`time.now_ns()` must stay an integer.** Use `time.now_ns()` raw for timestamp fields typed `integer` in the schema. Dividing in Rego (e.g. `time.now_ns() / 1000000`) produces a **float**, which fails a `"type": "integer"` schema — and with `onDrop: "deny_request"` that silently-authored bug will block the tool call.
 - **Match the key exactly.** The `session_writes` key, the `writableKeySchema` `name`, and the registered marker FQID must all be the identical `marker:<namespace>:<id>` string. A mismatch drops the write.
 - **Multiple writers land in separate slots.** If two policies declare and emit the same key, each write lands under its own writer UID; the walk-all-writers read finds either. Prefer one canonical writer per marker.
-- **Reads fail open on absent state.** If `input.context.session.policies` is missing or the marker was never written, the `_active` helper simply doesn't match — the reader allows. Structure high-sensitivity gates so the *presence* of the marker is what denies, not its absence (that's the intended semantics: no signal → nothing to block).
+- **Reads fail open on absent state.** If `input.context.session.policies` is missing or the marker was never written, the `_pii_active` helper simply doesn't match — the reader allows. Structure high-sensitivity gates so the *presence* of the marker is what denies, not its absence (that's the intended semantics: no signal → nothing to block). A marker that *grants* a capability inverts this and must read fail-closed instead — see **Markers that grant**.
 
 ## Intent-capture policies (conditional — feature-gated)
 
@@ -1061,7 +1321,7 @@ reason := "This tool is only permitted under the 'default', 'debug', or 'explore
 Notes:
 
 - **Availability — safe to reference on any gateway.** The `dtwo.lib.intent_match` library is shipped into **every** policy bundle unconditionally (independent of the intent flag), so a reference to `data.dtwo.lib.intent_match.*` always resolves and compiles — it will *not* cause an "undefined function" bundle failure when intent capture is off. It only returns real values when intent capture is enabled; with it off there's no captured intent, so `current_intent` is undefined and `category_in` is simply always `false` — meaning a gate like the one above would deny the gated tool on a no-intent gateway. Design the default accordingly (and see the availability gate at the top of this section before surfacing intent behavior at all).
-- **Never echo the intent value into a deny `reason` or a `transform`.** The intent `description` is free text the caller supplied; use the intent for the *decision*, not for output.
+- **Never echo the intent value into a deny `reason` or a `transform`.** Use the intent for the *decision*, never as content the agent reads back: do not interpolate `current_intent(input)` or `current_category(input)` — and above all not the intent `description` — into `decision.reason`, and do not place it in `decision.transforms[]`. Two independent reasons. The `description` is free text the *caller* supplied, so echoing it round-trips unvalidated caller text through your policy's output. And the intent is a governance input: a policy that reflects it back turns it into a channel the agent can read, which is exactly what it is not for. Say which rule denied ("this tool is not permitted under the current session intent"), not what the intent was. Registry text is a different matter — that is authored by your admins and is safe to surface (see Reading the registry).
 - **A `default allow := false` gate still risks self-lock** if it fronts the Dtwo MCP server — keep the non-gated-tool passthrough (as above) so `dtwo-*` management calls are unaffected. See the self-lock pitfall in Common Pitfalls.
 
 ### Closed pipeline — your policies may not enforce on `set_intent`
