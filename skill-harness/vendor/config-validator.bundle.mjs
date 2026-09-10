@@ -1,5 +1,5 @@
 // config-validator.bundle.mjs — generated artifact, do not edit by hand.
-// Dtwo gateway ConfigSchema validator, bundle version 3.0.0.
+// Dtwo gateway ConfigSchema validator, bundle version 4.0.0.
 
 var __defProp = Object.defineProperty;
 var __export = (target, all) => {
@@ -7,7 +7,7 @@ var __export = (target, all) => {
     __defProp(target, name, { get: all[name], enumerable: true });
 };
 
-// ../../../node_modules/.pnpm/js-yaml@4.3.1/node_modules/js-yaml/dist/js-yaml.mjs
+// ../../../node_modules/.pnpm/js-yaml@4.3.2/node_modules/js-yaml/dist/js-yaml.mjs
 function getDefaultExportFromCjs(x) {
   return x && x.__esModule && Object.prototype.hasOwnProperty.call(x, "default") ? x["default"] : x;
 }
@@ -1285,16 +1285,21 @@ function requireLoader() {
       state.result += _result;
     }
   }
+  function chargeMergeWork(state) {
+    state.totalMergeKeys++;
+    if (state.maxTotalMergeKeys !== -1 && state.totalMergeKeys > state.maxTotalMergeKeys) {
+      throwError(state, "merge keys exceeded maxTotalMergeKeys (" + state.maxTotalMergeKeys + ")");
+    }
+  }
   function mergeMappings(state, destination, source, overridableKeys) {
     if (!common2.isObject(source)) {
       throwError(state, "cannot merge mappings; the provided source object is unacceptable");
     }
+    chargeMergeWork(state);
     const sourceKeys = Object.keys(source);
     for (let index = 0, quantity = sourceKeys.length; index < quantity; index += 1) {
       const key = sourceKeys[index];
-      if (state.maxTotalMergeKeys !== -1 && ++state.totalMergeKeys > state.maxTotalMergeKeys) {
-        throwError(state, "merge keys exceeded maxTotalMergeKeys (" + state.maxTotalMergeKeys + ")");
-      }
+      chargeMergeWork(state);
       if (!_hasOwnProperty.call(destination, key)) {
         setProperty(destination, key, source[key]);
         overridableKeys[key] = true;
@@ -1322,6 +1327,9 @@ function requireLoader() {
     }
     if (keyTag === "tag:yaml.org,2002:merge") {
       if (Array.isArray(valueNode)) {
+        if (valueNode.length > 100) {
+          throwError(state, "abnormal merge sequence size");
+        }
         for (let index = 0, quantity = valueNode.length; index < quantity; index += 1) {
           mergeMappings(state, _result, valueNode[index], overridableKeys);
         }
@@ -17769,12 +17777,20 @@ var oAuthType = external_exports.object({
       rationale: "Set to enable dynamic client registration \u2014 the gateway discovers token/authorize URLs and registers itself automatically."
     })
   ),
-  scopes: external_exports.array(external_exports.string().min(1)).min(1).meta(
+  // Optional, and defaulted to `[]` rather than left `undefined` on purpose:
+  // the deploy path drops undefined auth fields from the SOTW, and the
+  // gateway treats an ABSENT `oauth_config.scopes` as "unchanged — keep what
+  // was persisted", so only an explicit empty list actually clears scopes a
+  // user removed. An empty list is what makes the gateway send no `scope`
+  // parameter at all. The preprocess folds a bare `scopes:` (YAML null — the
+  // editor path of deleting every list item and leaving the key) into the
+  // same empty list, mirroring `session_control` above.
+  scopes: external_exports.preprocess((value) => value ?? [], external_exports.array(external_exports.string().min(1)).default([])).meta(
     meta3({
-      description: "OAuth scopes requested.",
+      description: "OAuth scopes requested. Optional: omitted or empty, the gateway sends no `scope` parameter to the provider.",
       target: "sotw.oauth_config.scopes",
       audience: "user",
-      rationale: "Scopes the gateway requests from the provider; match the provider's documented scope strings."
+      rationale: "Scopes the gateway requests from the provider; match the provider's documented scope strings. Leave it out (or set `[]`) for providers that reject any `scope` parameter with `invalid_scope` \u2014 Docebo is one. With no `scope` parameter the provider applies its own default (RFC 6749 \xA73.3), usually the access configured on the client registration; confirm the issued token carries what the upstream server needs. On the Dynamic Client Registration path (`issuer` without `client_id`/`client_secret`) an omitted `scopes` registers the client with no scopes \u2014 the gateway's own DCR default scope does not apply to configs authored here."
     })
   ),
   pkce_enabled: external_exports.boolean().optional().meta(
@@ -17866,15 +17882,34 @@ var noneAuthType = external_exports.object({
     audience: "internal"
   })
 );
-var McpServerAuthSchema = external_exports.discriminatedUnion("type", [
-  bearerType,
-  basicAuthType,
-  authHeadersType,
-  queryParamType,
-  oAuthType,
-  clientCertType,
-  noneAuthType
-]);
+var isAbsentOrEmptyScopes = (scopes) => scopes === void 0 || scopes === null || Array.isArray(scopes) && scopes.length === 0;
+var McpServerAuthSchema = external_exports.preprocess(
+  (value, ctx) => {
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      const record3 = value;
+      if (record3.type === "oauth" && isAbsentOrEmptyScopes(record3.scopes)) {
+        const typo = Object.keys(record3).find((key) => key.toLowerCase() === "scope");
+        if (typo !== void 0) {
+          ctx.addIssue({
+            code: "custom",
+            path: [typo],
+            message: `Unknown key "${typo}" \u2014 did you mean "scopes" (a list)?`
+          });
+        }
+      }
+    }
+    return value;
+  },
+  external_exports.discriminatedUnion("type", [
+    bearerType,
+    basicAuthType,
+    authHeadersType,
+    queryParamType,
+    oAuthType,
+    clientCertType,
+    noneAuthType
+  ])
+);
 var VISIBILITY_TYPES = ["public", "team", "private"];
 var McpServerSchema = external_exports.object({
   name: external_exports.string().min(1).meta(
@@ -18007,7 +18042,7 @@ function parseConfig(raw) {
 }
 
 // src/internal/validator-bundle-entry.ts
-var VALIDATOR_BUNDLE_VERSION = "3.0.0";
+var VALIDATOR_BUNDLE_VERSION = "4.0.0";
 export {
   ConfigSchema,
   VALIDATOR_BUNDLE_VERSION,

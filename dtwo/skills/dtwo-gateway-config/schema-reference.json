@@ -180,7 +180,7 @@
       "fields": [
         {
           "name": "enabled",
-          "required": true,
+          "required": false,
           "type": "boolean",
           "constraints": [],
           "enumValues": null,
@@ -935,7 +935,7 @@
         {
           "name": "oauth",
           "path": "mcp_servers[].authentication (oauth)",
-          "requiredFields": ["type", "grant_type", "scopes"]
+          "requiredFields": ["type", "grant_type"]
         },
         {
           "name": "cert",
@@ -1285,16 +1285,16 @@
         },
         {
           "name": "scopes",
-          "required": true,
+          "required": false,
           "type": "array<string>",
-          "constraints": ["min length: 1"],
+          "constraints": [],
           "enumValues": null,
           "audience": "user",
-          "schemaDefault": null,
+          "schemaDefault": [],
           "deployDefault": null,
           "target": "sotw.oauth_config.scopes",
-          "description": "OAuth scopes requested.",
-          "rationale": "Scopes the gateway requests from the provider; match the provider's documented scope strings.",
+          "description": "OAuth scopes requested. Optional: omitted or empty, the gateway sends no `scope` parameter to the provider.",
+          "rationale": "Scopes the gateway requests from the provider; match the provider's documented scope strings. Leave it out (or set `[]`) for providers that reject any `scope` parameter with `invalid_scope` — Docebo is one. With no `scope` parameter the provider applies its own default (RFC 6749 §3.3), usually the access configured on the client registration; confirm the issued token carries what the upstream server needs. On the Dynamic Client Registration path (`issuer` without `client_id`/`client_secret`) an omitted `scopes` registers the client with no scopes — the gateway's own DCR default scope does not apply to configs authored here.",
           "targetKind": "sotwPath"
         },
         {

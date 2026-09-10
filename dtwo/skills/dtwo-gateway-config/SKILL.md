@@ -144,7 +144,7 @@ Every field in this section, with the artifact's own guidance:
 
 | Field | Required | Type | Default | Target | Guidance (from artifact) |
 |---|---|---|---|---|---|
-| `enabled` | yes | boolean | `true` (schema) | `MCP_REQUIRE_AUTH` | Leave at the default `true` for production. Set `false` only for local development where you want an unauthenticated gateway. |
+| `enabled` | no | boolean | `true` (schema) | `MCP_REQUIRE_AUTH` | Leave at the default `true` for production. Set `false` only for local development where you want an unauthenticated gateway. |
 | `sso_issuer` | no | URL | `not declared` | `SSO_GENERIC_ISSUER` | Set when you're using an SSO provider that publishes an OpenID Connect discovery document at `{issuer}/.well-known/openid-configuration`. Only set an issuer you want advertised: MCP clients will follow it for OAuth discovery. |
 | `jwt_issuer_verification` | no | boolean | `true` (gateway) | `JWT_ISSUER_VERIFICATION` | Leave unset or `true` — the gateway defaults it to `true` and refuses to start with `false` whenever `jwks_info` is configured, because skipping issuer verification against external IdP keys enables token substitution; the schema rejects `false` for the same reason. Set `true` explicitly to pin the secure value against a future change in the gateway default, not to make a choice. |
 | `jwt_audience_verification` | no | boolean | `true` (gateway) | `JWT_AUDIENCE_VERIFICATION` | Leave unset or `true` — the gateway defaults it to `true` and refuses to start with `false` whenever `jwks_info` is configured, since a token minted for another service in the same tenant would otherwise be accepted here; the schema rejects `false` for the same reason. Set `true` explicitly to pin the secure value against a future change in the gateway default, not to make a choice. |
@@ -315,7 +315,7 @@ Discriminated union keyed on `type`. `requiredFields[]` lists fields that MUST a
 | `basic` | `type`, `username`, `password` | HTTP basic auth. |
 | `authheaders` | `type`, `headers` | Array of `{key, value}` header pairs; each pair both required. |
 | `query_param` | `type`, `param_key`, `param_value` | Auth via URL query parameter. |
-| `oauth` | `type`, `grant_type`, `scopes` | See the cross-field constraint below — `issuer`-OR-trio rule. |
+| `oauth` | `type`, `grant_type` | See the cross-field constraint below — `issuer`-OR-trio rule. |
 | `cert` | `type`, `ca_cert` | PEM-encoded CA cert; used for custom-CA / mTLS / self-signed. |
 | `none` | `type` | Explicitly disabled auth. |
 
@@ -331,21 +331,21 @@ In other words: a valid `oauth` block must satisfy one of these two shapes:
 - **DCR shape:** `issuer` is set. `client_id`, `client_secret`, and `token_url` may be omitted — the gateway discovers/registers them.
 - **Static-credentials shape:** `client_id` AND `client_secret` AND `token_url` are all set. `issuer` is not required.
 
-Setting some but not all of `client_id` / `client_secret` / `token_url` without `issuer` is invalid. Both shapes still require `type: oauth`, `grant_type`, and `scopes`.
+Setting some but not all of `client_id` / `client_secret` / `token_url` without `issuer` is invalid. Both shapes still require `type: oauth` and `grant_type` — `scopes` is optional (omit it, or `[]`, for providers that reject a `scope` parameter).
 
-| Field | Required | Type | Target | Rationale (from artifact) |
-|---|---|---|---|---|
-| `grant_type` | yes (variant) | string | `sotw.oauth_config.grant_type` | Pick the OAuth grant the upstream server supports — `client_credentials` for machine-to-machine, `authorization_code` for delegated user auth. |
-| `scopes` | yes (variant) | array<string> | `sotw.oauth_config.scopes` | Scopes the gateway requests from the provider; match the provider's documented scope strings. |
-| `issuer` | conditional | URL | `sotw.oauth_config.issuer` | Set to enable dynamic client registration — the gateway discovers token/authorize URLs and registers itself automatically. |
-| `client_id` | conditional | string | `sotw.oauth_config.client_id` | The OAuth client identifier the upstream server issued you. Omit to let the gateway register dynamically (requires `issuer`). |
-| `client_secret` | conditional | string, **secret** | `sotw.oauth_config.client_secret` | The OAuth client secret paired with `client_id`. Omit for public clients or when using DCR. |
-| `token_url` | conditional | URL | `sotw.oauth_config.token_url` | The token endpoint the gateway posts to. Omit when `issuer` is set — DCR will discover it. |
-| `authorization_url` | no | URL | `sotw.oauth_config.authorization_url` | The authorize endpoint for delegated user flows. Omit for non-interactive grants like `client_credentials`. |
-| `redirect_uri` | no | URL | `sotw.oauth_config.redirect_uri` | Callback URL the upstream server redirects back to after user consent. |
-| `pkce_enabled` | no | boolean | `sotw.oauth_config.pkce_enabled` | Enable for public clients where leaking the `client_secret` is a risk. |
-| `token_endpoint_auth_method` | no | enum | `sotw.oauth_config.token_endpoint_auth_method` | Defaults to `client_secret_post`, which sends `client_id`/`client_secret` in the request body. Set `client_secret_basic` for providers that require an HTTP Basic header and reject a body secret with `invalid_client` — Airtable is one. Ignored on the DCR path: when `issuer` drives dynamic client registration the gateway overwrites this with the method it registered under, so set it only alongside an explicit `client_id`/`client_secret`. |
-| `omit_resource` | no | boolean | `sotw.oauth_config.omit_resource` | Escape hatch for providers that reject or mishandle the `resource` parameter on authorize, token-exchange, and refresh requests. |
+| Field | Required | Type | Default | Target | Rationale (from artifact) |
+|---|---|---|---|---|---|
+| `grant_type` | yes (variant) | string | — | `sotw.oauth_config.grant_type` | Pick the OAuth grant the upstream server supports — `client_credentials` for machine-to-machine, `authorization_code` for delegated user auth. |
+| `scopes` | no | array<string> | `[]` (schema) | `sotw.oauth_config.scopes` | Scopes the gateway requests from the provider; match the provider's documented scope strings. Leave it out (or set `[]`) for providers that reject any `scope` parameter with `invalid_scope` — Docebo is one. With no `scope` parameter the provider applies its own default (RFC 6749 §3.3), usually the access configured on the client registration; confirm the issued token carries what the upstream server needs. On the Dynamic Client Registration path (`issuer` without `client_id`/`client_secret`) an omitted `scopes` registers the client with no scopes — the gateway's own DCR default scope does not apply to configs authored here. |
+| `issuer` | conditional | URL | `not declared` | `sotw.oauth_config.issuer` | Set to enable dynamic client registration — the gateway discovers token/authorize URLs and registers itself automatically. |
+| `client_id` | conditional | string | `not declared` | `sotw.oauth_config.client_id` | The OAuth client identifier the upstream server issued you. Omit to let the gateway register dynamically (requires `issuer`). |
+| `client_secret` | conditional | string, **secret** | `not declared` | `sotw.oauth_config.client_secret` | The OAuth client secret paired with `client_id`. Omit for public clients or when using DCR. |
+| `token_url` | conditional | URL | `not declared` | `sotw.oauth_config.token_url` | The token endpoint the gateway posts to. Omit when `issuer` is set — DCR will discover it. |
+| `authorization_url` | no | URL | `not declared` | `sotw.oauth_config.authorization_url` | The authorize endpoint for delegated user flows. Omit for non-interactive grants like `client_credentials`. |
+| `redirect_uri` | no | URL | `not declared` | `sotw.oauth_config.redirect_uri` | Callback URL the upstream server redirects back to after user consent. |
+| `pkce_enabled` | no | boolean | `not declared` | `sotw.oauth_config.pkce_enabled` | Enable for public clients where leaking the `client_secret` is a risk. |
+| `token_endpoint_auth_method` | no | enum | `not declared` | `sotw.oauth_config.token_endpoint_auth_method` | Defaults to `client_secret_post`, which sends `client_id`/`client_secret` in the request body. Set `client_secret_basic` for providers that require an HTTP Basic header and reject a body secret with `invalid_client` — Airtable is one. Ignored on the DCR path: when `issuer` drives dynamic client registration the gateway overwrites this with the method it registered under, so set it only alongside an explicit `client_id`/`client_secret`. |
+| `omit_resource` | no | boolean | `not declared` | `sotw.oauth_config.omit_resource` | Escape hatch for providers that reject or mishandle the `resource` parameter on authorize, token-exchange, and refresh requests. |
 
 #### Non-OAuth variant fields — where each one lands
 
@@ -382,7 +382,7 @@ Every field marked `secret: true` in the artifact. Emit a self-describing placeh
 - **`targetKind: platform`** — value is applied as a platform-side control at the named `platform.*` path rather than written to the gateway env file.
 - **`targetKind: sotwPath`** — value is written into the SOTW YAML at the named dotted path (e.g. `sotw.url`, `sotw.oauth_config.client_secret`). Read the `Target` column per field; do not infer a field's target from its section.
 
-<!-- schema-reference.json sha256:7f65aa88eb1bacf4f118660611cf715446b1a4e0536c399973dda67876b9fd1a -->
+<!-- schema-reference.json sha256:22f5fa77bd79b0686b23f663756e787613547f2f2d65e8e98d2a5d012ec0e30e -->
 
 <!-- END SCHEMA DIGEST -->
 

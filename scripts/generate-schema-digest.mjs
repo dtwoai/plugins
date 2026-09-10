@@ -589,7 +589,10 @@ function renderOAuthVariant(filtered) {
       const type = f.secret ? `${f.type}, **secret**` : f.type;
       const target = f.target ? `\`${f.target}\`` : '—';
       const rationale = f.rationale ?? f.description ?? '';
-      return `| \`${f.name}\` | ${req} | ${escapePipe(type)} | ${target} | ${escapePipe(rationale)} |`;
+      // Default column added when `scopes` gained `schemaDefault: []` — the
+      // coverage gate requires every declared default to render its flavored
+      // cell, and this table had nowhere to put one.
+      return `| \`${f.name}\` | ${req} | ${escapePipe(type)} | ${defaultCell(f)} | ${target} | ${escapePipe(rationale)} |`;
     });
 
   return [
@@ -603,10 +606,10 @@ function renderOAuthVariant(filtered) {
     '- **DCR shape:** `issuer` is set. `client_id`, `client_secret`, and `token_url` may be omitted — the gateway discovers/registers them.',
     '- **Static-credentials shape:** `client_id` AND `client_secret` AND `token_url` are all set. `issuer` is not required.',
     '',
-    'Setting some but not all of `client_id` / `client_secret` / `token_url` without `issuer` is invalid. Both shapes still require `type: oauth`, `grant_type`, and `scopes`.',
+    'Setting some but not all of `client_id` / `client_secret` / `token_url` without `issuer` is invalid. Both shapes still require `type: oauth` and `grant_type` — `scopes` is optional (omit it, or `[]`, for providers that reject a `scope` parameter).',
     '',
-    '| Field | Required | Type | Target | Rationale (from artifact) |',
-    '|---|---|---|---|---|',
+    '| Field | Required | Type | Default | Target | Rationale (from artifact) |',
+    '|---|---|---|---|---|---|',
     ...rows,
     '',
   ].join('\n');
