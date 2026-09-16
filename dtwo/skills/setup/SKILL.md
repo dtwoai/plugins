@@ -161,6 +161,14 @@ If the user is returning to a half-finished setup, jump to **Resuming a partial 
 
 ---
 
+### Host-specific behavior
+
+Use the current host's tools and skill-loading mechanism. In Cursor, load companion skills from the shared `skills/` directory if the host has no skill-loading tool. Do not require Claude's `Skill`, `/mcp`, `/reload-plugins`, or `/dtwo:setup` commands in Cursor. A natural-language request to use the Dtwo setup skill starts this flow.
+
+When connecting the gateway in Phase 11, choose the current host's instructions first. Shell access in Cursor does not mean Claude Code is installed. In Cursor, merge the new server entry into `~/.cursor/mcp.json` or the project's `.cursor/mcp.json`, preserving all other servers. Ask before editing that file. Use the gateway connection tool's `clientId`, not the management plugin's client ID. If authentication is enabled and that ID is missing, obtain the registered ID before proceeding; never guess one or attempt dynamic client registration.
+
+Cursor desktop uses `http://localhost:8787/callback`. The authorization server must allow that exact URI for the static client. Do not use Claude's `oauth.callbackPort` or ask for a new port on each login. Enable the server in Cursor's Customize panel, complete sign-in, and verify a tool call. After a connection change, reload the window if the tools have not appeared. Web/Agents authentication is outside these instructions.
+
 ### Phase 1 — Verify the connection
 
 Call `dtwo-list-gateways`.
@@ -391,11 +399,11 @@ Read `authMode` before writing the instructions, because it decides what you can
 - **`none`**: authentication is off, so `mcpUrl` is all there is. Say plainly that anyone who can reach the URL can use the gateway, in case that isn't what they intended, and offer to go back to Phase 4 and configure it, which on a `standard` gateway means setting the URL first. It's a live gateway at this point, so treat this as the thing to fix rather than a footnote on the connection instructions.
 - **`unknown`**: the saved config couldn't be read, usually a YAML problem. Don't guess at connection instructions. Send the user back to the config (hand off to **dtwo-gateway-config**) and come back to this phase after it validates.
 
-Use a kebab-case token for `<name>` (derive it from the gateway name; the Dtwo Hub falls back to `dtwo-gateway` when a gateway has no usable name). Pass `<clientId>` wherever a client below takes one and the tool returned it: clients that carry a Client ID Metadata Document (Claude's own surfaces and Claude Code) identify themselves and connect from `mcpUrl` alone, while other clients such as Cursor need it spelled out. `callbackPort` (33418) comes back for `localHttp` gateways only, since every other type completes the OAuth redirect on the gateway's own callback URL.
+Use a kebab-case token for `<name>` (derive it from the gateway name; the Dtwo Hub falls back to `dtwo-gateway` when a gateway has no usable name). Pass `<clientId>` wherever a client below takes one and the tool returned it: clients that carry a Client ID Metadata Document (Claude's own surfaces and Claude Code) identify themselves and connect from `mcpUrl` alone, while other clients such as Cursor need it spelled out. `callbackPort` is legacy connection metadata and must not override Cursor desktop’s fixed `http://localhost:8787/callback` redirect.
 
-Branch on whether your current environment can run shell commands, the same way Phase 9 does:
+Choose instructions for the current AI client, then use its available shell or file-editing tools:
 
-**Shell available (e.g. Claude Code with Bash).** Offer to register the gateway as an MCP server directly by running `claude mcp add` for the user. Confirm first, and confirm the server `<name>` (the kebab-case token described above). If they'd rather run it themselves, hand them the command filled in and let them, the same as in Phase 9: this one edits their client config, so it's theirs to run if they want it that way. Either way the command is:
+**Running in Claude Code with shell access.** Offer to register the gateway as an MCP server directly by running `claude mcp add` for the user. Confirm first, and confirm the server `<name>` (the kebab-case token described above). If they'd rather run it themselves, hand them the command filled in and let them, the same as in Phase 9: this one edits their client config, so it's theirs to run if they want it that way. Either way the command is:
 
 ```bash
 claude mcp add --transport http \
@@ -404,7 +412,7 @@ claude mcp add --transport http \
 
 After it succeeds, tell the user the server is registered, that the OAuth flow completes in the browser on first use, and that they may need a new or reloaded session before the server shows up. Name the server, and leave the connection parameters out: the command already carried the URL, no client id was needed, and listing either turns a finished job back into homework. Mention that other client options (the `.mcp.json` form, or Cursor) are available if they want to connect a different client, and show those only if they ask.
 
-**Shell NOT available (e.g. Claude Desktop).** Present all the connection options as copyable blocks for the user to apply themselves.
+**Other hosts (including Cursor), or no shell access.** Use the current host’s connection option below. If you can edit its configuration, offer to merge the entry after confirmation; otherwise present its copyable instructions. Show other client options only on request.
 
 Claude Desktop (Cowork), through the connector settings UI — walk them through the click path since there's no config file to hand them. **Skip this option for a `localHttp` gateway:** the connector is added through Anthropic's own UI, which takes an HTTPS URL it can route to, and a local gateway serves plain HTTP on the user's own machine. Offer Claude Code or Cursor there instead.
 
@@ -448,7 +456,7 @@ Cursor, an HTTP MCP server entry in `~/.cursor/mcp.json` (or a project-local `.c
 }
 ```
 
-**If `dtwo-get-gateway-connection-info` returns no `clientId`**, that's expected in two cases and isn't a problem in either: `authMode: custom`, where sign-in goes through the user's own IdP, and a tenant with no client application of its own. Don't remark on it. The Claude Code and Claude Desktop paths never take a client id, so nothing is missing there; only Cursor's snippet has a field for one, and that's the one place to say where theirs comes from.
+**If `authMode` is `none`, omit Cursor's `auth` object entirely.** If authentication is enabled but `clientId` is absent, Claude's CIMD connection can still proceed. Cursor needs a registered public client ID: for Dtwo-managed authentication, ask the Dtwo administrator to configure the tenant's gateway client application; for a custom IdP, ask for its registered client ID. Stop Cursor's connection step until it is available. Never substitute the management plugin's client ID or attempt DCR.
 
 **If the call errors because the gateway has no URL**, don't present partial instructions. Two causes, with different fixes:
 
@@ -470,7 +478,7 @@ Then move on to Phase 12 — setup isn't finished until the user has authenticat
 - The direct route: just ask the agent to use the new server (e.g. "authenticate to `<name>`" or "list the tools on `<name>`") — the first call triggers the OAuth flow in the browser.
 - The manual route: run `/mcp`, select the newly added gateway server in the list, and choose **Authenticate**. If the server doesn't show up in the list, run `/reload-plugins` and check `/mcp` again.
 
-In clients without those commands (e.g. Claude Desktop), the first use of the connector triggers the auth flow in the browser instead.
+In Cursor, enable the gateway server in Customize and complete its browser sign-in; verify a tool call before continuing. In other clients without those commands (e.g. Claude Desktop), the first use of the connector triggers the auth flow in the browser instead.
 
 **If that first sign-in fails, clear the server's authentication and try once more.** In Claude Code that's `/mcp`, select the server, and choose **Clear authentication** (wording varies a little by version); other clients have an equivalent under the connector's own settings, sometimes as disconnecting and reconnecting it. Then authenticate again.
 
@@ -490,9 +498,9 @@ If the user skipped policies in Phase 6, skip the test, and remind them the gate
 **Record the closing steps.** Call `dtwo-record-setup-progress` once with every step that actually happened, so the Dtwo Hub reflects the setup you just ran instead of asking the user to confirm it again:
 
 - `testPolicies`, only if the policy test above ran and the gateway's own response showed the policy firing. Leave it out if policies were skipped in Phase 6 or the test didn't happen; a skipped test is a genuinely unfinished step, and the Hub should keep offering it.
-- `plugin`, only if you're running as the installed Dtwo plugin (the usual case in Claude Code). Leave it out if you got here another way, such as the Dtwo MCP server connected on its own in a chat surface.
+- `plugin`, only if you're running as the installed Dtwo plugin (including Claude Code and Cursor). Leave it out if you got here another way, such as the Dtwo MCP server connected on its own in a chat surface.
 
-So a full run in Claude Code sends `{ steps: ["testPolicies", "plugin"] }`. Same as Phase 11: don't narrate the call, and if it fails, finish setup normally without raising it.
+So a full run through the installed plugin sends `{ steps: ["testPolicies", "plugin"] }`. Same as Phase 11: don't narrate the call, and if it fails, finish setup normally without raising it.
 
 **Show progress — checkpoint 6 of 6, final one.** If the policy test ran, redraw the list with all six steps checked off. If the test was skipped, redraw it with **Test policies** left unchecked (or marked "skipped") and the other five checked. Either way, say something short marking setup as complete rather than describing what's next — a skipped test doesn't mean setup isn't done.
 

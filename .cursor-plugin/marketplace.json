@@ -1,0 +1,14 @@
+{
+  "name": "dtwo",
+  "owner": {
+    "name": "Dtwo",
+    "email": "support@dtwo.ai"
+  },
+  "plugins": [
+    {
+      "name": "dtwo",
+      "source": "dtwo",
+      "description": "Manage Dtwo gateways, policies, and Rego with the Dtwo MCP server."
+    }
+  ]
+}
