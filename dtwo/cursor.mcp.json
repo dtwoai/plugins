@@ -1,9 +1,9 @@
 {
   "mcpServers": {
     "dtwo": {
-      "url": "http://localhost:3000/mcp",
+      "url": "https://mcp.us1.prod.dtwo.ai/mcp",
       "auth": {
-        "CLIENT_ID": "0YRNsoZmTABT2onqysJEFiOQlXaugy2s"
+        "CLIENT_ID": "EleONdxmthzCtATDyGkHW4w9TIct7qRO"
       }
     }
   }
