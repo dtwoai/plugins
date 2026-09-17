@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "dtwo": {
+      "url": "https://mcp.us1.prod.dtwo.ai/mcp",
+      "auth": {
+        "CLIENT_ID": "EleONdxmthzCtATDyGkHW4w9TIct7qRO"
+      }
+    }
+  }
+}

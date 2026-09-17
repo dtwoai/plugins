@@ -1,6 +1,6 @@
 # plugins
 
-This repo is a **Claude Code plugin marketplace**. Today it ships one plugin — `dtwo` — which bundles the Dtwo MCP server connection and the gateway/policy/Rego skills for managing Dtwo gateways.
+This repo is a **Claude Code and Cursor plugin marketplace**. Today it ships one plugin — `dtwo` — which bundles the Dtwo MCP server connection and the gateway/policy/Rego skills for managing Dtwo gateways.
 
 If you're a customer looking to install or use the plugin, jump to [`dtwo/README.md`](dtwo/README.md). The rest of this README documents the **layout and conventions** of the repo for maintainers and anyone adding another plugin to the marketplace.
 
@@ -131,3 +131,11 @@ When you're done, `/plugin uninstall dtwo@dtwo` and `/plugin marketplace remove 
 ## License
 
 [MIT](LICENSE). The plugin scaffold and skill prose are open source.
+
+## Cursor packaging and validation
+
+`.cursor-plugin/marketplace.json` points to the existing `dtwo/` plugin. Its Cursor manifest uses the shared `skills/` directory and references `cursor.mcp.json`; Claude continues to use `.mcp.json`. Keep both plugin manifest versions in sync when distributed content changes. No skills are duplicated.
+
+Run `pnpm test` from `skill-harness/` to validate packaging and the offline skill checks. Follow the [desktop installation steps](dtwo/README.md#cursor-desktop) for runtime validation. A public marketplace listing requires review through [Cursor's submission page](https://cursor.com/marketplace/publish); adding a manifest does not publish it.
+
+Before release, record the tested Cursor version and verify local installation, discovery of all four skills, management sign-in and a successful tool call, two distinct gateway connections, and sign-in again after disconnecting and restarting. Confirm the redirect remains `http://localhost:8787/callback`. No Cursor runtime version has been verified for this adapter yet; web/Agents support is not claimed.
