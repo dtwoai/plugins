@@ -1,0 +1,25 @@
+version: 2
+updates:
+  # Keep the commit-SHA pins in .github/workflows current.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: /skill-harness
+    schedule:
+      interval: weekly
+    groups:
+      # One PR per week for all harness dependencies; a failing suite is
+      # the signal that a bump needs a human.
+      harness:
+        patterns: ["*"]
+    ignore:
+      # The harness asserts against a byte-pinned validator bundle built for
+      # this zod major; a major bump is a deliberate re-vendor, not a bot PR.
+      - dependency-name: zod
+        update-types: ["version-update:semver-major"]

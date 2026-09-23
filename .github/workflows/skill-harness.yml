@@ -1,0 +1,80 @@
+# Skill-harness CI (see #33). Offline checks only: the live bench
+# (`pnpm bench`) calls a model API and is deliberately not run here.
+name: skill-harness
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Read-only token. No step needs secrets or write access, so fork PRs run
+# with the exact same grants as same-repo PRs.
+permissions:
+  contents: read
+
+# One run per ref. A newer push to a PR cancels that PR's older run; pushes
+# to main are never cancelled, so every main commit keeps its own verdict.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    working-directory: skill-harness
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The digest generator imports only node: builtins, so it runs on the
+      # runner's default Node before any toolchain setup. Putting it first
+      # means a stale digest is reported even if the install below fails.
+      - name: Schema digest is in sync
+        working-directory: .
+        run: node scripts/generate-schema-digest.mjs --check
+
+      # pnpm version comes from `packageManager` in skill-harness/package.json.
+      # Do not add a `version:` input here: the action errors when both are
+      # set and disagree, and one source of truth is the point.
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          package_json_file: skill-harness/package.json
+
+      # Node version comes from `engines.node` in the same package.json.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: skill-harness/package.json
+          cache: pnpm
+          cache-dependency-path: skill-harness/pnpm-lock.yaml
+
+      - name: Install (frozen lockfile)
+        id: install
+        run: pnpm install --frozen-lockfile
+
+      # The checks below run independently once install succeeds, so a
+      # single run reports every failure rather than stopping at the first.
+
+      # A frozen install must not want to rewrite the lockfile or the
+      # workspace file; if it does, the committed files are out of date.
+      - name: Lockfile is stable
+        if: ${{ !cancelled() && steps.install.conclusion == 'success' }}
+        working-directory: .
+        run: git diff --exit-code -- skill-harness/pnpm-lock.yaml skill-harness/pnpm-workspace.yaml
+
+      - name: Test
+        if: ${{ !cancelled() && steps.install.conclusion == 'success' }}
+        run: pnpm test
+
+      - name: Biome check
+        if: ${{ !cancelled() && steps.install.conclusion == 'success' }}
+        run: pnpm biome:check
+
+      - name: Typecheck
+        if: ${{ !cancelled() && steps.install.conclusion == 'success' }}
+        run: pnpm typecheck

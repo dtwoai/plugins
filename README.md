@@ -87,7 +87,7 @@ node scripts/generate-schema-digest.mjs
 git diff dtwo/skills/dtwo-gateway-config/SKILL.md
 
 # Guardrail — exits 1 if SKILL.md is stale relative to the vendored schema.
-# `skill-harness` runs this as a test, so `pnpm test` covers it too.
+# `skill-harness` runs this as a test, and CI (.github/workflows/skill-harness.yml) runs it on every PR.
 node scripts/generate-schema-digest.mjs --check
 ```
 

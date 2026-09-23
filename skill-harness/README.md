@@ -4,7 +4,7 @@ Benchmark harness for the `dtwo-gateway-config` Claude skill shipped
 in this plugin repo. Two testing layers, both in this package:
 
 - **Offline rubrics** — deterministic property checks against a raw YAML
-  config. Run in CI, no LLM. Sub-second.
+  config. Run in CI (`.github/workflows/skill-harness.yml`), no LLM. Sub-second.
 - **Live bench** — runs the skill against Claude (`claude-cli` or
   `--provider=anthropic`), samples N times per fixture, scores each output
   against the rubrics, aggregates pass@k + Wilson 95% CIs, optionally
@@ -39,11 +39,17 @@ From the `skill-harness/` directory:
 ```bash
 pnpm test                       # unit tests, incl. the schema-digest drift check
 pnpm biome:check
+pnpm typecheck                  # tsc --noEmit
 pnpm bench --dry-run --tier=required
 ```
 
 The dry-run prints the fixture selection and system-prompt stats without
 issuing any LLM calls.
+
+CI (`.github/workflows/skill-harness.yml`) runs the first three of these —
+`pnpm test`, `pnpm biome:check`, `pnpm typecheck` — plus the root schema-digest
+`--check`, on every PR and every push to `main`. The bench (dry-run or live) is
+**not** run in CI; the live bench needs API credentials.
 
 ### Live bench
 
