@@ -13,7 +13,13 @@ plugins/
 ├── dtwo/                     # the dtwo plugin
 │   ├── .claude-plugin/
 │   │   └── plugin.json       # plugin manifest (name, version, metadata)
+│   ├── .cursor-plugin/
+│   │   └── plugin.json       # Cursor manifest (uses cursor.mcp.json)
+│   ├── .codex-plugin/
+│   │   └── plugin.json       # Codex manifest and OpenAI directory listing copy
 │   ├── .mcp.json             # MCP servers this plugin contributes (dtwo, HTTP + OAuth)
+│   ├── cursor.mcp.json       # Cursor's MCP connection (static OAuth client ID)
+│   ├── assets/               # logos and icons for the OpenAI directory listing
 │   ├── skills/               # auto-discovered skills (each in its own dir with SKILL.md)
 │   │   ├── setup/SKILL.md
 │   │   ├── dtwo-gateway-config/SKILL.md
@@ -112,7 +118,7 @@ Node 17+ is available.
 
 ## Releases
 
-Installs are **version-gated**: `/plugin update` and fresh installs only pick up changes when the version number changes. So **any change to distributed plugin content (a `SKILL.md`, `.mcp.json`, etc.) must bump the `version`** in the plugin manifest (`<plugin>/.claude-plugin/plugin.json`). The version lives only there — don't add one to the marketplace entry, since Claude Code always prefers the `plugin.json` value and a stale marketplace copy would silently mask it. Changes to non-distributed paths only (`skill-harness/`, `scripts/`, docs, CI) don't need a bump. Tag the release commit (e.g. `dtwo-v0.2.0`) so customers can pin to a specific version when needed. See [`CLAUDE.md`](CLAUDE.md) for the agent-facing version of this rule.
+Installs are **version-gated**: `/plugin update` and fresh installs only pick up changes when the version number changes. So **any change to distributed plugin content (a `SKILL.md`, `.mcp.json`, etc.) must bump the `version`** in the plugin manifests (`<plugin>/.claude-plugin/plugin.json`, plus `dtwo/.cursor-plugin/plugin.json` and `dtwo/.codex-plugin/plugin.json`; the `skill-harness` tests fail if they differ). The version lives only there — don't add one to the marketplace entry, since Claude Code always prefers the `plugin.json` value and a stale marketplace copy would silently mask it. Changes to non-distributed paths only (`skill-harness/`, `scripts/`, docs, CI) don't need a bump. Tag the release commit (e.g. `dtwo-v0.2.0`) so customers can pin to a specific version when needed. See [`CLAUDE.md`](CLAUDE.md) for the agent-facing version of this rule.
 
 ## Local development
 
@@ -134,8 +140,26 @@ When you're done, `/plugin uninstall dtwo@dtwo` and `/plugin marketplace remove 
 
 ## Cursor packaging and validation
 
-`.cursor-plugin/marketplace.json` points to the existing `dtwo/` plugin. Its Cursor manifest uses the shared `skills/` directory and references `cursor.mcp.json`; Claude continues to use `.mcp.json`. Keep both plugin manifest versions in sync when distributed content changes. No skills are duplicated.
+`.cursor-plugin/marketplace.json` points to the existing `dtwo/` plugin. Its Cursor manifest uses the shared `skills/` directory and references `cursor.mcp.json`; Claude continues to use `.mcp.json`. Keep the Claude, Cursor, and Codex manifest versions in sync when distributed content changes. No skills are duplicated.
 
 Run `pnpm test` from `skill-harness/` to validate packaging and the offline skill checks. Follow the [desktop installation steps](dtwo/README.md#cursor-desktop) for runtime validation. A public marketplace listing requires review through [Cursor's submission page](https://cursor.com/marketplace/publish); adding a manifest does not publish it.
 
 Before release, record the tested Cursor version and verify local installation, discovery of all four skills, management sign-in and a successful tool call, two distinct gateway connections, and sign-in again after disconnecting and restarting. Confirm the redirect remains `http://localhost:8787/callback`. No Cursor runtime version has been verified for this adapter yet; web/Agents support is not claimed.
+
+## OpenAI / Codex directory package
+
+OpenAI's plugin directory takes a ZIP in the Codex plugin format. Its manifest is `dtwo/.codex-plugin/plugin.json`. It reuses the shared `skills/` directory and the Claude `.mcp.json`, and it holds the listing copy (display name, descriptions, capabilities, default prompts, brand colors, and the website, support, privacy, and terms URLs). The logos and composer icons it references live in `dtwo/assets/`.
+
+Build the ZIP from the repo root:
+
+```bash
+# Validate the manifest and the packaged files, then write dist/dtwo-openai-<version>.zip
+node scripts/build-openai-plugin.mjs
+
+# Validate only
+node scripts/build-openai-plugin.mjs --check
+```
+
+The script checks OpenAI's field limits, that the URLs use `https://`, that the assets exist and are square, and that `name`, `version`, and `description` match the Claude manifest. It also scans the package for internal hostnames. The ZIP contains `.codex-plugin/plugin.json`, `.mcp.json`, `skills/`, and `assets/`, and nothing else. Two builds of the same tree are byte-identical; the script prints the SHA-256 so you can compare. It needs the `zip` command, and `dist/` is gitignored. The `skill-harness` suite runs `--check` and a double build, so `pnpm test` covers both.
+
+Review material for the submission (test account, test cases, demo video) is entered in OpenAI's dashboard. Never commit it to this repo.
