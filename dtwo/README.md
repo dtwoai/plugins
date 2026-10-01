@@ -70,6 +70,7 @@ Install the plugin through Claude Desktop's plugin settings. The management MCP 
 | `dtwo-gateway-config` | Editing gateway YAML, adding/removing MCP servers, publishing or rolling back configs. |
 | `dtwo-gateway-policy` | Creating, attaching, publishing, deploying, or verifying policies and pipelines; managing markers (and the intent registry when those tools are enabled). |
 | `dtwo-policy-rego`    | Authoring, modifying, explaining, or debugging Rego policy code for the Dtwo Gateway, including marker writer/reader policies.  |
+| `dtwo-end-user-guide`  | Producing a short PDF to forward to your end users — what an existing gateway connects to, and how they set up their own AI client. |
 
 The skills load each other on demand via Claude Code's `Skill` tool — most real tasks pull in two or three together.
 

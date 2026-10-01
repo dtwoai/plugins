@@ -9,7 +9,8 @@ description: |
   "set up dtwo", "create my first gateway", "get me started", "walk me through setup".
   SKIP when: the user already has a gateway and wants a single focused change — editing gateway YAML or MCP
   server entries (use dtwo-gateway-config); attaching/detaching or publishing policies (use dtwo-gateway-policy);
-  writing/modifying/explaining Rego (use dtwo-policy-rego).
+  writing/modifying/explaining Rego (use dtwo-policy-rego); or producing a guide to send to their end users
+  about an existing gateway (use dtwo-end-user-guide).
 ---
 
 <!-- © 2026 Dtwo, Inc. -->
