@@ -1,0 +1,47 @@
+{
+  "name": "dtwo",
+  "version": "1.1.10",
+  "description": "Manage Dtwo gateways, policies, and Rego with the Dtwo MCP server.",
+  "author": {
+    "name": "Dtwo",
+    "email": "support@dtwo.ai",
+    "url": "https://dtwo.ai"
+  },
+  "homepage": "https://dtwo.ai",
+  "repository": "https://github.com/dtwoai/plugins",
+  "license": "MIT",
+  "keywords": ["mcp", "mcp-gateway", "policy-as-code", "rego", "opa", "agentic-security", "governance", "guardrails"],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Dtwo",
+    "shortDescription": "Policy for agent tool calls",
+    "longDescription": "Dtwo is the security control plane for agents. This plugin connects Codex to your Dtwo account, so you can run your MCP gateways from the conversation.\n\nCreate a gateway, set how clients authenticate to it, and add the MCP servers your agents use. Write a policy in Rego, validate it, and attach it to the gateway's ingress pipeline, which runs before a tool call, or its egress pipeline, which runs on the response. Publish a version, deploy it, and roll back to an earlier version if you need to. Search recent gateway events to see what each policy decided.\n\nSkills cover gateway configuration, the policy lifecycle, and Rego authoring, plus a guided setup for your first gateway. They ask before deploying to a running gateway or deleting a policy.\n\nThe plugin acts only inside the Dtwo organization you sign in to. You need a Dtwo account.",
+    "developerName": "Dtwo",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Create MCP gateways and configure their authentication",
+      "Add and edit the MCP servers behind a gateway",
+      "Write and validate Rego policies for tool calls and responses",
+      "Attach policies to a gateway's ingress and egress pipelines",
+      "Publish, deploy, and roll back gateway configurations and policies",
+      "Search gateway events to see each policy decision",
+      "Browse and install policies from the Dtwo policy catalog"
+    ],
+    "websiteURL": "https://dtwo.ai",
+    "supportURL": "https://docs.dtwo.ai/support",
+    "privacyPolicyURL": "https://prod.dtwo.ai/privacy-policy",
+    "termsOfServiceURL": "https://prod.dtwo.ai/terms",
+    "defaultPrompt": [
+      "Set up my first Dtwo gateway.",
+      "Block Slack messages that contain customer email addresses.",
+      "Show the policy decisions from my gateway in the last hour."
+    ],
+    "brandColor": "#02329F",
+    "brandColorDark": "#5A81FA",
+    "composerIcon": "./assets/icon.svg",
+    "composerIconDark": "./assets/icon-dark.svg",
+    "logo": "./assets/logo.svg",
+    "logoDark": "./assets/logo-dark.svg"
+  }
+}

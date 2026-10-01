@@ -16,6 +16,8 @@ describe('Cursor plugin adapter', () => {
     assert.equal(manifest.name, 'dtwo');
     assert.equal(manifest.version, json('dtwo/.claude-plugin/plugin.json').version);
     assert.equal(manifest.skills, './skills/');
+    assert.equal(manifest.logo, 'assets/logo.svg');
+    assert.ok(statSync(resolve(root, entry.source, manifest.logo)).isFile());
     const skills = resolve(root, entry.source, manifest.skills);
     const names = readdirSync(skills).filter(name => statSync(resolve(skills, name)).isDirectory());
     assert.deepEqual(names.sort(), ['dtwo-gateway-config', 'dtwo-gateway-policy', 'dtwo-policy-rego', 'setup']);
