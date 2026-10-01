@@ -9,6 +9,7 @@
   "homepage": "https://dtwo.ai",
   "repository": "https://github.com/dtwoai/plugins",
   "license": "MIT",
+  "logo": "assets/logo.svg",
   "skills": "./skills/",
   "mcpServers": "./cursor.mcp.json"
 }

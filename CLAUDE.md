@@ -6,13 +6,13 @@ Guidance for Claude Code (and other agents) working in this repo. See [`README.m
 
 A **Claude Code plugin marketplace**. It ships one plugin today — `dtwo` — which bundles the Dtwo MCP server connection and the gateway/policy/Rego skills. Customers add the marketplace with `/plugin marketplace add dtwoai/plugins` and install with `/plugin install dtwo@dtwo`.
 
-Layout: `.claude-plugin/marketplace.json` (marketplace manifest) at the root; the plugin lives under `dtwo/` (`.claude-plugin/plugin.json`, `.mcp.json`, `skills/<name>/SKILL.md`); `skill-harness/` holds tests/fixtures; `scripts/` holds generators.
+Layout: `.claude-plugin/marketplace.json` (marketplace manifest) at the root; the plugin lives under `dtwo/` (`.claude-plugin/plugin.json`, `.mcp.json`, `skills/<name>/SKILL.md`). The same skills are reused by the Cursor manifest (`dtwo/.cursor-plugin/plugin.json` with `cursor.mcp.json`) and the Codex manifest (`dtwo/.codex-plugin/plugin.json`, which also holds the OpenAI directory listing copy; its logos and icons are in `dtwo/assets/`). `node scripts/build-openai-plugin.mjs` validates the Codex manifest and builds the OpenAI directory ZIP into `dist/` (`--check` validates only). `skill-harness/` holds tests/fixtures; `scripts/` holds generators and the build script.
 
 ## Bump the `plugin.json` version on every distributed-content change
 
-Installs are **version-gated**: if the version doesn't change, `/plugin update` and fresh installs will **not** pick up the new content, even though the files changed. So any PR that changes distributed plugin content (a `SKILL.md`, `.mcp.json`, or anything else customers install) MUST bump `"version"` in `dtwo/.claude-plugin/plugin.json`.
+Installs are **version-gated**: if the version doesn't change, `/plugin update` and fresh installs will **not** pick up the new content, even though the files changed. So any PR that changes distributed plugin content (a `SKILL.md`, `.mcp.json`, `cursor.mcp.json`, `assets/`, or anything else customers install) MUST bump `"version"` in all three manifests: `dtwo/.claude-plugin/plugin.json`, `dtwo/.cursor-plugin/plugin.json`, and `dtwo/.codex-plugin/plugin.json`. The `skill-harness` tests fail if the Cursor or Codex version differs from the Claude one.
 
-The version lives **only** in `plugin.json`. Do not add a `version` to the plugin's entry in `.claude-plugin/marketplace.json`: Claude Code resolves the version as `plugin.json` → marketplace entry → git SHA, and the official docs warn that setting both lets a stale value silently mask the real one (`plugin.json` always wins without warning).
+The version lives **only** in those `plugin.json` files. Do not add a `version` to the plugin's entry in `.claude-plugin/marketplace.json`: Claude Code resolves the version as `plugin.json` → marketplace entry → git SHA, and the official docs warn that setting both lets a stale value silently mask the real one (`plugin.json` always wins without warning).
 
 **When NOT to bump:** changes that touch only non-distributed paths — `skill-harness/`, `scripts/`, `README.md`, this file, CI config — do not ship to customers, so they don't need a version bump (see #19, a skill-harness dependency patch that correctly skipped it). The rule is: *bump when the installed plugin's content changes.*
 
