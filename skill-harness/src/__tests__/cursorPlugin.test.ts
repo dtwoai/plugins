@@ -20,7 +20,13 @@ describe('Cursor plugin adapter', () => {
     assert.ok(statSync(resolve(root, entry.source, manifest.logo)).isFile());
     const skills = resolve(root, entry.source, manifest.skills);
     const names = readdirSync(skills).filter(name => statSync(resolve(skills, name)).isDirectory());
-    assert.deepEqual(names.sort(), ['dtwo-gateway-config', 'dtwo-gateway-policy', 'dtwo-policy-rego', 'setup']);
+    assert.deepEqual(names.sort(), [
+      'dtwo-end-user-guide',
+      'dtwo-gateway-config',
+      'dtwo-gateway-policy',
+      'dtwo-policy-rego',
+      'setup',
+    ]);
     for (const name of names) assert.ok(readFileSync(resolve(skills, name, 'SKILL.md'), 'utf8').startsWith('---'));
     const cursor = json(`${entry.source}/${manifest.mcpServers}`).mcpServers.dtwo;
     const claude = json('dtwo/.mcp.json').mcpServers.dtwo;

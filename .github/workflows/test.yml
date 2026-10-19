@@ -1,0 +1,41 @@
+name: Test
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+permissions: read-all
+
+jobs:
+  skill-harness:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: skill-harness
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.27.0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: "pnpm"
+          cache-dependency-path: skill-harness/pnpm-lock.yaml
+
+      # The Codex package test skips itself without zip/unzip; fail instead so CI always runs the build.
+      - name: Require zip and unzip
+        run: command -v zip && command -v unzip
+
+      - run: pnpm install --frozen-lockfile
+
+      # Manifest version parity, the Codex/Cursor skill lists, the OpenAI package build, and the schema digest.
+      - run: pnpm test
+
+      - run: pnpm biome:check
