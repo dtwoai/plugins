@@ -11,7 +11,7 @@ const json = (path: string) => JSON.parse(readFileSync(resolve(root, path), 'utf
 const builder = resolve(root, 'scripts/build-openai-plugin.mjs');
 const onPath = (command: string) => spawnSync('which', [command]).status === 0;
 
-const SKILLS = ['dtwo-gateway-config', 'dtwo-gateway-policy', 'dtwo-policy-rego', 'setup'];
+const SKILLS = ['dtwo-end-user-guide', 'dtwo-gateway-config', 'dtwo-gateway-policy', 'dtwo-policy-rego', 'setup'];
 const ASSETS = ['assets/icon-dark.svg', 'assets/icon.svg', 'assets/logo-dark.svg', 'assets/logo.svg'];
 
 describe('Codex plugin package', () => {

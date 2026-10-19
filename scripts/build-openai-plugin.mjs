@@ -87,8 +87,9 @@ const INTERFACE_LIST_LIMITS = [
 // `.mcp.json`, and assets): the skills document product behaviour that
 // legitimately mentions localhost (SSRF settings, OAuth callbacks) and the
 // open-source ContextForge runtime the gateway ships, and the vendored schema
-// artifact cannot be edited by hand.
-const LEAK_PATTERNS_EVERYWHERE = [/\.dev\.dtwo\.ai/i, /hub\.dev/i, /sandbox/i, /contextforge-poc/i];
+// artifact cannot be edited by hand. The sandbox pattern skips Chrome's
+// `--no-sandbox` flag, which the end-user guide skill passes to headless Chrome.
+const LEAK_PATTERNS_EVERYWHERE = [/\.dev\.dtwo\.ai/i, /hub\.dev/i, /(?<!--no-)sandbox/i, /contextforge-poc/i];
 const LEAK_PATTERNS_LISTING_ONLY = [/localhost/i, /127\.0\.0\.1/, /contextforge/i];
 
 function parseArgs(argv) {
