@@ -9,23 +9,44 @@ on:
 
 permissions: read-all
 
+# PR runs share a group per ref, so a newer push cancels the older run. Every
+# other run (push to main, manual dispatch) gets its own group, so nothing is
+# ever cancelled or queued behind another run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   skill-harness:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: skill-harness
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
+      # The digest generator imports only node: builtins, so it runs on the
+      # runner's default Node before any toolchain setup. Putting it first
+      # means a stale digest is reported even if the install below fails.
+      - name: Schema digest is in sync
+        working-directory: .
+        run: node scripts/generate-schema-digest.mjs --check
+
+      # pnpm version comes from `packageManager` in skill-harness/package.json.
+      # Do not add a `version:` input here: the action errors when both are
+      # set and disagree, and one source of truth is the point.
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
         with:
-          version: 10.27.0
+          package_json_file: skill-harness/package.json
 
+      # Node version comes from `engines.node` in the same package.json.
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
-          node-version: "24"
+          node-version-file: skill-harness/package.json
           cache: "pnpm"
           cache-dependency-path: skill-harness/pnpm-lock.yaml
 
@@ -33,9 +54,30 @@ jobs:
       - name: Require zip and unzip
         run: command -v zip && command -v unzip
 
-      - run: pnpm install --frozen-lockfile
+      - name: Install (frozen lockfile)
+        id: install
+        run: pnpm install --frozen-lockfile
+
+      # A backstop: a frozen install must not want to rewrite either committed
+      # file. pnpm 11 rewrites pnpm-workspace.yaml on some failed installs, so
+      # this runs even then, to show what it wanted to change.
+      - name: Lockfile is stable
+        if: ${{ !cancelled() }}
+        working-directory: .
+        run: git diff --exit-code -- skill-harness/pnpm-lock.yaml skill-harness/pnpm-workspace.yaml
+
+      # The three checks below run independently once install succeeds, so a
+      # single run reports every failure rather than stopping at the first.
 
       # Manifest version parity, the Codex/Cursor skill lists, the OpenAI package build, and the schema digest.
-      - run: pnpm test
+      - name: Test
+        if: ${{ !cancelled() && steps.install.conclusion == 'success' }}
+        run: pnpm test
 
-      - run: pnpm biome:check
+      - name: Biome check
+        if: ${{ !cancelled() && steps.install.conclusion == 'success' }}
+        run: pnpm biome:check
+
+      - name: Typecheck
+        if: ${{ !cancelled() && steps.install.conclusion == 'success' }}
+        run: pnpm typecheck
