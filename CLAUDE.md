@@ -22,11 +22,11 @@ If you add a second plugin to the marketplace later, the same rule applies: vers
 
 Production Claude Code caches only each skill's `SKILL.md` in the system prompt; a skill's `references/` directory is **not** auto-loaded for real users. Anything a policy/skill author needs at authoring time must live inline in `SKILL.md`, not in a sidecar file.
 
-The `dtwo-gateway-config` skill's `### Schema Digest` (between `<!-- BEGIN SCHEMA DIGEST -->` / `<!-- END SCHEMA DIGEST -->`) is **generated** from `dtwo/skills/dtwo-gateway-config/schema-reference.json` — do not hand-edit it. Regenerate with `node scripts/generate-schema-digest.mjs`; `--check` fails if it's stale, and the `skill-harness` suite runs exactly that, so `pnpm test` is what enforces it. The vendored schema is a verbatim copy of the artifact the product repo's schema generator emits; refresh it by copying, never by editing in place.
+The `dtwo-gateway-config` skill's `### Schema Digest` (between `<!-- BEGIN SCHEMA DIGEST -->` / `<!-- END SCHEMA DIGEST -->`) is **generated** from `dtwo/skills/dtwo-gateway-config/schema-reference.json` — do not hand-edit it. Regenerate with `node scripts/generate-schema-digest.mjs`; `--check` fails if it's stale, and the `skill-harness` suite runs exactly that. CI enforces it too: the workflow runs `--check` as its first step, then the suite. The vendored schema is a verbatim copy of the artifact the product repo's schema generator emits; refresh it by copying, never by editing in place.
 
 ## CI runs the `skill-harness` suite
 
-`.github/workflows/test.yml` runs `pnpm test` and `pnpm biome:check` in `skill-harness/` on every PR and push to `main`. Run both locally before pushing. Adding or renaming a skill means updating the expected skill lists in `skill-harness/src/__tests__/codexPlugin.test.ts` and `cursorPlugin.test.ts`; that is deliberate, so a skill never ships to the Codex or Cursor package unnoticed.
+`.github/workflows/test.yml` runs on every PR and push to `main`: the schema-digest `--check`, a frozen-lockfile install plus a lockfile-stability guard, then `pnpm test`, `pnpm biome:check`, and `pnpm typecheck` in `skill-harness/`. Run them locally before pushing. The pnpm and Node versions come from `skill-harness/package.json` (`packageManager`, `engines.node`), and dependabot keeps the action pins and harness dependencies current. Adding or renaming a skill means updating the expected skill lists in `skill-harness/src/__tests__/codexPlugin.test.ts` and `cursorPlugin.test.ts`; that is deliberate, so a skill never ships to the Codex or Cursor package unnoticed.
 
 ## Test locally before pushing
 
