@@ -43,6 +43,7 @@ The tools listed below reflect the initial set. The Dtwo MCP server may add new 
 - Do not guess gateway UIDs when they can be discovered with `dtwo-list-gateways`.
 - Validate draft YAML before saving or publishing.
 - Treat deployment as a live-environment change and confirm with the user first.
+- Never write a credential into gateway YAML, and never ask for one in the chat. Reference a Vault entry instead and have the user enter the value in the Dtwo Hub (see Secrets and the Vault).
 - Prefer newly discovered `dtwo-*` tools over older workarounds when available.
 
 ## Communicating with the User
@@ -66,8 +67,8 @@ The steps above (tool names, YAML field names, the validate → save → publish
 | `dtwo-update-gateway` | Update gateway metadata (name, tags) |
 | `dtwo-get-gateway-config` | Fetch the draft YAML configuration (includes MCP server definitions) |
 | `dtwo-get-gateway-versions` | List published versions for a gateway |
-| `dtwo-validate-gateway-config` | Validate YAML configuration without saving |
-| `dtwo-save-gateway-draft-config` | Validate and save YAML as the draft configuration |
+| `dtwo-validate-gateway-config` | Validate YAML without saving, using the same check as a deploy. Resolves Vault references (pass `gatewayUid` so the gateway's own entries resolve) and lists the entries the config uses |
+| `dtwo-save-gateway-draft-config` | Save YAML as the draft configuration. It does **not** validate, so validate first |
 | `dtwo-publish-gateway-config` | Publish the gateway draft as a new version |
 | `dtwo-revert-gateway-config` | Restore a published `version` back into the draft. Pass `publish: true` to publish it immediately as well |
 
@@ -78,6 +79,19 @@ The steps above (tool names, YAML field names, the validate → save → publish
 | `dtwo-deploy-gateway` | Queue a deployment for the gateway |
 | `dtwo-get-gateway-deployments` | List deployment tasks for a gateway |
 | `dtwo-get-deployment` | Check status of a specific deployment |
+
+### Vault Tools
+
+The Vault holds values that gateway configs reference by name (see Secrets and the Vault). No tool takes or returns a secret's value.
+
+| Tool | Purpose |
+|------|---------|
+| `dtwo-list-vault-entries` | List Vault entries (filter by `name`, or by `gatewayUid` for one gateway's entries). Check here before adding an entry, to reuse one that exists |
+| `dtwo-get-vault-entry` | Fetch one entry by UID. An encrypted entry's value is always `null` |
+| `dtwo-get-vault-secret-link` | Get a Hub link where the user types a secret in themselves. Pass `name` (and optionally `type`, `description`, `gatewayUid`) for a new secret, or only `uid` to replace an existing one. Creates and changes nothing until the user saves the form |
+| `dtwo-create-vault-entry` | Add a **plain** (unencrypted) entry. Only for values that aren't secret, such as an upstream URL or a timeout; anyone who can see the Vault can read it |
+| `dtwo-update-vault-entry` | Change a plain entry's value, or any entry's description. Refuses a value for an encrypted entry |
+| `dtwo-delete-vault-entry` | Delete an entry, including an encrypted entry's secret. A config that still references it without a fallback fails validation and its next deploy, so confirm with the user first |
 
 ### Deletion (not supported via MCP)
 
@@ -118,7 +132,7 @@ This subsection is generated from `schema-reference.json` by `scripts/generate-s
 | `gateway.authentication.oauth_dcr` | OAuth Dynamic Client Registration overrides. Defaults are auto-derived from mcp_servers; set fields here to override (typically to disable DCR/discovery for IdPs that pre-provision clients). |
 | `gateway.ssrf` | SSRF protection overrides. Strict defaults apply when omitted. |
 | `gateway.intent` | Gateway session-intent controls. |
-| `gateway.session_control` | Human-gated session clearing (session-control) registration: the IdP app the browser ceremony authenticates against. Arms the platform clear tools and the browser clear ceremony when `intent.enabled: true`, or when `clearing.enabled: true` on a gateway that uses markers without intent capture. A gateway using Dtwo authentication needs no credentials here — it gets its organization's platform-provisioned app — but prefer `clearing: {enabled: true}` over an empty block, so the block states what it does: an empty one arms only while `intent.enabled` is true and parks inert otherwise. `client_id` is only needed for a gateway trusting a customer-run IdP, and `redirect_uri` only for one the browser reaches at a different origin than its token audience. The ceremony issuer is not configured here — it is always `gateway.authentication.jwks_info.jwt_issuer` (the same tenant issues both the inbound tokens and the browser-login ID tokens), and the deploy derives `SESSION_CONTROL_ISSUER` from it. |
+| `gateway.session_control` | Human-gated session clearing (session-control) registration: the IdP app the browser ceremony authenticates against. Arms the platform clear tools and the browser clear ceremony when `intent.enabled: true`, or when `clearing.enabled: true` on a gateway that uses markers without intent capture. A gateway using Dtwo authentication needs no credentials here — it gets its organization's platform-provisioned app — but prefer `clearing: {enabled: true}` over an empty block, so the block states what it does: an empty one arms only while `intent.enabled` is true and parks inert otherwise. `client_id` is only needed for a gateway trusting a customer-run IdP, and `redirect_uri` only for one the browser reaches at a different origin than its token audience, or whose first `jwt_audience` is not an absolute URL (where it is required). The ceremony issuer is not configured here — it is always `gateway.authentication.jwks_info.jwt_issuer` (the same tenant issues both the inbound tokens and the browser-login ID tokens), and the deploy derives `SESSION_CONTROL_ISSUER` from it. |
 | `gateway.session_control.clearing` | Arming control for human-gated clearing. |
 | `mcp_servers[]` | One entry per upstream MCP server. `name` and `url` required. |
 | `mcp_servers[].authentication` | Discriminated union keyed on `type`; outbound auth from gateway to the upstream server. 7 variants (see table). |
@@ -199,7 +213,7 @@ Strict defaults block localhost, private networks, and fail-closed DNS when omit
 #### `gateway.advanced` and `gateway.log_level`
 
 - **`advanced`** — `array<string>`, `targetKind: advanced`. Lines are appended verbatim to the deployed env file under systemd `EnvironmentFile` semantics (last-occurrence-wins). Validation rejects two classes of keys: keys already emitted by a typed field (so it cannot shadow one by accident) AND every name on the reserved-keys list below. Keys here are case-sensitive — preserve exact casing.
-- **`log_level`** — enum: `TRACE`/`DEBUG`/`INFO`/`WARNING`/`ERROR`/`CRITICAL`. Default: `"DEBUG"` (deploy). Target: `LOG_LEVEL`.
+- **`log_level`** — enum: `TRACE`/`DEBUG`/`INFO`/`WARNING`/`ERROR`/`CRITICAL`. Default: `"INFO"` (deploy). Target: `LOG_LEVEL`.
 
 #### Reserved keys — rejected inside `gateway.advanced`
 
@@ -265,12 +279,12 @@ Gateway session-intent controls.
 
 #### `gateway.session_control` — human-gated clearing registration
 
-Human-gated session clearing (session-control) registration: the IdP app the browser ceremony authenticates against. Arms the platform clear tools and the browser clear ceremony when `intent.enabled: true`, or when `clearing.enabled: true` on a gateway that uses markers without intent capture. A gateway using Dtwo authentication needs no credentials here — it gets its organization's platform-provisioned app — but prefer `clearing: {enabled: true}` over an empty block, so the block states what it does: an empty one arms only while `intent.enabled` is true and parks inert otherwise. `client_id` is only needed for a gateway trusting a customer-run IdP, and `redirect_uri` only for one the browser reaches at a different origin than its token audience. The ceremony issuer is not configured here — it is always `gateway.authentication.jwks_info.jwt_issuer` (the same tenant issues both the inbound tokens and the browser-login ID tokens), and the deploy derives `SESSION_CONTROL_ISSUER` from it.
+Human-gated session clearing (session-control) registration: the IdP app the browser ceremony authenticates against. Arms the platform clear tools and the browser clear ceremony when `intent.enabled: true`, or when `clearing.enabled: true` on a gateway that uses markers without intent capture. A gateway using Dtwo authentication needs no credentials here — it gets its organization's platform-provisioned app — but prefer `clearing: {enabled: true}` over an empty block, so the block states what it does: an empty one arms only while `intent.enabled` is true and parks inert otherwise. `client_id` is only needed for a gateway trusting a customer-run IdP, and `redirect_uri` only for one the browser reaches at a different origin than its token audience, or whose first `jwt_audience` is not an absolute URL (where it is required). The ceremony issuer is not configured here — it is always `gateway.authentication.jwks_info.jwt_issuer` (the same tenant issues both the inbound tokens and the browser-login ID tokens), and the deploy derives `SESSION_CONTROL_ISSUER` from it.
 
 | Field | Required | Type | Default | Target | Guidance (from artifact) |
 |---|---|---|---|---|---|
 | `client_id` | no | string | `not declared` | `SESSION_CONTROL_CLIENT_ID` | Leave unset on a gateway using Dtwo authentication. Set it only when the gateway trusts your own IdP: the ceremony app must live in the IdP that issues the gateway's inbound tokens, so register a dedicated public client there (authorization-code + PKCE, no refresh grant) and paste its client id here. Do not reuse the gateway API client. |
-| `redirect_uri` | no | string | `not declared` | `SESSION_CONTROL_REDIRECT_URI` | Leave unset in almost all cases — the gateway derives `<origin of the first jwt_audience>/session-control/clear/callback` and the platform registers that. Set it when a reverse proxy or split-horizon DNS puts the browser on a different origin than the audience: give the URL the browser can actually reach, at the root path (`/mcp/*` routes to the streamable-HTTP handler, which rejects browser GETs). |
+| `redirect_uri` | no | string | `not declared` | `SESSION_CONTROL_REDIRECT_URI` | Leave unset in almost all cases — the gateway derives `<origin of the first jwt_audience>/session-control/clear/callback` and the platform registers that. Set it when a reverse proxy or split-horizon DNS puts the browser on a different origin than the audience: give the URL the browser can actually reach, at the root path (`/mcp/*` routes to the streamable-HTTP handler, which rejects browser GETs). It is required when the first `jwt_audience` is not an absolute URL — e.g. an Entra ID v2.0 gateway, whose audience is the gateway app's client ID (a GUID) — since there is no origin to derive from, and the deploy rejects an armed gateway that leaves it unset. |
 
 **Cross-field constraints** (verbatim from artifact):
 > `clearing.enabled` unset follows `gateway.intent.enabled`; an explicit `true` arms clearing even with intent capture off (the markers-only deployment).
@@ -284,6 +298,8 @@ Human-gated session clearing (session-control) registration: the IdP app the bro
 > `redirect_uri`, when set, replaces the callback the gateway would derive from the first entry of `jwt_audience`, and is the URL the platform allow-lists on the IdP application. Unset, ordering within a comma-separated `jwt_audience` decides the callback.
 >
 > While clearing is armed, `jwt_issuer` must be a normalized HTTPS URL (it becomes the ceremony issuer via `SESSION_CONTROL_ISSUER`) and `jwt_audience` must not be blank.
+>
+> While clearing is armed, `redirect_uri` is required when the first entry of `jwt_audience` is not an absolute `http(s)://` URL — for example an Entra ID v2.0 client ID or an `api://` Application ID URI: there is no browser-reachable origin to derive the callback from.
 
 #### `gateway.session_control.clearing` — arming control
 
@@ -363,9 +379,9 @@ Required-ness here is *within the variant*: the field must appear when that `typ
 | `query_param` | `param_value` | yes | string | `sotw.auth_query_param_value` |
 | `cert` | `ca_cert` | yes | string | `sotw.ca_certificate` |
 
-#### Secret-typed fields — must emit a placeholder, never a literal
+#### Secret-typed fields: must hold a Vault reference, never a literal
 
-Every field marked `secret: true` in the artifact. Emit a self-describing placeholder (`REPLACE_WITH_<FIELD>`, `PLACEHOLDER_<FIELD>`, `YOUR_<FIELD>`, `CHANGE_ME`, or `${ENV_VAR}`); never an inferred or literal credential. Bare `PLACEHOLDER` does not count.
+Every field marked `secret: true` in the artifact. Put a Vault reference there (`<<NAME>>`, with no `|` fallback), never an inferred or literal credential. See Secrets and the Vault for how the user adds the value.
 
 | Path |
 |---|
@@ -382,7 +398,7 @@ Every field marked `secret: true` in the artifact. Emit a self-describing placeh
 - **`targetKind: platform`** — value is applied as a platform-side control at the named `platform.*` path rather than written to the gateway env file.
 - **`targetKind: sotwPath`** — value is written into the SOTW YAML at the named dotted path (e.g. `sotw.url`, `sotw.oauth_config.client_secret`). Read the `Target` column per field; do not infer a field's target from its section.
 
-<!-- schema-reference.json sha256:22f5fa77bd79b0686b23f663756e787613547f2f2d65e8e98d2a5d012ec0e30e -->
+<!-- schema-reference.json sha256:4dc79f71108e6c02642bd5fc8463e310924d0c3c453e634cd5afc60d9b46af16 -->
 
 <!-- END SCHEMA DIGEST -->
 
@@ -412,7 +428,39 @@ Supported authentication types:
 | `oauth` | `grant_type`, `scopes`, plus either `issuer` (for DCR) or `client_id` + `client_secret` + `token_url`. Optional: `authorization_url`, `redirect_uri`, `pkce_enabled`, `extra_authorize_params`, `scope_param_name`, `scope_separator`, `token_response_path`, `token_lifetime_seconds`, `oauth_quirks` |
 | `cert` | `ca_cert` (PEM) |
 
-**Secret-typed fields** (any field with `secret: true` in the schema — `token`, `password`, `client_secret`, `authheaders.headers[].value`, `query_param.param_value`) must never carry inferred or literal credentials. Emit a self-describing placeholder in one of these shapes: `REPLACE_WITH_<FIELD>`, `PLACEHOLDER_<FIELD>`, `YOUR_<FIELD>` / `your-<field>` (matching the OAuth example below), `CHANGE_ME`, or `${ENV_VAR}`. Bare `PLACEHOLDER` (no suffix), `FILL_FROM_ENV`, and descriptive prose like `placeholder-replace-me` do **not** count — the placeholder must be self-describing so the operator can see which value to substitute.
+**Secret-typed fields** (any field with `secret: true` in the schema: `token`, `password`, `client_secret`, `authheaders.headers[].value`, `query_param.param_value`) must never carry inferred or literal credentials. Put a Vault reference there instead, as described next.
+
+### Secrets and the Vault
+
+The Vault stores values that gateway configs use by name. A reference is the entry's name between `<<` and `>>`, and the gateway receives the stored value when it deploys:
+
+```yaml
+authentication:
+  type: bearer
+  token: <<GITHUB_TOKEN>>
+```
+
+- **Names** use letters, digits, and underscores, and start with a letter or underscore. Pick a name that says what the value is, such as `GITHUB_TOKEN` or `SLACK_CLIENT_SECRET`.
+- **Make the reference the whole value of a secret field.** For a header that needs a scheme, such as `Authorization: Bearer …`, the user stores the full header value (scheme included) in the entry, and the field holds only `<<NAME>>`. Say so when you give them the link.
+- **A reference can carry a fallback**, `<<NAME|value>>`, used when no entry by that name exists. Use it only for values that aren't secret (a URL or a timeout), never for a secret field.
+- **Malformed references fail.** Anything between `<<` and `>>` that isn't a valid name is an error, as is `<<NAME>` or `<NAME>>`. To write a literal `<<text>>`, for example in a tool description, write `<<<text>>>`.
+- **Unresolved references fail validation and deploy.** Saving a draft that references a missing entry works, but `dtwo-validate-gateway-config` and the next deploy report the missing names until the entry exists. Pass `gatewayUid` when validating, so entries kept on that gateway resolve too.
+- **Scope.** An entry is either for all gateways or kept on one gateway (`gatewayUid`). A gateway's config and its sidecars can use both kinds. A one-gateway entry is deleted with its gateway, and can't share a name with an entry for all gateways.
+
+**Adding a secret.** No tool accepts a secret's value, so the user always types it into the Hub:
+
+1. Check `dtwo-list-vault-entries` with the `name` first. If an entry exists, reuse it.
+2. Otherwise, write the reference into the config and call `dtwo-get-vault-secret-link` with the `name` (add `gatewayUid` to keep it on this gateway, and a short `description`). To replace an existing secret, pass only its `uid`.
+3. Give the user the link and ask them to paste the secret there and save. The form opens only while they are signed in to the same Dtwo organization as this MCP session.
+4. Once they say it's saved, confirm with `dtwo-list-vault-entries` by name, then validate.
+
+Never ask for a secret in the chat. If the user pastes one anyway, don't pass it to any tool, and give them the link instead. If they don't have the secret yet, leave the reference in the draft and give them the link for later; tell them the gateway can't deploy until the entry exists. If you're unsure whether a value is secret, treat it as one.
+
+**Plain entries.** For a non-secret value used by several configs (an upstream URL, a timeout), `dtwo-create-vault-entry` stores it as given. A reference resolves to a string, so it can't fill a numeric or boolean field yet.
+
+**Changing a value.** Running gateways keep the old value until they are next deployed, so offer a redeploy after a value changes.
+
+**Drafting YAML for someone else to apply.** If the user wants a config to paste somewhere outside Dtwo rather than one saved to a gateway, a self-describing placeholder such as `REPLACE_WITH_GITHUB_TOKEN` is still acceptable there. Never use a placeholder in a config saved to a gateway: it deploys as literal text and the upstream rejects it.
 
 ### MCP Server Example
 
@@ -424,8 +472,8 @@ mcp_servers:
     authentication:
       type: oauth
       grant_type: authorization_code
-      client_id: "your-client-id"
-      client_secret: "your-client-secret"
+      client_id: "your-client-id"     # not a secret; use the app's real client ID
+      client_secret: <<SLACK_CLIENT_SECRET>>   # Vault reference; the user enters the value in the Hub
       authorization_url: https://slack.com/oauth/v2/authorize
       token_url: https://slack.com/api/oauth.v2.access
       redirect_uri: https://localhost/oauth/callback
@@ -440,8 +488,8 @@ mcp_servers:
 ### Editing Configuration
 
 1. Fetch the current draft with `dtwo-get-gateway-config`
-2. Edit the YAML (add/modify MCP servers, change gateway settings)
-3. Validate with `dtwo-validate-gateway-config`
+2. Edit the YAML (add/modify MCP servers, change gateway settings). Put every credential in as a Vault reference, and get the user a Hub link for any secret that isn't in the Vault yet (see Secrets and the Vault)
+3. Validate with `dtwo-validate-gateway-config`, passing `gatewayUid`. It also lists the Vault entries the config uses and reports any that are missing
 4. Save with `dtwo-save-gateway-draft-config`
 5. Deploy with `dtwo-deploy-gateway` to test the draft configuration
 6. Once working as desired, publish with `dtwo-publish-gateway-config`
@@ -474,6 +522,7 @@ After deploying a gateway with configuration changes:
 2. Verify the gateway is heartbeating (check `lastSeenAt` in `dtwo-get-gateway`)
 3. Test that MCP tools from each configured server are accessible and responding
 4. If an MCP server uses OAuth, the user may need to re-authenticate after the server is added or its auth config changes
+5. If a server's tools don't appear or calls fail, check the gateway's recent events with `dtwo-search-recent-events` (errors, discovery runs, and auth events from about the last 30 days; call `dtwo-get-event-schema` for the filterable fields). Use `dtwo-search-events` only for anything older, since it is much slower
 
 ## Limitations
 
