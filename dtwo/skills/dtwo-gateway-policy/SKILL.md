@@ -121,8 +121,8 @@ Markers are session-state flags that one policy writes and other policies read t
 |------|---------|
 | `dtwo-list-markers` | List markers in the registry (optional filters: `name` for exact FQID, `tag`). Returns the marker *vocabulary*, not which markers are currently active on a session |
 | `dtwo-get-marker` | Fetch a single marker by UID |
-| `dtwo-create-marker` | Create a customer-tier marker (requires `namespace`, `markerId`, `description`, `minimumTtlSeconds`; optional `tags`). Full key is `marker:<namespace>:<markerId>`. The tool requires only non-empty `namespace`/`markerId`; character-shape rules are validated server-side, not at the tool boundary. `internal` and `dtwo` namespaces are reserved for platform markers |
-| `dtwo-update-marker` | Update mutable fields on a customer-tier marker (`description`, `tags`, `minimumTtlSeconds`) |
+| `dtwo-create-marker` | Create a customer-tier marker (requires `namespace`, `markerId`, `description`, `minimumTtlSeconds`; optional `tags`, `clearable` — default `true`; `false` means the user cannot lift the marker through the clear flow and it leaves the session only when its TTL expires — and `displayName`, the name the user sees on the clearing page with the key beneath it). Full key is `marker:<namespace>:<markerId>`. The tool requires only non-empty `namespace`/`markerId`; character-shape rules are validated server-side, not at the tool boundary. `internal` and `dtwo` namespaces are reserved for platform markers |
+| `dtwo-update-marker` | Update mutable fields on a customer-tier marker (`description`, `displayName`, `tags`, `minimumTtlSeconds`, `clearable`). Changes reach a gateway on its next deploy |
 | `dtwo-delete-marker` | Delete a customer-tier marker. Platform-managed entries cannot be deleted |
 
 What you register here is also visible to policy Rego as OPA data at `data.dtwo.intent_registry` — see The registry as policy data.
@@ -458,18 +458,23 @@ Marker tools are always available (they do not require `enable_intent_tools`). T
 
 ### Registering a marker
 
-Register the marker in the vocabulary before any policy references it:
+Register the marker in the vocabulary before any policy references it. **Before you call it, ask the user whether the person the marker blocks should be able to clear it** (see Clearing a marker). The default is yes; say no only for a marker whose whole point is that nobody lifts it early — a legal hold, a confirmed-breach lockdown, a regulatory cooling-off period:
 
 ```
 dtwo-create-marker(
   namespace = "acme",
   markerId  = "pii_detected",
   description = "Session received PII in a tool response",
-  minimumTtlSeconds = 3600
+  minimumTtlSeconds = 3600,
+  clearable = true,       # optional; the default
+  displayName = "No email after PII"   # optional; what the user sees, key beneath
 )
 ```
 
 - The full key is `marker:acme:pii_detected`. Customer markers live under any namespace except the reserved `internal` and `dtwo`.
+- `displayName` is what the person sees on the clearing page and in the Hub's Markers list, with the key beneath it as the identifier. Name it for what it restricts and why ("No email after PII"), not for the trigger alone; `description` carries the longer explanation. It must be unique across your organization, ignoring case, so a duplicate is refused. Leave it empty and those surfaces show the key; on `dtwo-update-marker`, pass `""` to show the key again.
+- `clearable` decides whether the marker has a fast exit. `true` (the default, and what every marker registered before the flag existed has): the person can lift it early by approving a clear. `false`: the marker leaves the session **only when its TTL expires** — the clear flow never offers it (the confirm page lists only what can be cleared, and a commit that names it is refused). Weigh it against the TTL: a non-clearable marker with a day-long TTL is a day-long block with no appeal.
+- **Decide `clearable` when you register the marker.** Reader policies are worded against it (their deny reasons either offer the clear or point only at the TTL), so changing it later means revisiting them. If it must change, `dtwo-update-marker` or the Hub's Markers page ("Can be cleared by the user") does it; the change reaches a gateway on its next deploy, and where clearing is armed, a deploy to a gateway whose image cannot honour the flag is refused with a message naming the markers until the image is upgraded.
 - **Keep the key simple.** The tool requires only non-empty `namespace`/`markerId`; the character-shape rules are validated server-side (when a writer policy is saved and at deploy), not at this tool boundary. In practice, use lowercase alphanumerics with underscores or hyphens and avoid dots, slashes, and spaces, so the key is accepted everywhere it's referenced (registry entry, `writableKeySchema` name, and `session_writes` key must all match exactly — see Authoring the writer policy).
 - `minimumTtlSeconds` is the **intended floor** for a writer policy's `ttlSeconds`. Adjust later with `dtwo-update-marker`. (Whether the floor is enforced, and the keep-in-sync caveat, are stated once under Authoring the writer policy → `ttlSeconds` — the canonical note.)
 
@@ -479,7 +484,7 @@ A policy that emits a marker must declare the key in its `writableKeySchema` (on
 
 - `name` — the session-state key, matching the registered marker **exactly** (e.g. `marker:acme:pii_detected`). Keys are exact-match and never normalized, so this `name`, the `session_writes` key, and the registered marker FQID must be byte-identical (including case) or the write silently drops. The tool accepts any non-empty string; marker-key *shape* (allowed characters, reserved prefixes) is validated server-side on save/deploy, and registry *existence* is enforced at deploy time — the deploy fails on an unregistered key (see the Deploy-time validator note below).
 - `jsonSchema` — a **stringified JSON object** (a JSON Schema) for the value the policy writes. Rejected at the tool boundary if it doesn't parse as a JSON object (arrays and primitives fail). Use it strictly (`additionalProperties: false`, `required` lists) so drift is caught. Add `"x-d2-is-marker": true` for marker keys.
-- `ttlSeconds` — per-key TTL. For a marker key this **should** be ≥ the marker's registered `minimumTtlSeconds`, but keep them in sync manually: the floor is **not yet enforced** (no save-time or deploy-time check today), so a lower value currently saves, deploys, and simply expires early.
+- `ttlSeconds` — per-key TTL. For a marker key this **should** be ≥ the marker's registered `minimumTtlSeconds`, but keep them in sync manually: the floor is **not yet enforced** (no save-time or deploy-time check today), so a lower value currently saves, deploys, and simply expires early. **Every write resets the TTL**: a re-emission is an upsert that restarts the clock from that write, which is the intended behaviour (the restriction outlasts the *latest* trigger). It also means a writer that emits on every tool call never lets its marker expire — emit on the triggering condition, not unconditionally.
 - `onDrop` — behavior when a write fails the schema: `"drop"` (default) silently drops the write (best-effort markers); `"deny_request"` hard-denies the tool call (use for security-critical writes so bugs surface loudly instead of silently letting the call through).
 
 ```
@@ -520,7 +525,8 @@ What the shape means when you design a marker or word a deny reason:
 - **The clear is not a management tool.** It arrives as an argument-less tool on the platform tool surface the gateway injects — `clear_markers`, alongside `clear_intent` and `set_intent` (on the wire, `dtwo-platform-intent-clear-markers` — the federated name is hyphenated throughout). There is no `dtwo-*` call that lifts a marker, and nothing to declare per policy.
 - **No arguments, deliberately.** The agent cannot name a key, so it cannot choose the target. The confirm page enumerates what is actually live and unexpired in the caller's scope, and the person selects from that list.
 - **The approver must be the same identity as the caller.** The browser login is matched against the identity the agent is calling with, so a person clears their own session state — not another user's. One login authorizes exactly one clear.
-- **Markers and intent clear separately.** `clear_markers` offers every live `marker:` instance in scope, and flags one that is held by more than one writer — clearing a single holder leaves the marker standing, so each holder is acknowledged on its own. `clear_intent` only ever offers the platform-captured intent. An approved marker clear can never drop the intent, and the reverse holds too.
+- **A marker can opt out of clearing.** A registry entry with `clearable: false` is never offered: the confirm page lists only the markers the person can clear, and a commit that names a non-clearable one is refused. When nothing in the session can be cleared — no markers, or only non-clearable ones — the request itself answers so, in the tool result, without minting a link: nobody is sent through a fresh sign-in to an empty page. The answer names no markers; which ones are held is only ever shown after the sign-in. When you know a marker is non-clearable (check `dtwo-get-marker` / `dtwo-list-markers`), say so when the person asks about it, and word the writer's deny reason to point at the TTL only (see `dtwo-policy-rego` → Reading a marker).
+- **Markers and intent clear separately.** `clear_markers` offers every live clearable `marker:` instance in scope, and flags one that is held by more than one writer — clearing a single holder leaves the marker standing, so each holder is acknowledged on its own. `clear_intent` only ever offers the platform-captured intent. An approved marker clear can never drop the intent, and the reverse holds too.
 - **It is armed per gateway.** Clearing requires the `gateway.session_control` block in the gateway config, and that block should say so explicitly — `clearing: {enabled: true}` (see `dtwo-gateway-config`). Left implicit it arms only while intent capture is on and parks inert otherwise — a shape that leaves marker policies enforcing with no targeted way out of a marker. Unavailable looks two different ways: where clearing is not armed the platform clear tool may be **absent from your tool list entirely**, so there is nothing to call and no refusal to read; where it is present but unarmed, the request returns a readable "not configured on this gateway" refusal that points at the TTL. Handle both rather than assuming the flow is available. It fails closed throughout: nothing is ever half-cleared.
 - **Confirm before requesting.** The request is a state change with a person on the other end of it — ask first, as you would before any state-changing call, and never fire one speculatively to "reset" a session.
 - **The request, the authorization and the commit are each recorded** in the gateway's event stream, so a clear is answerable after the fact: who approved it, when, and which instances went.
@@ -635,7 +641,9 @@ The vocabulary you register is not only a management surface: it is shipped into
   ],
   "markers": [
     { "id": "marker:acme:pii_detected", "description": "…",
-      "minimum_ttl_seconds": 3600 }
+      "minimum_ttl_seconds": 3600,
+      "clearable": true,
+      "display_name": "No email after PII" }
   ],
   "compatibility": [
     { "intent": "acme:deploy", "excluded_marker": "marker:acme:pii_detected" }
@@ -644,7 +652,7 @@ The vocabulary you register is not only a management surface: it is shipped into
 ```
 
 - Entries are keyed by **FQID** (`id`) — the same `name` the registry tools return. No UIDs appear in the data document.
-- `markers[]` is there regardless of whether intent capture is enabled, so a marker-only gateway can still read it (e.g. to surface a marker's registered `description` or `minimum_ttl_seconds` in a message).
+- `markers[]` is there regardless of whether intent capture is enabled, so a marker-only gateway can still read it (e.g. to surface a marker's registered `description` or `minimum_ttl_seconds` in a message). Each entry carries `clearable` (`false`: never offered for clearing; see Clearing a marker) and, when set, `display_name`.
 - `transitions_to` / `transitions_from` are **omitted when the move is unrestricted** and `[]` when it is locked — treat a missing field as "no restriction", not as an error. `aliases` is simply omitted when the entry has none.
 - It is the tenant's whole vocabulary, not a slice for this gateway: an entry appearing here does not mean a policy on this gateway writes or reads it.
 - Registry edits reach a gateway on its **next policy deploy**, not immediately — the data file rides the same bundle as the policies.
