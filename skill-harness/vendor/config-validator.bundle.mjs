@@ -17134,6 +17134,16 @@ function isRenderableRedirectUri(value) {
   if (url2.protocol === "https:") return true;
   return url2.protocol === "http:" && REDIRECT_LOOPBACK_HOSTS.has(url2.hostname);
 }
+function firstAudienceHasOrigin(audience) {
+  const first = audience.split(",")[0]?.trim() ?? "";
+  let url2;
+  try {
+    url2 = new URL(first);
+  } catch {
+    return false;
+  }
+  return url2.host !== "" && (url2.protocol === "https:" || url2.protocol === "http:");
+}
 var SYMMETRIC_ALGORITHMS = ["HS256", "HS384", "HS512"];
 var ASYMMETRIC_ALGORITHMS = ["RS256", "RS384", "RS512", "ES256", "ES384", "ES512"];
 var JWT_ALGORITHM_TYPES = [...SYMMETRIC_ALGORITHMS, ...ASYMMETRIC_ALGORITHMS];
@@ -17495,15 +17505,16 @@ var SessionControlSchema = external_exports.object({
     message: "redirect_uri must be an absolute https:// URL (http:// only on localhost, 127.0.0.1, or [::1]) with no whitespace or control characters. It is rendered as a SESSION_CONTROL_REDIRECT_URI= line in the gateway env file; whitespace or a newline could inject a second assignment."
   }).optional().meta(
     meta3({
-      description: "Callback URL the browser clear ceremony redirects to, overriding the one the gateway derives from its own token audience. Must be an absolute `https://` URL (`http://` only on localhost, 127.0.0.1, or [::1]). Optional: leave it unset unless the browser reaches the gateway at a different origin than its audience. An explicit value always wins, and the platform allow-lists it verbatim on the IdP application.",
+      description: "Callback URL the browser clear ceremony redirects to, overriding the one the gateway derives from its own token audience. Must be an absolute `https://` URL (`http://` only on localhost, 127.0.0.1, or [::1]). Optional: leave it unset unless the browser reaches the gateway at a different origin than its audience, or the first `jwt_audience` is not an absolute URL. Required while clearing is armed when the first `jwt_audience` is not an absolute URL (there is no origin to derive the callback from). An explicit value always wins, and the platform allow-lists it verbatim on the IdP application.",
       target: "SESSION_CONTROL_REDIRECT_URI",
       audience: "user",
-      rationale: "Leave unset in almost all cases \u2014 the gateway derives `<origin of the first jwt_audience>/session-control/clear/callback` and the platform registers that. Set it when a reverse proxy or split-horizon DNS puts the browser on a different origin than the audience: give the URL the browser can actually reach, at the root path (`/mcp/*` routes to the streamable-HTTP handler, which rejects browser GETs)."
+      rationale: "Leave unset in almost all cases \u2014 the gateway derives `<origin of the first jwt_audience>/session-control/clear/callback` and the platform registers that. Set it when a reverse proxy or split-horizon DNS puts the browser on a different origin than the audience: give the URL the browser can actually reach, at the root path (`/mcp/*` routes to the streamable-HTTP handler, which rejects browser GETs). It is required when the first `jwt_audience` is not an absolute URL \u2014 e.g. an Entra ID v2.0 gateway, whose audience is the gateway app's client ID (a GUID) \u2014 since there is no origin to derive from, and the deploy rejects an armed gateway that leaves it unset."
     })
   ),
   // There is deliberately NO `issuer` field. The ceremony's issuer is always
   // `gateway.authentication.jwks_info.jwt_issuer` — the callback binds the
-  // inbound and browser-login identities as raw `iss|sub`, so any other value
+  // inbound and browser-login identities as raw `iss|<subject claim>` (`sub`, or `oid`
+  // on an Entra issuer), so any other value
   // makes every ceremony deterministically fail subject_mismatch. A field
   // whose only legal value is a copy of another field is pure misconfiguration
   // surface, so the deploy derives SESSION_CONTROL_ISSUER from jwt_issuer
@@ -17515,14 +17526,15 @@ var SessionControlSchema = external_exports.object({
   )
 }).strict().meta(
   meta3({
-    description: "Human-gated session clearing (session-control) registration: the IdP app the browser ceremony authenticates against. Arms the platform clear tools and the browser clear ceremony when `intent.enabled: true`, or when `clearing.enabled: true` on a gateway that uses markers without intent capture. A gateway using Dtwo authentication needs no credentials here \u2014 it gets its organization's platform-provisioned app \u2014 but prefer `clearing: {enabled: true}` over an empty block, so the block states what it does: an empty one arms only while `intent.enabled` is true and parks inert otherwise. `client_id` is only needed for a gateway trusting a customer-run IdP, and `redirect_uri` only for one the browser reaches at a different origin than its token audience. The ceremony issuer is not configured here \u2014 it is always `gateway.authentication.jwks_info.jwt_issuer` (the same tenant issues both the inbound tokens and the browser-login ID tokens), and the deploy derives `SESSION_CONTROL_ISSUER` from it.",
+    description: "Human-gated session clearing (session-control) registration: the IdP app the browser ceremony authenticates against. Arms the platform clear tools and the browser clear ceremony when `intent.enabled: true`, or when `clearing.enabled: true` on a gateway that uses markers without intent capture. A gateway using Dtwo authentication needs no credentials here \u2014 it gets its organization's platform-provisioned app \u2014 but prefer `clearing: {enabled: true}` over an empty block, so the block states what it does: an empty one arms only while `intent.enabled` is true and parks inert otherwise. `client_id` is only needed for a gateway trusting a customer-run IdP, and `redirect_uri` only for one the browser reaches at a different origin than its token audience, or whose first `jwt_audience` is not an absolute URL (where it is required). The ceremony issuer is not configured here \u2014 it is always `gateway.authentication.jwks_info.jwt_issuer` (the same tenant issues both the inbound tokens and the browser-login ID tokens), and the deploy derives `SESSION_CONTROL_ISSUER` from it.",
     crossFieldConstraints: [
       "`clearing.enabled` unset follows `gateway.intent.enabled`; an explicit `true` arms clearing even with intent capture off (the markers-only deployment).",
       "`clearing.enabled: false` while `gateway.intent.enabled: true` is rejected (clearing cannot be withdrawn where markers can block).",
       "While clearing is armed, `gateway.authentication` must be enabled with `jwks_info` \u2014 the ceremony binds every clear to the authenticated caller identity, so an unauthenticated inbound leg has nothing to bind.",
       "A gateway that authenticates against an IdP other than Dtwo's Auth0 must set `client_id`: the platform provisions a ceremony app only in its own tenant, and the deploy fails rather than arming a gateway whose ceremony has no application to authenticate against.",
       "`redirect_uri`, when set, replaces the callback the gateway would derive from the first entry of `jwt_audience`, and is the URL the platform allow-lists on the IdP application. Unset, ordering within a comma-separated `jwt_audience` decides the callback.",
-      "While clearing is armed, `jwt_issuer` must be a normalized HTTPS URL (it becomes the ceremony issuer via `SESSION_CONTROL_ISSUER`) and `jwt_audience` must not be blank."
+      "While clearing is armed, `jwt_issuer` must be a normalized HTTPS URL (it becomes the ceremony issuer via `SESSION_CONTROL_ISSUER`) and `jwt_audience` must not be blank.",
+      "While clearing is armed, `redirect_uri` is required when the first entry of `jwt_audience` is not an absolute `http(s)://` URL \u2014 for example an Entra ID v2.0 client ID or an `api://` Application ID URI: there is no browser-reachable origin to derive the callback from."
     ]
   })
 );
@@ -17576,7 +17588,7 @@ var GatewaySchema = external_exports.object({
     meta3({
       description: "ContextForge log level.",
       target: "LOG_LEVEL",
-      deployDefault: "DEBUG",
+      deployDefault: "INFO",
       audience: "user",
       rationale: "Raise to `DEBUG` or `TRACE` to diagnose a specific issue; lower to `WARNING` or `ERROR` to reduce log volume in production."
     })
@@ -17620,6 +17632,14 @@ var GatewaySchema = external_exports.object({
         code: "custom",
         path: ["authentication", "jwks_info", "jwt_audience"],
         message: "gateway.authentication.jwks_info.jwt_audience is blank (whitespace only). While clearing is armed the inbound leg must validate real tokens \u2014 a blank audience matches none, so no caller identity would ever reach the clear mint. Set the audience the IdP targets at this gateway."
+      });
+    }
+    const redirectUri = gw.session_control?.redirect_uri;
+    if (redirectUri === void 0 && jwks?.jwt_audience !== void 0 && jwks.jwt_audience.trim() !== "" && !firstAudienceHasOrigin(jwks.jwt_audience)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["session_control", "redirect_uri"],
+        message: "While clearing is armed, gateway.session_control.redirect_uri is required when the first gateway.authentication.jwks_info.jwt_audience entry is not an absolute http(s):// URL \u2014 for example an Entra ID v2.0 client ID or an api:// Application ID URI: there is no browser-reachable origin to derive the clear callback from. Set redirect_uri to the URL the browser reaches, e.g. https://<gateway-host>/session-control/clear/callback."
       });
     }
   }
@@ -18016,22 +18036,23 @@ var ConfigSchema = external_exports.preprocess(
   }).strict()
 );
 var MAX_CONFIG_LENGTH = 256 * 1024;
-function parseConfig(raw) {
+function loadConfigDocument(raw) {
   if (raw.length > MAX_CONFIG_LENGTH) {
     return {
       success: false,
       error: `Config exceeds the maximum supported length of ${MAX_CONFIG_LENGTH} characters.`
     };
   }
-  let parsed;
   try {
-    parsed = yaml.load(raw);
+    return { success: true, data: yaml.load(raw) };
   } catch (e) {
     return { success: false, error: `Invalid YAML: ${e instanceof Error ? e.message : String(e)}` };
   }
+}
+function validateConfigDocument(document) {
   let result;
   try {
-    result = ConfigSchema.safeParse(parsed);
+    result = ConfigSchema.safeParse(document);
   } catch (e) {
     return { success: false, error: `Invalid config: ${e instanceof Error ? e.message : String(e)}` };
   }
@@ -18039,6 +18060,11 @@ function parseConfig(raw) {
     return { success: false, error: result.error.toString() };
   }
   return { success: true, data: result.data };
+}
+function parseConfig(raw) {
+  const loaded = loadConfigDocument(raw);
+  if (!loaded.success) return loaded;
+  return validateConfigDocument(loaded.data);
 }
 
 // src/internal/validator-bundle-entry.ts

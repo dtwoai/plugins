@@ -37,6 +37,21 @@ describe('secrets', () => {
     assert.deepEqual(findSecretViolations(parsed, secretPaths), []);
   });
 
+  it('accepts a Vault reference', () => {
+    const parsed = {
+      mcp_servers: [{ authentication: { type: 'oauth', client_secret: '<<SLACK_CLIENT_SECRET>>' } }],
+    };
+    assert.deepEqual(findSecretViolations(parsed, secretPaths), []);
+  });
+
+  it('rejects a Vault reference with a fallback, and a scheme in front of one', () => {
+    assert.ok(SECRET_PLACEHOLDER_REGEX.test('<<GITHUB_TOKEN>>'));
+    assert.ok(!SECRET_PLACEHOLDER_REGEX.test('<<GITHUB_TOKEN|ghp_16C7e42F292c6912E7710c838347Ae178B4a>>'));
+    assert.ok(!SECRET_PLACEHOLDER_REGEX.test('Bearer <<GITHUB_TOKEN>>'));
+    assert.ok(!SECRET_PLACEHOLDER_REGEX.test('<<GITHUB-TOKEN>>'));
+    assert.ok(!SECRET_PLACEHOLDER_REGEX.test('<<GITHUB_TOKEN>'));
+  });
+
   it('accepts CHANGE_ME placeholder', () => {
     const parsed = {
       mcp_servers: [{ authentication: { type: 'bearer', token: 'CHANGE_ME' } }],
