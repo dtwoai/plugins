@@ -449,7 +449,7 @@ authentication:
 
 **Adding a secret.** No tool accepts a secret's value, so the user always types it into the Hub:
 
-1. Check `dtwo-list-vault-entries` with the `name` first. If an entry exists, reuse it.
+1. Check `dtwo-list-vault-entries` with the `name` first. The search covers every gateway, so check each match's scope: reuse an entry only if it is for all gateways or its `gatewayUid` is the gateway you're configuring. An entry kept on another gateway can't resolve here; if those are the only matches, create one for this gateway in the next step.
 2. Otherwise, write the reference into the config and call `dtwo-get-vault-secret-link` with the `name` (add `gatewayUid` to keep it on this gateway, and a short `description`). To replace an existing secret, pass only its `uid`.
 3. Give the user the link and ask them to paste the secret there and save. The form opens only while they are signed in to the same Dtwo organization as this MCP session.
 4. Once they say it's saved, confirm with `dtwo-list-vault-entries` by name, then validate.
@@ -458,7 +458,10 @@ Never ask for a secret in the chat. If the user pastes one anyway, don't pass it
 
 **Plain entries.** For a non-secret value used by several configs (an upstream URL, a timeout), `dtwo-create-vault-entry` stores it as given. A reference resolves to a string, so it can't fill a numeric or boolean field yet.
 
-**Changing a value.** Running gateways keep the old value until they are next deployed, so offer a redeploy after a value changes.
+**Changing a value.** Gateway config and sidecars pick up a new value at different times:
+
+- **Gateway config.** Running gateways keep the old value until they are next deployed, so offer a redeploy after a value changes.
+- **Sidecars.** A deploy doesn't rewrite a sidecar's environment, so a sidecar keeps the old value even after a redeploy. When a sidecar uses the changed entry, ask the user to run Update or Restart on that gateway in the Hub.
 
 **Drafting YAML for someone else to apply.** If the user wants a config to paste somewhere outside Dtwo rather than one saved to a gateway, a self-describing placeholder such as `REPLACE_WITH_GITHUB_TOKEN` is still acceptable there. Never use a placeholder in a config saved to a gateway: it deploys as literal text and the upstream rejects it.
 
