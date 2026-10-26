@@ -135,7 +135,7 @@
           "schemaDefault": null,
           "deployDefault": null,
           "target": null,
-          "description": "Human-gated session clearing (session-control) registration: the IdP app the browser ceremony authenticates against. Arms the platform clear tools and the browser clear ceremony when `intent.enabled: true`, or when `clearing.enabled: true` on a gateway that uses markers without intent capture. A gateway using Dtwo authentication needs no credentials here — it gets its organization's platform-provisioned app — but prefer `clearing: {enabled: true}` over an empty block, so the block states what it does: an empty one arms only while `intent.enabled` is true and parks inert otherwise. `client_id` is only needed for a gateway trusting a customer-run IdP, and `redirect_uri` only for one the browser reaches at a different origin than its token audience. The ceremony issuer is not configured here — it is always `gateway.authentication.jwks_info.jwt_issuer` (the same tenant issues both the inbound tokens and the browser-login ID tokens), and the deploy derives `SESSION_CONTROL_ISSUER` from it."
+          "description": "Human-gated session clearing (session-control) registration: the IdP app the browser ceremony authenticates against. Arms the platform clear tools and the browser clear ceremony when `intent.enabled: true`, or when `clearing.enabled: true` on a gateway that uses markers without intent capture. A gateway using Dtwo authentication needs no credentials here — it gets its organization's platform-provisioned app — but prefer `clearing: {enabled: true}` over an empty block, so the block states what it does: an empty one arms only while `intent.enabled` is true and parks inert otherwise. `client_id` is only needed for a gateway trusting a customer-run IdP, and `redirect_uri` only for one the browser reaches at a different origin than its token audience, or whose first `jwt_audience` is not an absolute URL (where it is required). The ceremony issuer is not configured here — it is always `gateway.authentication.jwks_info.jwt_issuer` (the same tenant issues both the inbound tokens and the browser-login ID tokens), and the deploy derives `SESSION_CONTROL_ISSUER` from it."
         },
         {
           "name": "log_level",
@@ -152,7 +152,7 @@
           ],
           "audience": "user",
           "schemaDefault": null,
-          "deployDefault": "DEBUG",
+          "deployDefault": "INFO",
           "target": "LOG_LEVEL",
           "description": "ContextForge log level.",
           "rationale": "Raise to `DEBUG` or `TRACE` to diagnose a specific issue; lower to `WARNING` or `ERROR` to reduce log volume in production.",
@@ -704,7 +704,7 @@
     {
       "path": "gateway.session_control",
       "title": "gateway.session_control",
-      "description": "Human-gated session clearing (session-control) registration: the IdP app the browser ceremony authenticates against. Arms the platform clear tools and the browser clear ceremony when `intent.enabled: true`, or when `clearing.enabled: true` on a gateway that uses markers without intent capture. A gateway using Dtwo authentication needs no credentials here — it gets its organization's platform-provisioned app — but prefer `clearing: {enabled: true}` over an empty block, so the block states what it does: an empty one arms only while `intent.enabled` is true and parks inert otherwise. `client_id` is only needed for a gateway trusting a customer-run IdP, and `redirect_uri` only for one the browser reaches at a different origin than its token audience. The ceremony issuer is not configured here — it is always `gateway.authentication.jwks_info.jwt_issuer` (the same tenant issues both the inbound tokens and the browser-login ID tokens), and the deploy derives `SESSION_CONTROL_ISSUER` from it.",
+      "description": "Human-gated session clearing (session-control) registration: the IdP app the browser ceremony authenticates against. Arms the platform clear tools and the browser clear ceremony when `intent.enabled: true`, or when `clearing.enabled: true` on a gateway that uses markers without intent capture. A gateway using Dtwo authentication needs no credentials here — it gets its organization's platform-provisioned app — but prefer `clearing: {enabled: true}` over an empty block, so the block states what it does: an empty one arms only while `intent.enabled` is true and parks inert otherwise. `client_id` is only needed for a gateway trusting a customer-run IdP, and `redirect_uri` only for one the browser reaches at a different origin than its token audience, or whose first `jwt_audience` is not an absolute URL (where it is required). The ceremony issuer is not configured here — it is always `gateway.authentication.jwks_info.jwt_issuer` (the same tenant issues both the inbound tokens and the browser-login ID tokens), and the deploy derives `SESSION_CONTROL_ISSUER` from it.",
       "fields": [
         {
           "name": "client_id",
@@ -730,8 +730,8 @@
           "schemaDefault": null,
           "deployDefault": null,
           "target": "SESSION_CONTROL_REDIRECT_URI",
-          "description": "Callback URL the browser clear ceremony redirects to, overriding the one the gateway derives from its own token audience. Must be an absolute `https://` URL (`http://` only on localhost, 127.0.0.1, or [::1]). Optional: leave it unset unless the browser reaches the gateway at a different origin than its audience. An explicit value always wins, and the platform allow-lists it verbatim on the IdP application.",
-          "rationale": "Leave unset in almost all cases — the gateway derives `<origin of the first jwt_audience>/session-control/clear/callback` and the platform registers that. Set it when a reverse proxy or split-horizon DNS puts the browser on a different origin than the audience: give the URL the browser can actually reach, at the root path (`/mcp/*` routes to the streamable-HTTP handler, which rejects browser GETs).",
+          "description": "Callback URL the browser clear ceremony redirects to, overriding the one the gateway derives from its own token audience. Must be an absolute `https://` URL (`http://` only on localhost, 127.0.0.1, or [::1]). Optional: leave it unset unless the browser reaches the gateway at a different origin than its audience, or the first `jwt_audience` is not an absolute URL. Required while clearing is armed when the first `jwt_audience` is not an absolute URL (there is no origin to derive the callback from). An explicit value always wins, and the platform allow-lists it verbatim on the IdP application.",
+          "rationale": "Leave unset in almost all cases — the gateway derives `<origin of the first jwt_audience>/session-control/clear/callback` and the platform registers that. Set it when a reverse proxy or split-horizon DNS puts the browser on a different origin than the audience: give the URL the browser can actually reach, at the root path (`/mcp/*` routes to the streamable-HTTP handler, which rejects browser GETs). It is required when the first `jwt_audience` is not an absolute URL — e.g. an Entra ID v2.0 gateway, whose audience is the gateway app's client ID (a GUID) — since there is no origin to derive from, and the deploy rejects an armed gateway that leaves it unset.",
           "targetKind": "envVar"
         },
         {
@@ -765,6 +765,9 @@
         },
         {
           "message": "While clearing is armed, `jwt_issuer` must be a normalized HTTPS URL (it becomes the ceremony issuer via `SESSION_CONTROL_ISSUER`) and `jwt_audience` must not be blank."
+        },
+        {
+          "message": "While clearing is armed, `redirect_uri` is required when the first entry of `jwt_audience` is not an absolute `http(s)://` URL — for example an Entra ID v2.0 client ID or an `api://` Application ID URI: there is no browser-reachable origin to derive the callback from."
         }
       ]
     },

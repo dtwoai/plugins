@@ -113,6 +113,20 @@ See **Quick start** above for the create→attach→deploy path and **Creating a
 | `dtwo-delete-policy` | Permanently delete a policy by UID. Fails if the policy is still attached to one or more gateways — detach it from every gateway first (see Deleting a Policy). Distinct from `dtwo-revert-policy`, which only restores a prior version |
 | `dtwo-list-claims` | Return the union of JWT claim names observed across the tenant, plus the issuers seen. Defaults to tenant-wide; pass `gatewayUid` to scope to a single gateway when the user asks. Call this when authoring or modifying identity-aware policies so rules can reference claims that actually exist; skip for policies that don't read `input.subject.claims`. |
 
+### Catalog Policy Tools
+
+The policy catalog holds ready-made policies a tenant can import. An imported policy remembers which catalog version it came from, so later catalog changes can be offered as updates.
+
+| Tool | Purpose |
+|------|---------|
+| `dtwo-list-catalog-policies` / `dtwo-get-catalog-policy-filters` / `dtwo-get-catalog-policy` | Browse the catalog, the filters it supports, and one entry |
+| `dtwo-import-catalog-policy` | Import a catalog policy as a tenant policy |
+| `dtwo-check-policy-updates` | Compare imported policies with the catalog. Each reports `upToDate`, `updateAvailable`, or `removedUpstream`, plus `skipped` when the tenant already dismissed that exact version |
+| `dtwo-apply-catalog-policy-update` | Pull the newer catalog version into the policy's **draft**. `applyPolicyCode` and `applyDescription` (both default `true`) choose which parts to replace; the result includes a diff of the Rego. No version is published unless `publish` is set. Call it only after the user has decided how to resolve the update |
+| `dtwo-skip-policy-update` | Dismiss an available update until a newer catalog version appears. Doesn't change the policy, and the update can still be applied later |
+
+Never apply a catalog update on your own initiative. Show the user what changed (`dtwo-check-policy-updates`, then the diff), and remember that a pipeline step pinned to a published version keeps running the old Rego until the update is published and the gateway redeployed.
+
 ### Marker Registry Tools
 
 Markers are session-state flags that one policy writes and other policies read to gate on (see Managing Markers). These tools are **always registered** on the Dtwo MCP server — they do not depend on any feature flag.
@@ -366,6 +380,7 @@ After deploying a gateway:
 4. Test individual policies in isolation first, then test the full pipeline — ordering of policies in a pipeline can affect the result (e.g., a transform in an earlier step may change data that a later step evaluates)
 5. If a policy isn't working as expected:
    - **Blanket denies** (all tools blocked) — start with the Rego itself: a `default allow := false` with no rule that matches, or a syntax error anywhere in the bundle, which makes OPA fall back to denying everything. A step's `evalNamespace` differing from the policy's `package` is not a cause: the two are unrelated.
+   - **See what the gateway decided.** `dtwo-search-recent-events` returns the gateway's OPA policy decisions, errors, and auth events from about the last 30 days. Narrow it by event type, level, or gateway, and call `dtwo-get-event-schema` for the filterable fields. Matching is exact, so filter by fields rather than by words in the message. Use `dtwo-search-events` only for anything older; it is much slower
    - For deeper debugging, see the debugging guidance in the companion `dtwo-policy-rego` instructions (debug policies, blanket deny diagnosis)
 
 ## End-to-End Example
