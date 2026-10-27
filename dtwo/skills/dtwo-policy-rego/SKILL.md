@@ -885,9 +885,11 @@ This lets you compose small single-purpose policies that signal to each other wi
 - **Writer policy** — inspects the current call (arguments, response text, identity, whatever) and stamps a marker when a condition is met.
 - **Reader policy** — checks whether a marker is set and allows/denies/transforms accordingly. The writer and reader can attach to different tools, different directions, and different upstream servers.
 
+To the person in the session, the marker together with its writer and reader is one **safeguard**: use that word in anything they read (deny reasons, the marker's display name and description) and keep "marker" for Rego, the registry and the admin. One marker is read by one reader policy, and one reader gates one tool or action — a trigger that should restrict several things writes one marker per restricted tool (see One trigger, several restrictions below), so each can be disabled on its own.
+
 Start with the simplest shape — a **boolean flag** whose *presence* is the whole signal (the PII example below). Value-carrying markers (counters, structured payloads) are more advanced and rarely needed; a self-incrementing counter, for instance, has to read its own prior value and re-emit every call, which keeps refreshing the TTL.
 
-Registering the marker vocabulary, attaching the `writableKeySchema`, and deploying are lifecycle operations owned by the companion `dtwo-gateway-policy` instructions (Managing Markers). This section covers only the **Rego**.
+Registering the marker vocabulary, attaching the `writableKeySchema`, and deploying are lifecycle operations owned by the companion `dtwo-gateway-policy` instructions (Managing Markers). This section covers only the **Rego**. Two numbers in that lifecycle are the user's to give, not yours to pick: the TTL (`minimumTtlSeconds` on the marker, `ttlSeconds` on the writer's schema) and whether the marker is `clearable`. If nobody has asked the user yet, ask before you write the schema.
 
 ### Marker vs. general session key
 
@@ -931,8 +933,9 @@ _pii_email_found if {
     regex.match(_email_pattern, text)
 }
 
-# Stamp the marker when PII is observed in the response
-session_writes["marker:acme:pii_detected"] := marker_value if {
+# Stamp the marker when PII is observed in the response. `marked_at` is what
+# the reader turns into the time remaining it shows the person.
+session_writes["marker:acme:no_slack_after_pii"] := marker_value if {
     _pii_email_found
     marker_value := {
         "marked_at": time.now_ns(),
@@ -942,6 +945,15 @@ session_writes["marker:acme:pii_detected"] := marker_value if {
 ```
 
 A writer is usually a `default allow := true` policy — it observes and stamps, it does not block. (A single policy *can* both deny and write, but prefer separate concerns.)
+
+**One trigger, several restrictions.** When the same event should restrict more than one thing, the writer emits one key per restriction — the same value, one `session_writes` rule each — and declares every key in its `writableKeySchema` (a write to an undeclared key is dropped; the two-entry JSON under Markers that grant → One read, two markers shows the shape). Each key has its own reader policy, so the person can get one restriction disabled while the others stand. Do not collapse this into one reader that gates a set of tools on one key: that reads as tidier Rego, but it means the person can only get all of those tools back at once. One restricted tool, one marker, one reader:
+
+```rego
+_value := {"marked_at": time.now_ns(), "source_action": input.resource.name}
+
+session_writes["marker:acme:no_slack_after_pii"] := _value if { _pii_email_found }
+session_writes["marker:acme:no_email_after_pii"] := _value if { _pii_email_found }
+```
 
 **The write only happens when the trigger matches.** The `if { ... }` body gates the write like any other rule, so it uses the same request-matching as the rest of this skill: compare tool names case-insensitively (`lower(input.resource.name) == "<server>-<tool>"`, with the server-name prefix), read args via `object.get(input.payload.args, ...)`, and inspect response content via `input.payload.text` on egress. A writer whose trigger never matches (wrong case, missing server prefix, wrong direction) stamps nothing — and there's no error, just an absent marker. Confirm the exact tool name and payload shape with the dump-input technique (see Debugging Policies) before relying on the trigger.
 
@@ -964,44 +976,9 @@ session_writes["marker:acme:jira_access"] := {
 
 ### Reading a marker
 
-Active session state is exposed to a policy at `input.context.session.policies`, shaped as `policies[<writer_uid>][<key>] = <value>` — an outer object keyed by the UID of the policy that wrote each key, and under each writer the keys it wrote (a marker key `marker:<ns>:<id>` maps to the object the writer emitted). A marker is stored under the **writer policy's UID**, so the read walks all writer slots and treats the key as truthy if any writer set it:
+Active session state is exposed to a policy at `input.context.session.policies`, shaped as `policies[<writer_uid>][<key>] = <value>` — an outer object keyed by the UID of the policy that wrote each key, and under each writer the keys it wrote (a marker key `marker:<ns>:<id>` maps to the object the writer emitted). A marker is stored under the **writer policy's UID**, so the read walks all writer slots and treats the key as truthy if any writer set it.
 
-```rego
-package acme.ingress.pii_gate
-
-import future.keywords.if
-
-default allow := true
-
-_pii_active if {
-    some writer_uid
-    input.context.session.policies[writer_uid]["marker:acme:pii_detected"]
-}
-
-# Block outbound Slack sends once PII was seen anywhere in this session
-allow := false if {
-    lower(input.resource.name) == "slack-mcp-slack-send-message"
-    _pii_active
-}
-
-reason := "PII was detected earlier in this session, so outbound Slack sends are blocked. To lift the block now, ask your agent to disable this safeguard and approve it in your browser; otherwise it lifts when it expires." if {
-    lower(input.resource.name) == "slack-mcp-slack-send-message"
-    _pii_active
-}
-```
-
-- The walk-all-writers pattern (`some writer_uid; input.context.session.policies[writer_uid][key]`) is "present under *any* writer is truthy." To trust only a specific writer, filter on `writer_uid == "<known-uid>"`.
-- **This pattern is for reading *marker* keys only.** Do **not** use it — or any direct `input.context.session.policies` read — to read the platform **intent** (see Intent-capture policies → Reading the session intent). "Present under any writer" is exactly wrong for intent: a tenant policy could stamp an intent-shaped value under its own writer slot and a walk-all-writers read would honour it, spoofing the session intent. Read intent only through the platform helper, which is pinned to the trusted intent-capture slot.
-- **Deny reasons are user-visible — give the path out, fastest first.** State what happened and what the person can do about it. The person knows a marker as a **safeguard**, so the reason says "safeguard", not "marker". A safeguard has two exits, and they are not equal: **disabling it with human approval** lifts it in under a minute, and **TTL expiry** lifts it eventually. Offer disabling first and keep TTL as the fallback — a reason that mentions only the TTL tells someone to wait an hour for something they could have resolved immediately. Phrase it so it reads correctly either way ("ask your agent to disable this safeguard … otherwise it lifts when it expires"). Address the ask to the person's agent, not the person: the only way to start is the platform `disable_safeguards` tool call, so someone reading your reason in a log or the Hub has nothing to click. Keep the TTL half of the sentence even so — clearing is armed per gateway, and where it is not armed the clear tool may be missing from the agent's tool list altogether, or present but answering with a readable "not configured on this gateway" refusal; either way the TTL is the exit that still holds. Word it as a recovery the person authorizes, not as a way around the decision — the clear needs their explicit approval in a browser precisely so an agent cannot use it to shrug off a block (see `dtwo-gateway-policy` → Clearing a marker for the mechanics and the reasoning).
-- **A non-clearable marker has one exit, so say only that.** If the marker's registry entry has `clearable: false` (check `dtwo-get-marker` or `dtwo-list-markers`; the default is `true`), the human-approved clear is refused for it and the clear request is answered without a sign-in link, so a reason that offers the clear promises something the person cannot get. Write the TTL as the whole answer: "… blocked until this safeguard expires". Don't state a *time remaining*: a policy sees only the marker's value, not when it was written or when it expires, and a hard-coded TTL in the policy can drift from the registry. The flag is part of the vocabulary entry every reader is written against, so treat it as a decision made at registration, not a toggle.
-- **Avoid "start a new session"** — marker state is scoped to tenant + user and survives reconnecting, so a new session for the same user won't clear it.
-- **Never build a reason out of the session intent.** A reason may say *that* the current intent failed a gate; it must not carry the intent itself — do not interpolate `current_intent(input)` or its `description` into `reason` or into a transform. Name the rule that fired instead. Full rule under Intent-capture policies → Reading the session intent.
-
-### Reading the registry (`data.dtwo.intent_registry`)
-
-The marker (and, where enabled, intent) vocabulary is shipped into every gateway's policy bundle as OPA base data at `data.dtwo.intent_registry`, in the same atomic deploy as the Rego — so a policy can consult the registry at decision time instead of hard-coding what it knows about a key. The document is always defined and always fully shaped (empty arrays for an empty tenant), so a read needs no "registry missing" branch; a *specific* entry can of course be absent.
-
-The reader from **Reading a marker** above, with its message sourced from the registry instead of a string pasted into the policy:
+A reader does two jobs: the gate (deny while the marker is present) and the deny reason the person reads. The reason says what triggered the restriction, how long it has left, and whether they can ask to have it disabled. The writer's `marked_at` supplies the clock; the registry (`data.dtwo.intent_registry`, see Reading the registry) supplies the TTL and the `clearable` flag; `data.dtwo.lib.intent_match.clearing_armed` says whether disabling exists on this gateway at all:
 
 ```rego
 package acme.ingress.pii_gate
@@ -1011,37 +988,97 @@ import future.keywords.in
 
 default allow := true
 
-_key := "marker:acme:pii_detected"
+_key := "marker:acme:no_slack_after_pii"
 
-_pii_active if {
+_active if {
     some writer_uid
     input.context.session.policies[writer_uid][_key]
 }
 
-# The registered description, so the message tracks the registry rather
-# than a string pasted into the policy. The `default` is load-bearing:
-# without it an unregistered key leaves the whole `reason` undefined.
-default _registered_description := "a sensitive-data marker is set on this session"
+# Registry lookups. Each has a default, so an unregistered key or an older
+# bundle never leaves `reason` undefined (the call would deny with no message).
+default _ttl_seconds := 3600  # keep equal to the registered minimumTtlSeconds
 
-_registered_description := d if {
+_ttl_seconds := m.minimum_ttl_seconds if {
     some m in data.dtwo.intent_registry.markers
     m.id == _key
-    d := m.description
 }
+
+# Offer disabling only when the marker is clearable AND clearing is armed on this gateway.
+default _can_disable := false
+
+_can_disable if {
+    some m in data.dtwo.intent_registry.markers
+    m.id == _key
+    m.clearable
+    data.dtwo.lib.intent_match.clearing_armed
+}
+
+# Newest write across writers: every write restarts the TTL, so it is the clock's
+# anchor. Tolerate values other writers may have left under the key.
+_marked_at := max([t |
+    some writer_uid
+    v := input.context.session.policies[writer_uid][_key]
+    is_object(v)
+    t := object.get(v, "marked_at", 0)
+    is_number(t)
+    t > 0
+])
+
+_minutes_left := ceil(max([_ttl_seconds - ((time.now_ns() - _marked_at) / 1000000000), 0]) / 60)
+
+default _remaining := "It lifts when this safeguard expires."
+
+_remaining := sprintf("Time remaining: %v minutes.", [_minutes_left]) if { _minutes_left }
+
+default _exit := "This safeguard cannot be disabled early."
+
+_exit := "You can ask to have this safeguard disabled." if { _can_disable }
 
 allow := false if {
     lower(input.resource.name) == "slack-mcp-slack-send-message"
-    _pii_active
+    _active
 }
 
-reason := sprintf("Blocked: %s. To lift the block now, ask your agent to disable this safeguard and approve it in your browser; otherwise it lifts when it expires.", [_registered_description]) if {
+reason := sprintf("Posting to Slack is blocked because PII was seen in this session. %s %s", [_remaining, _exit]) if {
     lower(input.resource.name) == "slack-mcp-slack-send-message"
-    _pii_active
+    _active
+}
+```
+
+- The walk-all-writers pattern (`some writer_uid; input.context.session.policies[writer_uid][key]`) is "present under *any* writer is truthy." To trust only a specific writer, filter on `writer_uid == "<known-uid>"`.
+- **This pattern is for reading *marker* keys only.** Do **not** use it — or any direct `input.context.session.policies` read — to read the platform **intent** (see Intent-capture policies → Reading the session intent). "Present under any writer" is exactly wrong for intent: a tenant policy could stamp an intent-shaped value under its own writer slot and a walk-all-writers read would honour it, spoofing the session intent. Read intent only through the platform helper, which is pinned to the trusted intent-capture slot.
+- **Deny reasons are user-visible — say three things, in this order.** *What triggered it*, *the time remaining*, *the exit*: "Posting to Slack is blocked because PII was seen in this session. Time remaining: 42 minutes. You can ask to have this safeguard disabled." The person knows a marker as a **safeguard**, so the reason says "safeguard", never "marker", and names no tool, claim or key.
+- **What triggered it** is the restriction and its cause in the person's words. The registered `description` is written to be exactly this sentence, so you can take it from the registry instead of typing it (see Reading the registry); then the deny reason and the disable page say the same thing.
+- **Time remaining is derived, not read.** A policy sees only the marker's value — not when it was written or when it expires. So the writer stamps `marked_at` (`time.now_ns()`, kept an integer) and the reader subtracts it from now and from the registered `minimum_ttl_seconds` — which is why the writer's `ttlSeconds` must equal that registry value. Take the newest `marked_at` across writers: every write restarts the TTL. When the value carries no `marked_at` (a writer you don't own, a hand-written value), fall back to "it lifts when this safeguard expires" rather than guessing, and never hard-code the TTL in the reader: it drifts from the registry.
+- **Offer disabling only where it exists.** Say "you can ask to have this safeguard disabled" only when the registry entry is `clearable` **and** `data.dtwo.lib.intent_match.clearing_armed` is true — clearing is armed per gateway, and where it is not, the disable tool is missing from the agent's tool list or answers with a "not configured on this gateway" refusal, so the sentence would promise something the person cannot get. Otherwise say the safeguard cannot be disabled early; the time remaining is then the whole answer. The helper is defined in every current bundle; on an older bundle it is undefined, which the `default` handles (conservatively: no offer). Word it as something the person asks for — their agent starts it with the platform `disable_safeguards` tool, and someone reading the reason in a log or the Hub has nothing to click. Never offer disabling as a way around the decision: the person approves it in a browser precisely so an agent cannot shrug off a block (see `dtwo-gateway-policy` → Clearing a marker).
+- **Avoid "start a new session"** — marker state is scoped to tenant + user and survives reconnecting, so a new session for the same user won't clear it.
+- **Never build a reason out of the session intent.** A reason may say *that* the current intent failed a gate; it must not carry the intent itself — do not interpolate `current_intent(input)` or its `description` into `reason` or into a transform. Name the rule that fired instead. Full rule under Intent-capture policies → Reading the session intent.
+
+### Reading the registry (`data.dtwo.intent_registry`)
+
+The marker (and, where enabled, intent) vocabulary is shipped into every gateway's policy bundle as OPA base data at `data.dtwo.intent_registry`, in the same atomic deploy as the Rego — so a policy can consult the registry at decision time instead of hard-coding what it knows about a key. The document is always defined and always fully shaped (empty arrays for an empty tenant), so a read needs no "registry missing" branch; a *specific* entry can of course be absent.
+
+The reader under **Reading a marker** already consults the registry for `minimum_ttl_seconds` and `clearable`. The same lookup can supply the first sentence of the reason, so the deny reason and the disable page say the same thing — the registered `description` is written for exactly that (see `dtwo-gateway-policy` → Registering a marker):
+
+```rego
+# Registered description as the first sentence. The `default` is load-bearing:
+# without it an unregistered key leaves the whole `reason` undefined.
+default _what := "Posting to Slack is blocked because PII was seen in this session."
+
+_what := m.description if {
+    some m in data.dtwo.intent_registry.markers
+    m.id == _key
+}
+
+reason := sprintf("%s %s %s", [_what, _remaining, _exit]) if {
+    lower(input.resource.name) == "slack-mcp-slack-send-message"
+    _active
 }
 ```
 
 - Entries are keyed by **FQID** (`id`) — `marker:<ns>:<id>` for markers, `<ns>:<name>` for intents. No UIDs appear in the data document.
-- `markers[]` carries `id`, `description`, `minimum_ttl_seconds`, `clearable` (`false`: the human-approved clear never offers it; see Reading a marker) and, when set, `display_name`; `intents[]` carries `id`, `description`, and optionally `aliases` / `transitions_to` / `transitions_from`; `compatibility[]` carries `intent` and `excluded_marker`. A transitions field is **omitted when unrestricted** and `[]` when locked — treat missing as "no restriction".
+- `markers[]` carries `id`, `description`, `minimum_ttl_seconds` (what the reader's time remaining is computed against), `clearable` (`false`: the human-approved clear never offers it; see Reading a marker) and, when set, `display_name`; `intents[]` carries `id`, `description`, and optionally `aliases` / `transitions_to` / `transitions_from`; `compatibility[]` carries `intent` and `excluded_marker`. A transitions field is **omitted when unrestricted** and `[]` when locked — treat missing as "no restriction".
 - Registry text is authored by your own admins, so it is safe to surface in a reason — unlike the session intent, which must never be echoed (see Reading the session intent).
 - **Give any registry-derived string a fallback** — the `default` line above is not decoration. A lookup that finds nothing is *undefined*, not empty, and an undefined term makes the whole `reason` undefined: the call still denies, but the person sees no message at all. A `default` on the lookup rule fixes it, as does a second `reason` rule that omits the lookup.
 - Registry edits reach the gateway on its **next policy deploy**, not immediately.
@@ -1065,9 +1102,9 @@ that unlocks something makes its writer an authorization decision point:
 
 ```rego
 # Deny direction — "did anyone see PII?" Any writer may answer.
-_pii_active if {
+_active if {
     some writer_uid
-    input.context.session.policies[writer_uid]["marker:acme:pii_detected"]
+    input.context.session.policies[writer_uid]["marker:acme:no_slack_after_pii"]
 }
 
 # Allow direction — "did THE reviewer policy record this?" Exactly one writer may answer.
@@ -1266,7 +1303,8 @@ Marker-key *shape* is validated server-side (the backend on save, and at deploy)
 - **`time.now_ns()` must stay an integer.** Use `time.now_ns()` raw for timestamp fields typed `integer` in the schema. Dividing in Rego (e.g. `time.now_ns() / 1000000`) produces a **float**, which fails a `"type": "integer"` schema — and with `onDrop: "deny_request"` that silently-authored bug will block the tool call.
 - **Match the key exactly.** The `session_writes` key, the `writableKeySchema` `name`, and the registered marker FQID must all be the identical `marker:<namespace>:<id>` string. A mismatch drops the write.
 - **Multiple writers land in separate slots.** If two policies declare and emit the same key, each write lands under its own writer UID; the walk-all-writers read finds either. Prefer one canonical writer per marker.
-- **Reads fail open on absent state.** If `input.context.session.policies` is missing or the marker was never written, the `_pii_active` helper simply doesn't match — the reader allows. Structure high-sensitivity gates so the *presence* of the marker is what denies, not its absence (that's the intended semantics: no signal → nothing to block). A marker that *grants* a capability inverts this and must read fail-closed instead — see **Markers that grant**.
+- **Reads fail open on absent state.** If `input.context.session.policies` is missing or the marker was never written, the `_active` helper simply doesn't match — the reader allows. Structure high-sensitivity gates so the *presence* of the marker is what denies, not its absence (that's the intended semantics: no signal → nothing to block). A marker that *grants* a capability inverts this and must read fail-closed instead — see **Markers that grant**.
+- **Time arithmetic makes floats.** `(time.now_ns() - marked_at) / 1000000000` is a float; wrap the result in `ceil` or `floor` before `sprintf` and print it with `%v`. Never write a derived time back into an `integer` schema field — the stored `marked_at` stays the raw `time.now_ns()`.
 
 ## Intent-capture policies (conditional — feature-gated)
 

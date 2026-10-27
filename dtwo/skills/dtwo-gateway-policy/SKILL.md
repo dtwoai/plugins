@@ -58,7 +58,7 @@ Match the user's goal to the **smallest** mechanism that solves it, then follow 
 Guidance:
 
 - **Prefer one policy.** If a single call carries everything needed to decide, a single ingress or egress policy is the answer — don't reach for markers.
-- **Markers are for cross-call state**, not for anything decidable from the current call alone. They add a second policy and a registry entry, so use them only when the decision genuinely depends on earlier session activity.
+- **Markers are for cross-call state**, not for anything decidable from the current call alone. They add a second policy and a registry entry, so use them only when the decision genuinely depends on earlier session activity. The moment you decide on a marker, two answers must come from the user before anything is registered: how long the restriction lasts, and whether the person can disable it early. Never choose either yourself (see Managing Markers → Registering a marker).
 - **Intent is for session-purpose gating** and is only available when the intent tools are present. If they are not, solve the request with policies and markers and do not mention intent.
 - **Compose small policies over one large one** — the companion `dtwo-policy-rego` skill explains why (single-concern policies are easier to test, order, and debug).
 
@@ -135,7 +135,7 @@ Markers are session-state flags that one policy writes and other policies read t
 |------|---------|
 | `dtwo-list-markers` | List markers in the registry (optional filters: `name` for exact FQID, `tag`). Returns the marker *vocabulary*, not which markers are currently active on a session |
 | `dtwo-get-marker` | Fetch a single marker by UID |
-| `dtwo-create-marker` | Create a customer-tier marker (requires `namespace`, `markerId`, `description`, `minimumTtlSeconds`; optional `tags`, `clearable` — default `true`; `false` means the user cannot lift the marker through the clear flow and it leaves the session only when its TTL expires — and `displayName`, the name the user sees on the clearing page with the key beneath it). Full key is `marker:<namespace>:<markerId>`. The tool requires only non-empty `namespace`/`markerId`; character-shape rules are validated server-side, not at the tool boundary. `internal` and `dtwo` namespaces are reserved for platform markers |
+| `dtwo-create-marker` | Create a customer-tier marker (requires `namespace`, `markerId`, `description`, `minimumTtlSeconds`; optional `tags`, `clearable` — default `true`; `false` means the user cannot lift the marker through the clear flow and it leaves the session only when its TTL expires — and `displayName`, the name the person sees on the disable-safeguards page and in the Hub, with the key beneath it). Full key is `marker:<namespace>:<markerId>`. The tool requires only non-empty `namespace`/`markerId`; character-shape rules are validated server-side, not at the tool boundary. `internal` and `dtwo` namespaces are reserved for platform markers |
 | `dtwo-update-marker` | Update mutable fields on a customer-tier marker (`description`, `displayName`, `tags`, `minimumTtlSeconds`, `clearable`). Changes reach a gateway on its next deploy |
 | `dtwo-delete-marker` | Delete a customer-tier marker. Platform-managed entries cannot be deleted |
 
@@ -463,6 +463,10 @@ After publishing, call `dtwo-set-gateway-pipelines` again with `policyVersion: 1
 
 Markers are session-state flags that policies write and later policies read to gate on. They give the gateway a shared, tenant- and user-scoped, TTL-bounded "notepad" that survives across tool calls and across upstream MCP servers — a marker written during a Slack call is visible during a later Jira call for the same user (until it expires or is cleared). Use them to compose small single-purpose policies that signal to each other without shared code: a **writer** policy stamps a marker when it observes something (PII in a response, a production resource touched), and a **reader** policy on a different tool/pipeline/server gates on it.
 
+**Before you register anything, ask.** Stop and put two questions to the user, in plain words, and wait for the answers: *how long should the restriction last after the trigger?* (the TTL) and *should the person be able to disable it themselves, or only wait it out?* (`clearable`). Then count the restrictions: one marker for each tool or action the person is kept from, never one marker for the set. An agent that registers a marker with a TTL it picked, or one marker gating two tools, has not followed this skill — Registering a marker below has the full rules.
+
+**Two vocabularies.** With you, in the Hub, in the registry tools and in Rego, this is a *marker*. To the person in the session, a marker together with the policy that writes it and the policy that enforces it is a *safeguard*, and lifting it early is *disabling* it. Everything that person reads — the marker's `displayName` and `description`, every deny reason an enforcement policy returns — uses the safeguard words and never says "marker".
+
 Marker tools are always available (they do not require `enable_intent_tools`). The full lifecycle — register, author writer + reader, attach, deploy — runs through this skill plus `dtwo-policy-rego` for the Rego. The Rego authoring patterns (emitting `session_writes["marker:<ns>:<id>"]`, walking `input.context.session.policies` to read, and the `writableKeySchema` gotchas) live in the companion `dtwo-policy-rego` instructions — load that skill for the writer/reader bodies.
 
 **Marker vs. general session key.** A registered marker is the right tool when the signal is meant to be **shared across policies** (a different policy reads it) or wants to be a registered, discoverable, governed session-wide indicator. For state that is **targeted to a single policy or one coordinated ingress/egress set**, an unregistered *general session key* (a bare `session_writes` key, no `marker:` prefix, no registry entry) is the lighter choice. Neither is access-isolated, and the bare keyspace isn't namespaced — see the decision table in `dtwo-policy-rego` → Session State & Markers → "Marker vs. general session key" before choosing.
@@ -473,23 +477,36 @@ Marker tools are always available (they do not require `enable_intent_tools`). T
 
 ### Registering a marker
 
-Register the marker in the vocabulary before any policy references it. **Before you call it, ask the user whether the person the marker blocks should be able to clear it** (see Clearing a marker). The default is yes; say no only for a marker whose whole point is that nobody lifts it early — a legal hold, a confirmed-breach lockdown, a regulatory cooling-off period:
+Register the marker in the vocabulary before any policy references it. The registry entry is also what the person sees when they are blocked or asked to disable a safeguard, so settle four things with the user before the call:
+
+**1. Ask how long the restriction should last.** This is the marker's TTL: `minimumTtlSeconds` on the registry entry and `ttlSeconds` on the writer's `writableKeySchema` — set both to the same number. Ask in plain terms ("after PII shows up, how long should Slack posts stay blocked?"). If the user has no view, propose a value (an hour is a common starting point) and say what it means: the clock restarts every time the trigger fires, and the time remaining is what the person sees in deny reasons and on the disable page. Don't pick a TTL silently.
+
+**2. Ask whether the person can disable it.** This is `clearable` (see Clearing a marker). The default is yes; say no only for a marker whose whole point is that nobody lifts it early — a legal hold, a confirmed-breach lockdown, a regulatory cooling-off period. Decide it now: reader policies word their deny reasons against it, so changing it later means revisiting them.
+
+**3. One marker per restriction.** A restriction is one tool or action the person is kept from, and each one gets its own marker, written by the trigger policy and read by its own enforcement policy. When one trigger should restrict several things, count the restrictions first: "after a PII pull, block Slack posts and email" is two, so register "No Slack after PII" and "No email after PII" — the detector writes both keys, the Slack gate reads one and the email gate the other. The disable page then offers each separately, so the person can lift the email restriction while Slack stays blocked, and each can carry its own TTL and `clearable`. Two ways to get this wrong, both of which weld the restrictions together so they can only be disabled as a set: reusing one marker across several enforcement policies, and folding several tools into a single enforcement policy on a single marker. The test is the disable page: if the person could reasonably want one of the tools back while the other stays blocked, they are separate restrictions and need separate markers, even when the trigger, TTL and wording are identical. Only tools that are genuinely one capability (several read tools on the same data, say) share a marker.
+
+**4. Name it for the restriction, in the person's words.** The key, the `displayName` and the `description` all say what is restricted and why — not the trigger alone, and not the mechanism:
+
+- `markerId` — short and restriction-first: `no_slack_after_pii`, `no_email_after_phi_pull`. It is what Rego and `writableKeySchema` reference, and it appears beneath the display name wherever the person sees the safeguard.
+- `displayName` — the headline: "No Slack after PII", "No email after PHI pull".
+- `description` — one or two sentences giving the restriction and the trigger: "Posting to Slack is not allowed after PII was seen in a tool response in this session." Write it so an enforcement policy can use it verbatim as the first sentence of its deny reason (see `dtwo-policy-rego` → Reading the registry); then the deny reason and the disable page say the same thing.
+- All three are end-user text: say "safeguard", never "marker", and keep tool and claim names out of them.
 
 ```
 dtwo-create-marker(
   namespace = "acme",
-  markerId  = "pii_detected",
-  description = "Session received PII in a tool response",
-  minimumTtlSeconds = 3600,
-  clearable = true,       # optional; the default
-  displayName = "No email after PII"   # optional; what the user sees, key beneath
+  markerId  = "no_slack_after_pii",
+  displayName = "No Slack after PII",
+  description = "Posting to Slack is not allowed after PII was seen in a tool response in this session.",
+  minimumTtlSeconds = 3600,   # the user's answer to question 1
+  clearable = true            # the user's answer to question 2 (the default)
 )
 ```
 
-- The full key is `marker:acme:pii_detected`. Customer markers live under any namespace except the reserved `internal` and `dtwo`.
-- `displayName` is what the person sees on the clearing page and in the Hub's Markers list, with the key beneath it as the identifier. Name it for what it restricts and why ("No email after PII"), not for the trigger alone; `description` carries the longer explanation. It must be unique across your organization, ignoring case, so a duplicate is refused. Leave it empty and those surfaces show the key; on `dtwo-update-marker`, pass `""` to show the key again.
+- The full key is `marker:acme:no_slack_after_pii`. Customer markers live under any namespace except the reserved `internal` and `dtwo`.
+- `displayName` is shown on the disable-safeguards page and in the Hub's Markers list, with the key beneath it as the identifier. It must be unique across your organization, ignoring case, so a duplicate is refused. Leave it empty and those surfaces show the key; on `dtwo-update-marker`, pass `""` to show the key again.
 - `clearable` decides whether the marker has a fast exit. `true` (the default, and what every marker registered before the flag existed has): the person can lift it early by approving a clear. `false`: the marker leaves the session **only when its TTL expires** — the clear flow never offers it (the confirm page lists only what can be cleared, and a commit that names it is refused). Weigh it against the TTL: a non-clearable marker with a day-long TTL is a day-long block with no appeal.
-- **Decide `clearable` when you register the marker.** Reader policies are worded against it (their deny reasons either offer the clear or point only at the TTL), so changing it later means revisiting them. If it must change, `dtwo-update-marker` or the Hub's Markers page ("Can be cleared by the user") does it; the change reaches a gateway on its next deploy, and where clearing is armed, a deploy to a gateway whose image cannot honour the flag is refused with a message naming the markers until the image is upgraded.
+- **Decide `clearable` when you register the marker.** Reader policies are worded against it (their deny reasons either offer disabling or say the safeguard cannot be disabled early), so changing it later means revisiting them. If it must change, `dtwo-update-marker` or the Hub's Markers page ("Can be cleared by the user") does it; the change reaches a gateway on its next deploy, and where clearing is armed, a deploy to a gateway whose image cannot honour the flag is refused with a message naming the markers until the image is upgraded.
 - **Keep the key simple.** The tool requires only non-empty `namespace`/`markerId`; the character-shape rules are validated server-side (when a writer policy is saved and at deploy), not at this tool boundary. In practice, use lowercase alphanumerics with underscores or hyphens and avoid dots, slashes, and spaces, so the key is accepted everywhere it's referenced (registry entry, `writableKeySchema` name, and `session_writes` key must all match exactly — see Authoring the writer policy).
 - `minimumTtlSeconds` is the **intended floor** for a writer policy's `ttlSeconds`. Adjust later with `dtwo-update-marker`. (Whether the floor is enforced, and the keep-in-sync caveat, are stated once under Authoring the writer policy → `ttlSeconds` — the canonical note.)
 
@@ -497,9 +514,9 @@ dtwo-create-marker(
 
 A policy that emits a marker must declare the key in its `writableKeySchema` (on `dtwo-add-policy` / `dtwo-update-policy`), or the gateway drops the write. Each entry is:
 
-- `name` — the session-state key, matching the registered marker **exactly** (e.g. `marker:acme:pii_detected`). Keys are exact-match and never normalized, so this `name`, the `session_writes` key, and the registered marker FQID must be byte-identical (including case) or the write silently drops. The tool accepts any non-empty string; marker-key *shape* (allowed characters, reserved prefixes) is validated server-side on save/deploy, and registry *existence* is enforced at deploy time — the deploy fails on an unregistered key (see the Deploy-time validator note below).
+- `name` — the session-state key, matching the registered marker **exactly** (e.g. `marker:acme:no_slack_after_pii`). Keys are exact-match and never normalized, so this `name`, the `session_writes` key, and the registered marker FQID must be byte-identical (including case) or the write silently drops. The tool accepts any non-empty string; marker-key *shape* (allowed characters, reserved prefixes) is validated server-side on save/deploy, and registry *existence* is enforced at deploy time — the deploy fails on an unregistered key (see the Deploy-time validator note below).
 - `jsonSchema` — a **stringified JSON object** (a JSON Schema) for the value the policy writes. Rejected at the tool boundary if it doesn't parse as a JSON object (arrays and primitives fail). Use it strictly (`additionalProperties: false`, `required` lists) so drift is caught. Add `"x-d2-is-marker": true` for marker keys.
-- `ttlSeconds` — per-key TTL. For a marker key this **should** be ≥ the marker's registered `minimumTtlSeconds`, but keep them in sync manually: the floor is **not yet enforced** (no save-time or deploy-time check today), so a lower value currently saves, deploys, and simply expires early. **Every write resets the TTL**: a re-emission is an upsert that restarts the clock from that write, which is the intended behaviour (the restriction outlasts the *latest* trigger). It also means a writer that emits on every tool call never lets its marker expire — emit on the triggering condition, not unconditionally.
+- `ttlSeconds` — per-key TTL. For a marker key this **should** be ≥ the marker's registered `minimumTtlSeconds`, but keep them in sync manually: the floor is **not yet enforced** (no save-time or deploy-time check today), so a lower value currently saves, deploys, and simply expires early. The reader's deny reason derives its time remaining from the registry value, so a mismatch also shows the person the wrong number. **Every write resets the TTL**: a re-emission is an upsert that restarts the clock from that write, which is the intended behaviour (the restriction outlasts the *latest* trigger). It also means a writer that emits on every tool call never lets its marker expire — emit on the triggering condition, not unconditionally.
 - `onDrop` — behavior when a write fails the schema: `"drop"` (default) silently drops the write (best-effort markers); `"deny_request"` hard-denies the tool call (use for security-critical writes so bugs surface loudly instead of silently letting the call through).
 
 ```
@@ -509,13 +526,15 @@ dtwo-add-policy(
   packageName = "acme.egress.pii_detector",
   policy = <writer Rego — see dtwo-policy-rego>,
   writableKeySchema = [{
-    name: "marker:acme:pii_detected",
+    name: "marker:acme:no_slack_after_pii",
     jsonSchema: "{\"type\":\"object\",\"required\":[\"marked_at\",\"source_action\"],\"properties\":{\"marked_at\":{\"type\":\"integer\",\"minimum\":0},\"source_action\":{\"type\":\"string\",\"minLength\":1}},\"x-d2-is-marker\":true,\"additionalProperties\":false}",
     ttlSeconds: 3600,
     onDrop: "deny_request"
   }]
 )
 ```
+
+A trigger that restricts several things lists one entry per marker — same `jsonSchema`, usually the same `ttlSeconds`, one per key (`marker:acme:no_slack_after_pii`, `marker:acme:no_email_after_pii`). Keep `marked_at` in the value and in the schema: the reader turns it into the time remaining it shows the person.
 
 ### Attaching, deploying, and reading
 
@@ -541,13 +560,13 @@ What the shape means when you design a marker or word a deny reason:
 - **The clear is not a management tool.** It arrives as an argument-less tool on the platform tool surface the gateway injects — `disable_safeguards`, alongside `clear_intent` and `set_intent` (on the wire, `dtwo-platform-intent-disable-safeguards` — the federated name is hyphenated throughout). Gateways running an older image publish it as `clear_markers` (`dtwo-platform-intent-clear-markers`); it behaves the same. There is no `dtwo-*` call that lifts a marker, and nothing to declare per policy.
 - **No arguments, deliberately.** The agent cannot name a key, so it cannot choose the target. The confirm page enumerates what is actually live and unexpired in the caller's scope, and the person selects from that list.
 - **The approver must be the same identity as the caller.** The browser login is matched against the identity the agent is calling with, so a person clears their own session state — not another user's. One login authorizes exactly one clear.
-- **A marker can opt out of clearing.** A registry entry with `clearable: false` is never offered: the confirm page lists only the markers the person can clear, and a commit that names a non-clearable one is refused. When nothing in the session can be cleared — no markers, or only non-clearable ones — the request itself answers so, in the tool result, without minting a link: nobody is sent through a fresh sign-in to an empty page. The answer names no markers; which ones are held is only ever shown after the sign-in. When you know a marker is non-clearable (check `dtwo-get-marker` / `dtwo-list-markers`), say so when the person asks about it, and word the writer's deny reason to point at the TTL only (see `dtwo-policy-rego` → Reading a marker).
+- **A marker can opt out of clearing.** A registry entry with `clearable: false` is never offered: the confirm page lists only the markers the person can clear, and a commit that names a non-clearable one is refused. When nothing in the session can be cleared — no markers, or only non-clearable ones — the request itself answers so, in the tool result, without minting a link: nobody is sent through a fresh sign-in to an empty page. The answer names no markers; which ones are held is only ever shown after the sign-in. When you know a marker is non-clearable (check `dtwo-get-marker` / `dtwo-list-markers`), say so when the person asks about it; the reader's deny reason then gives the time remaining and says the safeguard cannot be disabled early (see `dtwo-policy-rego` → Reading a marker).
 - **Markers and intent clear separately.** `disable_safeguards` offers each live clearable marker in scope once, as a safeguard showing its display name, registry description and time remaining. Disabling it clears the marker under every policy that wrote it, so name markers well (`displayName`, `description`): that is all the person sees when deciding. `clear_intent` only ever offers the platform-captured intent. An approved marker clear can never drop the intent, and the reverse holds too.
 - **It is armed per gateway.** Clearing requires the `gateway.session_control` block in the gateway config, and that block should say so explicitly — `clearing: {enabled: true}` (see `dtwo-gateway-config`). Left implicit it arms only while intent capture is on and parks inert otherwise — a shape that leaves marker policies enforcing with no targeted way out of a marker. Unavailable looks two different ways: where clearing is not armed the platform clear tool may be **absent from your tool list entirely**, so there is nothing to call and no refusal to read; where it is present but unarmed, the request returns a readable "not configured on this gateway" refusal that points at the TTL. Handle both rather than assuming the flow is available. It fails closed throughout: nothing is ever half-cleared.
 - **Confirm before requesting.** The request is a state change with a person on the other end of it — ask first, as you would before any state-changing call, and never fire one speculatively to "reset" a session.
 - **The request, the authorization and the commit are each recorded** in the gateway's event stream, so a clear is answerable after the fact: who approved it, when, and which instances went.
 
-**Wording deny reasons for this.** A reader policy's `reason` is what the blocked person actually sees, so it should name the fast exit first and keep the TTL as the fallback — see the deny-reason guidance in `dtwo-policy-rego` → Session State & Markers → Reading a marker.
+**Wording deny reasons for this.** A reader policy's `reason` is what the blocked person actually sees. It says three things, in this order: what triggered the restriction, the time remaining before it lifts, and — only when the marker is clearable and clearing is armed on the gateway — that they can ask to have the safeguard disabled; otherwise, that it cannot be disabled early. Example: "Posting to Slack is blocked because PII was seen in this session. Time remaining: 42 minutes. You can ask to have this safeguard disabled." The Rego that derives the time remaining and checks clearability is in `dtwo-policy-rego` → Session State & Markers → Reading a marker.
 
 ### Verifying a marker pipeline
 
@@ -558,7 +577,7 @@ Markers can't be verified the way a single policy can — there is no tool to re
 3. **Then exercise the reader** (as the same user). Confirm the reader's guarded tool now denies (or transforms) as intended. The marker stays active until its TTL expires.
 4. **Confirm the negative case with a clean marker.** Use a **short TTL and wait for it to expire**, test as a **different user** who hasn't triggered the writer, or — on a gateway with clearing armed — **request a clear and approve it** (see Clearing a marker). Then the reader's tool should succeed, proving it blocks only when the marker is active. Reopening the session as the *same* user does **not** clear the marker (tenant+user scope), so that is not a valid negative test.
 
-**Tip — validate with a short TTL.** A production-length TTL (say an hour) makes iterating painful: a marker stamped in one test stays set for that user until it expires and masks the next attempt. During validation, set the writer's `writableKeySchema.ttlSeconds` short (e.g. 30–60s) so it clears on its own between iterations. (Since the floor isn't enforced, a short `ttlSeconds` deploys regardless; set the marker's `minimumTtlSeconds` to match via `dtwo-update-marker` so the registry still reflects intent.) Once validated, raise the writer's `ttlSeconds` to the production length with `dtwo-update-policy` (and `minimumTtlSeconds` to match), then republish/redeploy. (A short TTL is about **iterating quickly**, not about the only way out of a marker — approving a clear resets one on demand, but it takes a browser round trip each time, so the short TTL is still the better loop for repeated tests.)
+**Tip — validate with a short TTL.** A production-length TTL (say an hour) makes iterating painful: a marker stamped in one test stays set for that user until it expires and masks the next attempt. During validation, set the writer's `writableKeySchema.ttlSeconds` short (e.g. 30–60s) so it clears on its own between iterations. (Since the floor isn't enforced, a short `ttlSeconds` deploys regardless; set the marker's `minimumTtlSeconds` to match via `dtwo-update-marker` so the registry still reflects intent — and so the reader's deny reason, which derives its time remaining from the registry value, shows the right number.) Once validated, raise the writer's `ttlSeconds` to the production length with `dtwo-update-policy` (and `minimumTtlSeconds` to match), then republish/redeploy. (A short TTL is about **iterating quickly**, not about the only way out of a marker — approving a clear resets one on demand, but it takes a browser round trip each time, so the short TTL is still the better loop for repeated tests.)
 
 Watch for these:
 
@@ -573,7 +592,7 @@ Skipping a step makes the next deploy fail (a policy still claims to write a mar
 
 1. Update/remove the **writer policy** so it no longer references the marker in `writableKeySchema`; redeploy so the write contract leaves the bundle.
 2. Delete any **intent/marker compatibility** rows that reference the marker (only relevant when intent tools are enabled — `dtwo-delete-intent-compatibility`); redeploy.
-3. `dtwo-delete-marker` — nothing references it now. (`dtwo-delete-marker` does **not** currently check for policy references, so it can leave the bundle inconsistent if you skip step 1.)
+3. `dtwo-delete-marker` — nothing references it now. The delete is refused, naming each blocking row, while a draft policy's `writableKeySchema`, a published version a pipeline step still selects, or a compatibility row references the marker; so if it refuses, you skipped a step above.
 
 ### Marker constraints today
 
@@ -634,11 +653,11 @@ If a marker should block switching into a given intent, register a compatibility
 ```
 dtwo-create-intent-compatibility(
   intentUid = <uid of the intent to protect>,
-  excludedMarkerUid = <uid of marker:acme:pii_detected>
+  excludedMarkerUid = <uid of marker:acme:no_slack_after_pii>
 )
 ```
 
-Example: once `marker:acme:pii_detected` is set, a `set_intent` to `incident_response` is blocked — the session already touched sensitive data.
+Example: once `marker:acme:no_slack_after_pii` is set, a `set_intent` to `incident_response` is blocked — the session already touched sensitive data.
 
 **Set-time enforcement only.** The check runs at `set_intent` time. A marker raised *after* an intent is set does **not** retroactively invalidate the current intent. Markers accumulate; intents are validated at the decision point. Tell users this plainly so they don't design around a symmetric re-check that doesn't exist.
 
@@ -656,13 +675,13 @@ The vocabulary you register is not only a management surface: it is shipped into
       "transitions_from": ["acme:review"] }
   ],
   "markers": [
-    { "id": "marker:acme:pii_detected", "description": "…",
+    { "id": "marker:acme:no_slack_after_pii", "description": "…",
       "minimum_ttl_seconds": 3600,
       "clearable": true,
-      "display_name": "No email after PII" }
+      "display_name": "No Slack after PII" }
   ],
   "compatibility": [
-    { "intent": "acme:deploy", "excluded_marker": "marker:acme:pii_detected" }
+    { "intent": "acme:deploy", "excluded_marker": "marker:acme:no_slack_after_pii" }
   ]
 }
 ```
