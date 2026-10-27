@@ -14,6 +14,11 @@
  *                           (covers `YOUR_BEARER_TOKEN`, `your-instance`,
  *                           `<your-bearer-token>`, etc.)
  *   - `${…}` shell-style substitution markers
+ *   - `<<NAME>>` — a Vault reference, the form the skill now writes into
+ *                  a config saved to a gateway. Anchored at both ends:
+ *                  the whole value must be the reference, and a
+ *                  `<<NAME|fallback>>` rejects, since its fallback would
+ *                  hold a literal secret.
  *
  * The bracket and bare-form tolerance was added after Tier-2 bench runs
  * showed the skill naturally emits all of these shapes interchangeably
@@ -27,7 +32,8 @@
 import { PRESERVE_CHILD_KEYS, splitVariantSuffix, stripVariantParentheticals } from './paths.js';
 import type { SchemaArtifact } from './schemaArtifact.js';
 
-export const SECRET_PLACEHOLDER_REGEX = /^<?(?:REPLACE_|PLACEHOLDER_|CHANGE_?ME|YOUR[_-])|^\$\{/i;
+export const SECRET_PLACEHOLDER_REGEX =
+  /^<?(?:REPLACE_|PLACEHOLDER_|CHANGE_?ME|YOUR[_-])|^\$\{|^<<[A-Za-z_][A-Za-z0-9_]*>>$/i;
 
 /**
  * Compose every secret-flagged leaf path under its allowed (variant-

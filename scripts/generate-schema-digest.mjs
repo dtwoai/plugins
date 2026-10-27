@@ -665,9 +665,9 @@ function renderSecretFields(filtered) {
   const rows = secrets.map(s => `| \`${s.section}.${s.field}\` |`);
 
   return [
-    '#### Secret-typed fields — must emit a placeholder, never a literal',
+    '#### Secret-typed fields: must hold a Vault reference, never a literal',
     '',
-    'Every field marked `secret: true` in the artifact. Emit a self-describing placeholder (`REPLACE_WITH_<FIELD>`, `PLACEHOLDER_<FIELD>`, `YOUR_<FIELD>`, `CHANGE_ME`, or `${ENV_VAR}`); never an inferred or literal credential. Bare `PLACEHOLDER` does not count.',
+    'Every field marked `secret: true` in the artifact. Put a Vault reference there (`<<NAME>>`, with no `|` fallback), never an inferred or literal credential. See Secrets and the Vault for how the user adds the value.',
     '',
     '| Path |',
     '|---|',

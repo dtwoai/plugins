@@ -4,7 +4,7 @@ Benchmark harness for the `dtwo-gateway-config` Claude skill shipped
 in this plugin repo. Two testing layers, both in this package:
 
 - **Offline rubrics** — deterministic property checks against a raw YAML
-  config. Run in CI, no LLM. Sub-second.
+  config. Run in CI (`.github/workflows/test.yml`), no LLM. Sub-second.
 - **Live bench** — runs the skill against Claude (`claude-cli` or
   `--provider=anthropic`), samples N times per fixture, scores each output
   against the rubrics, aggregates pass@k + Wilson 95% CIs, optionally
@@ -22,7 +22,7 @@ failing check marks the sample as failed; the per-prompt pass-rate is
 | `no_hallucinated_keys` | Every path in the YAML resolves to a real field in `schema-reference.json` (record-leaf children accepted when they match the leaf's declared key pattern). |
 | `no_dropped_keys` | Round-trip path-set subtraction: `paths(input) \ paths(parsed)` must be empty. |
 | `safe_defaults_preserved` | A small curated seed list of safety-relevant defaults must not be silently weakened. The list has two halves: `SAFE_DEFAULT_SEEDS`, whose safe values are derived from the artifact's `schemaDefault` / `deployDefault`, and `GATEWAY_OWNED_SAFE_DEFAULTS`, a short explicit list for values the gateway applies at boot — hand-written as the harness's own opinion and cross-checked against the `gatewayDefault` the artifact declares for them. Fixtures opt out per-path with `expect.safe_default_opt_out`. |
-| `secrets_are_placeholders` | Every `secret: true` leaf is absent or holds a placeholder matching `/^<?(REPLACE_\|PLACEHOLDER_\|CHANGE_?ME\|YOUR[_-]\|your[_-])\|^\$\{/`. |
+| `secrets_are_placeholders` | Every `secret: true` leaf is absent or holds either a Vault reference that is the whole value (`<<NAME>>`, no `\|` fallback), which is what the skill writes into a config saved to a gateway, or a placeholder matching `/^<?(REPLACE_\|PLACEHOLDER_\|CHANGE_?ME\|YOUR[_-]\|your[_-])\|^\$\{/`. |
 
 Plus per-fixture `required_paths`, `forbidden_paths`, and
 `value_constraints` (regex / equals / min_length).
@@ -39,11 +39,17 @@ From the `skill-harness/` directory:
 ```bash
 pnpm test                       # unit tests, incl. the schema-digest drift check
 pnpm biome:check
+pnpm typecheck                  # tsc --noEmit
 pnpm bench --dry-run --tier=required
 ```
 
 The dry-run prints the fixture selection and system-prompt stats without
 issuing any LLM calls.
+
+CI (`.github/workflows/test.yml`) runs `pnpm test`, `pnpm biome:check`, and
+`pnpm typecheck`, plus the root schema-digest `--check`, on every PR and every
+push to `main`. The bench (dry-run or live) is **not** run in CI; the live
+bench needs API credentials.
 
 ### Live bench
 
