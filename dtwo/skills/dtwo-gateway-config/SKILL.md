@@ -486,12 +486,31 @@ mcp_servers:
         - chat:write
 ```
 
+### Setup guides for specific servers
+
+The Dtwo docs have a setup guide for many MCP servers. Each one covers the vendor-side setup (an OAuth app or API key, and the gateway's callback URL registered with the vendor) and gives a ready-made `mcp_servers` entry. When the user asks to add a server, look for its guide before writing the entry:
+
+1. Fetch `https://docs.dtwo.ai/llms.txt`. It lists every guide as a Markdown link with a one-line description, for example `[Configure the HubSpot MCP Server](https://docs.dtwo.ai/docs/mcp-server-hubspot.md)`. Match the server or vendor the user named against the titles and descriptions; a product can sit under its vendor's guide, as Jira does under Atlassian. If more than one guide could fit, ask which. Use only links the list contains, and never build a guide URL from a server's name.
+2. If there's a guide, fetch its `.md` link. Take `url`, `transport_type`, the authentication type, `scopes`, and the OAuth endpoints from the YAML entry in it. If it offers more than one route (OAuth or a token, a hosted server or a self-hosted one), ask which the user wants.
+3. Give the user the guide's web page, which is the same link without `.md`, for the vendor-side steps. The rest of the guide (pasting the entry into the Hub, deploying) is what you do here with the tools, so point them at the vendor section only.
+4. Where the guide says to register the gateway's OAuth callback URL, give the user the real value so they don't have to look it up: `callbackUrl` from `dtwo-get-gateway`, or `<gateway-url-without-/mcp>/oauth/callback` when that's empty. Use the same value for `redirect_uri`. A self-hosted gateway with no URL yet has no callback to register, so that step waits until its URL is set.
+
+The guides are written for someone pasting YAML into the Hub, so their placeholders are not config values, and the rules in this skill win where they differ:
+
+- A client secret, API key, or token (`"<CLIENT_SECRET>"`, `"<ACCESS_TOKEN>"` and the like) becomes a Vault reference that is the whole field value, such as `client_secret: <<HUBSPOT_CLIENT_SECRET>>`. The user enters the value through the Hub link (see Secrets and the Vault), never in the chat.
+- A client ID isn't secret, so ask the user for it once they've created the app. Never save a draft with any of the guide's `<…>` placeholders left in it: they deploy as literal text.
+- Validate before saving, as always. If the validator rejects a field the guide uses, the validator is right; fix the entry and tell the user what changed.
+
+**No guide for the server.** Say so, give the user the guide for any MCP server, `https://docs.dtwo.ai/docs/mcp-server-custom`, which covers the vendor-side checks and how to tell which authentication type applies, and carry on with the URL, transport, and authentication they give you.
+
+**You can't fetch web pages.** Don't guess a guide's address. Give the user the guide index, `https://docs.dtwo.ai/docs/mcp-servers`, so they can open the one for their server, and carry on with the details they give you.
+
 ## Configuration Workflow
 
 ### Editing Configuration
 
 1. Fetch the current draft with `dtwo-get-gateway-config`
-2. Edit the YAML (add/modify MCP servers, change gateway settings). Put every credential in as a Vault reference, and get the user a Hub link for any secret that isn't in the Vault yet (see Secrets and the Vault)
+2. Edit the YAML (add/modify MCP servers, change gateway settings). For a new server, start from its Dtwo setup guide when there is one (see Setup guides for specific servers). Put every credential in as a Vault reference, and get the user a Hub link for any secret that isn't in the Vault yet (see Secrets and the Vault)
 3. Validate with `dtwo-validate-gateway-config`, passing `gatewayUid`. It also lists the Vault entries the config uses and reports any that are missing
 4. Save with `dtwo-save-gateway-draft-config`
 5. Deploy with `dtwo-deploy-gateway` to test the draft configuration
