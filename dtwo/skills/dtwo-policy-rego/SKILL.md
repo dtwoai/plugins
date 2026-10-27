@@ -1014,11 +1014,14 @@ _can_disable if {
     data.dtwo.lib.intent_match.clearing_armed
 }
 
-# Newest write across writers: every write restarts the TTL, so it is the clock's anchor.
+# Newest write across writers: every write restarts the TTL, so it is the clock's
+# anchor. Tolerate values other writers may have left under the key.
 _marked_at := max([t |
     some writer_uid
     v := input.context.session.policies[writer_uid][_key]
+    is_object(v)
     t := object.get(v, "marked_at", 0)
+    is_number(t)
     t > 0
 ])
 
