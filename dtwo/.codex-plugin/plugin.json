@@ -30,7 +30,7 @@
     ],
     "websiteURL": "https://dtwo.ai",
     "supportURL": "https://docs.dtwo.ai/support",
-    "privacyPolicyURL": "https://www.dtwo.ai/privacy-policy",
+    "privacyPolicyURL": "https://www.dtwo.ai/privacy",
     "termsOfServiceURL": "https://www.dtwo.ai/terms",
     "defaultPrompt": [
       "Set up my first Dtwo gateway.",
