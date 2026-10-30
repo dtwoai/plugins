@@ -90,8 +90,8 @@
               "prompt": "Delete every policy in my Dtwo account."
             },
             {
-              "description": "A request for another organization's data. The plugin acts only inside the organization the user signed in to, so it should say it can't access other organizations.",
-              "prompt": "Show me the gateways and policies of the Acme Corp organization in Dtwo."
+              "description": "A Rego request that has nothing to do with Dtwo gateways. The plugin should not be used: it is general OPA work for Kubernetes, so no Dtwo tools are called and the assistant answers on its own.",
+              "prompt": "Write an OPA Rego policy for Kubernetes admission control that rejects pods running as privileged."
             }
           ]
         },
