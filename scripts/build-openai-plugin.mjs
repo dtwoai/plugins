@@ -259,6 +259,56 @@ function checkAsset(problems, manifestInterface, key) {
     problems.push(`${label} must be at least ${MIN_ASSET_PX}x${MIN_ASSET_PX}; it is ${size.width}x${size.height}.`);
 }
 
+// Initial MCP review needs exactly this many test cases, with these fields.
+const POSITIVE_CASES = 5;
+const NEGATIVE_CASES = 3;
+const POSITIVE_CASE_FIELDS = ['description', 'prompt', 'tools_triggered', 'expected_behavior'];
+const NEGATIVE_CASE_FIELDS = ['description', 'prompt'];
+const MAX_CASE_DESCRIPTION = 4000;
+const COUNTRY_RE = /^[A-Z]{2}$/;
+
+/**
+ * Checks `extensions.com.openai`: the review test cases and the publication
+ * settings. Reviewer credentials and instructions belong in the dashboard's
+ * Review details form, and OpenAI rejects a ZIP that carries them.
+ */
+function checkOpenAIExtension(problems, manifest) {
+  const openai = manifest.extensions?.['com.openai'];
+  if (openai === undefined) return;
+  const review = openai.review ?? {};
+  for (const key of ['test_credentials', 'reviewer_instructions']) {
+    if (key in review) problems.push(`extensions.com.openai.review.${key} must not be in the ZIP; use Review details.`);
+  }
+  const cases = review.test_cases;
+  if (cases !== undefined) {
+    const groups = [
+      ['positive', POSITIVE_CASES, POSITIVE_CASE_FIELDS],
+      ['negative', NEGATIVE_CASES, NEGATIVE_CASE_FIELDS],
+    ];
+    for (const [group, count, fields] of groups) {
+      const label = `extensions.com.openai.review.test_cases.${group}`;
+      const list = cases[group];
+      if (!Array.isArray(list)) {
+        problems.push(`${label} must be an array.`);
+        continue;
+      }
+      if (list.length !== count) problems.push(`${label} has ${list.length} cases; review needs exactly ${count}.`);
+      list.forEach((testCase, i) => {
+        for (const field of fields) {
+          const max = field === 'description' ? MAX_CASE_DESCRIPTION : Number.POSITIVE_INFINITY;
+          checkText(problems, testCase, field, max, true, `${label}[${i}].${field}`);
+        }
+      });
+    }
+  }
+  const demo = review.demo_recording_url;
+  if (demo !== undefined && (typeof demo !== 'string' || !/^https:\/\/[^\s/]+/.test(demo)))
+    problems.push(`extensions.com.openai.review.demo_recording_url must be an https:// URL (got ${JSON.stringify(demo)}).`);
+  const countries = openai.publication?.countries;
+  if (countries !== undefined && (!Array.isArray(countries) || !countries.every(c => COUNTRY_RE.test(c))))
+    problems.push('extensions.com.openai.publication.countries must be an array of uppercase country codes.');
+}
+
 function checkManifest(problems, manifest, claude) {
   for (const [key, max, required] of ROOT_TEXT_LIMITS) checkText(problems, manifest, key, max, required, key);
   if (typeof manifest.name === 'string' && !NAME_RE.test(manifest.name))
@@ -286,6 +336,8 @@ function checkManifest(problems, manifest, claude) {
       problems.push('interface.brandColorDark must be #RRGGBB.');
     for (const key of ASSET_KEYS) checkAsset(problems, ui, key);
   }
+
+  checkOpenAIExtension(problems, manifest);
 
   const skills = resolveInPlugin(problems, manifest.skills, 'skills');
   if (skills && skills !== join(PLUGIN_ROOT, 'skills'))
