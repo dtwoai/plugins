@@ -136,7 +136,7 @@ Setup-specific tools (may be newer — see Graceful degradation if any are missi
 | `dtwo-create-gateway` | Create a draft gateway with an empty config. Input `{ name, tags?, deploymentType?, allowAdditionalHosted? }` where `deploymentType` is `hostedAws` \| `standard` \| `localHttp`. For `hostedAws` it also queues AWS provisioning. `localHttp` and `hostedAws` gateways get a platform-assigned URL, so they are created with the Dtwo-managed Auth0 IdP already bound to it; a `standard` gateway is created with neither a URL nor authentication. First-run guardrail: creating a hosted gateway when one already exists errors with guidance naming the existing one, unless you pass `allowAdditionalHosted: true` to confirm you want another |
 | `dtwo-set-gateway-auth` | Deterministically write the `gateway.authentication` block into the draft config. Input `{ uid, mode, customFields? }` where `mode` is `dtwo_default` \| `custom` \| `disabled` \| `removed`. `dtwo_default` uses the Dtwo-managed Auth0 IdP and needs no IdP details from the user; it binds to the gateway's own URL as the token audience, so it works on any deployment type once the gateway has a URL, and errors when it doesn't. `custom` takes the audience from `customFields` and so needs no gateway URL. On `localHttp` and `hostedAws`, which are created on the Dtwo-managed IdP already, this tool is for moving off that default rather than first-time setup. `customFields` carries `jwt_algorithm`, `jwt_jwks_uri`, `jwt_issuer`, `jwt_audience`, `sso_issuer` when `mode: custom` |
 | `dtwo-update-gateway` | Update gateway metadata. Input `{ uid, name?, tags?, url?, callbackUrl? }`. This is how a `standard` gateway gets the MCP URL it was created without. The URL is the audience the Dtwo-managed IdP binds to, so it has to be set before `dtwo-set-gateway-auth` with `mode: dtwo_default`; `mode: custom` carries its own audience and doesn't need it. Either way it can be left for a later session if the user doesn't have the address yet. `url` and `callbackUrl` are `standard`-only, since `localHttp` and `hostedAws` URLs are platform-assigned and a change to those is refused |
-| `dtwo-get-gateway-connection-info` | Fetch client connection details, on any deployment type. Input `{ uid }` → `{ mcpUrl, authMode, clientId?, audience?, issuer?, jwksUri?, domain?, callbackPort? }`. `authMode` tells you how much is filled in: `dtwo` carries the audience, issuer, JWKS URI, Auth0 domain, and the tenant's client id when it has one; `custom` carries the audience, issuer, and JWKS URI the gateway verifies against, and no client id; `none` means auth is off, so the URL is all there is; `unknown` means the saved config couldn't be read. `callbackPort` (33418) comes back for `localHttp` only. Errors when the gateway has no URL yet, which for `standard` means the `dtwo-update-gateway` step hasn't happened |
+| `dtwo-get-gateway-connection-info` | Fetch client connection details, on any deployment type. Input `{ uid }` → `{ mcpUrl, authMode, clientId?, audience?, issuer?, jwksUri?, domain?, callbackPort? }`. `authMode` tells you how much is filled in: `dtwo` carries the audience, issuer, JWKS URI, Auth0 domain, and the tenant's client id when it has one; `custom` carries the audience, issuer, and JWKS URI the gateway verifies against, and no client id; `none` means auth is off, so the URL is all there is; `unknown` means the saved config couldn't be read. `callbackPort` (33418) comes back for `custom` only, on any deployment type. Errors when the gateway has no URL yet, which for `standard` means the `dtwo-update-gateway` step hasn't happened |
 | `dtwo-create-gateway-activation` | Create (mint) the **first-run** activation bundle for a **self-hosted** gateway. Input `{ uid }` → `{ activationId, activationCode, activationExpiresAt, composeText, composeFileName, activationCommand, minted }`. Every call mints a fresh pair and returns `minted: true`, invalidating any previously issued one; the pair is single-use and lasts 24 hours. Call it once per activation attempt. Use `activationId` and `activationCode` to write the `dtwo.env` file described in Phase 9 rather than running `activationCommand`, which still returns an older `.env`-writing form. `composeText` carries the `443:443`→`80:80` port swap for `localHttp`. Errors for `hostedAws` (nothing to activate, since provisioning is managed) |
 | `dtwo-refresh-gateway-activation` | Mint a fresh activation pair for a `localHttp` or `standard` gateway that is already up, invalidating any previously issued one. Input `{ uid }` → the same fields as `dtwo-create-gateway-activation`. Again, take `activationId` and `activationCode` and rewrite `dtwo.env`; its `activationCommand` is an older `docker compose down` / `.env` form. Re-register with `docker compose --env-file dtwo.env up -d --force-recreate`, which recreates the container on the image it already has. For a host that has never come up, use `dtwo-create-gateway-activation` instead, since its flow pulls the image. Errors for `hostedAws`: refreshing would invalidate the credential the provisioning instance is using |
 | `dtwo-record-setup-progress` | Record the closing setup steps on the account, so the Dtwo Hub shows setup as finished instead of asking the user to confirm work you already did with them. Input `{ steps }`, any of `connectClient` \| `testPolicies` \| `plugin`. Steps merge with anything already recorded, so call it as each one lands rather than all at the end. Only these three are accepted; everything earlier (gateway, MCP servers, policies, deploy) the platform reads from the account itself |
@@ -403,7 +403,7 @@ Read `authMode` before writing the instructions, because it decides what you can
 - **`none`**: authentication is off, so `mcpUrl` is all there is. Say plainly that anyone who can reach the URL can use the gateway, in case that isn't what they intended, and offer to go back to Phase 4 and configure it, which on a `standard` gateway means setting the URL first. It's a live gateway at this point, so treat this as the thing to fix rather than a footnote on the connection instructions.
 - **`unknown`**: the saved config couldn't be read, usually a YAML problem. Don't guess at connection instructions. Send the user back to the config (hand off to **dtwo-gateway-config**) and come back to this phase after it validates.
 
-Use a kebab-case token for `<name>` (derive it from the gateway name; the Dtwo Hub falls back to `dtwo-gateway` when a gateway has no usable name). Pass `<clientId>` wherever a client below takes one and the tool returned it: clients that carry a Client ID Metadata Document (Claude's own surfaces and Claude Code) identify themselves and connect from `mcpUrl` alone, while other clients such as Cursor need it spelled out. `callbackPort` is legacy connection metadata and must not override Cursor desktop’s fixed `http://localhost:8787/callback` redirect.
+Use a kebab-case token for `<name>` (derive it from the gateway name; the Dtwo Hub falls back to `dtwo-gateway` when a gateway has no usable name). Pass `<clientId>` wherever a client below takes one and the tool returned it: clients that carry a Client ID Metadata Document (Claude's own surfaces, Claude Code, and Codex) identify themselves and connect from `mcpUrl` alone, while other clients such as Cursor need it spelled out. Never pass the returned `clientId` to a CIMD client: Codex's `--oauth-client-id` is only for a `custom` gateway, with the client id the user registered with their own IdP. `callbackPort` comes back only for a `custom` gateway: it is the loopback port to register as a redirect URI with their IdP, for a client that signs in with that IdP's client id and lets you choose its callback port. It must not override Cursor desktop’s fixed `http://localhost:8787/callback` redirect.
 
 Choose instructions for the current AI client, then use its available shell or file-editing tools:
 
@@ -416,6 +416,14 @@ claude mcp add --transport http \
 
 After it succeeds, tell the user the server is registered, that the OAuth flow completes in the browser on first use, and that they may need a new or reloaded session before the server shows up. Name the server, and leave the connection parameters out: the command already carried the URL, no client id was needed, and listing either turns a finished job back into homework. Mention that other client options (the `.mcp.json` form, or Cursor) are available if they want to connect a different client, and show those only if they ask.
 
+**Running in Codex with shell access.** The same, with `codex mcp add`. Confirm first, and confirm the server `<name>`:
+
+```bash
+codex mcp add <name> --url <mcpUrl>
+```
+
+For a `custom` gateway, append `--oauth-client-id '<client id from their IdP>'`. Sign-in starts in the browser; if it doesn't, run `codex mcp login <name>`. Then tell the user the server is registered and name it, leaving the connection parameters out.
+
 **Other hosts (including Cursor), or no shell access.** Use the current host’s connection option below. If you can edit its configuration, offer to merge the entry after confirmation; otherwise present its copyable instructions. Show other client options only on request.
 
 Claude Desktop (Cowork), through the connector settings UI — walk them through the click path since there's no config file to hand them. **Skip this option for a `localHttp` gateway:** the connector is added through Anthropic's own UI, which takes an HTTPS URL it can route to, and a local gateway serves plain HTTP on the user's own machine. Offer Claude Code or Cursor there instead.
@@ -427,7 +435,7 @@ Claude Desktop (Cowork), through the connector settings UI — walk them through
 5. Start a new chat and switch `<name>` on in the connectors menu. Don't leave this step out: a connector that's added but left off is never called, and it's the step people miss most often.
 6. Ask Claude what tools it has. The gateway's tools should be in the list.
 
-Claude Code, a CLI add plus an `.mcp.json` snippet:
+Claude Code, a CLI add plus an `.mcp.json` snippet (for a `custom` gateway, append `--client-id '<client id from their IdP>' --callback-port <callbackPort>` to the command):
 
 ```bash
 claude mcp add --transport http \
@@ -445,6 +453,12 @@ claude mcp add --transport http \
 }
 ```
 
+Codex, a CLI add (append `--oauth-client-id '<client id from their IdP>'` only for a `custom` gateway), then `codex mcp login <name>` if sign-in doesn't start:
+
+```bash
+codex mcp add <name> --url <mcpUrl>
+```
+
 Cursor, an HTTP MCP server entry in `~/.cursor/mcp.json` (or a project-local `.cursor/mcp.json`) that carries the static client id under `auth.CLIENT_ID`:
 
 ```json
@@ -460,7 +474,7 @@ Cursor, an HTTP MCP server entry in `~/.cursor/mcp.json` (or a project-local `.c
 }
 ```
 
-**If `authMode` is `none`, omit Cursor's `auth` object entirely.** If authentication is enabled but `clientId` is absent, Claude's CIMD connection can still proceed. Cursor needs a registered public client ID: for Dtwo-managed authentication, ask the Dtwo administrator to configure the tenant's gateway client application; for a custom IdP, ask for its registered client ID. Stop Cursor's connection step until it is available. Never substitute the management plugin's client ID or attempt DCR.
+**If `authMode` is `none`, omit Cursor's `auth` object entirely.** If authentication is enabled but `clientId` is absent, a CIMD connection (Claude, Claude Code, Codex) can still proceed. Cursor needs a registered public client ID: for Dtwo-managed authentication, ask the Dtwo administrator to configure the tenant's gateway client application; for a custom IdP, ask for its registered client ID. Stop Cursor's connection step until it is available. Never substitute the management plugin's client ID or attempt DCR.
 
 **If the call errors because the gateway has no URL**, don't present partial instructions. Two causes, with different fixes:
 
