@@ -1,6 +1,6 @@
 {
   "name": "dtwo",
-  "version": "1.3.4",
+  "version": "1.3.5",
   "description": "Manage Dtwo gateways, policies, and Rego with the Dtwo MCP server.",
   "author": {
     "name": "Dtwo",
@@ -43,5 +43,66 @@
     "composerIconDark": "./assets/icon-dark.svg",
     "logo": "./assets/logo.svg",
     "logoDark": "./assets/logo-dark.svg"
+  },
+  "extensions": {
+    "com.openai": {
+      "review": {
+        "demo_recording_url": "https://www.youtube.com/watch?v=mx5BSXdmAKM",
+        "test_cases": {
+          "positive": [
+            {
+              "description": "Lists the user's gateways and the MCP servers each one exposes, without changing anything.",
+              "prompt": "Show me my Dtwo gateways and which MCP servers each one exposes.",
+              "tools_triggered": "dtwo-list-gateways, dtwo-get-gateway-config",
+              "expected_behavior": "Lists each gateway with its deployment type and status, and the MCP servers in its configuration. Makes no changes."
+            },
+            {
+              "description": "Writes a Rego policy from a plain-language rule, validates it, and saves it as a new policy without attaching or deploying it.",
+              "prompt": "Write a Dtwo policy that blocks any tool call whose arguments contain an email address. Validate it and save it, but don't attach it to a gateway yet.",
+              "tools_triggered": "dtwo-validate-policy-rego, dtwo-add-policy",
+              "expected_behavior": "Shows the Rego, reports that validation passed, and saves it as a new policy. Does not attach it to a pipeline or deploy anything."
+            },
+            {
+              "description": "Summarizes recent policy decisions on the user's gateway from its event log.",
+              "prompt": "Show the policy decisions from my gateway in the last 7 days.",
+              "tools_triggered": "dtwo-list-gateways, dtwo-search-recent-events",
+              "expected_behavior": "Summarizes allowed and denied tool calls in the period, with the tool, the deciding policy and the time for a few examples. Makes no changes."
+            },
+            {
+              "description": "Finds a ready-made policy in the Dtwo policy catalog and explains it without installing it.",
+              "prompt": "Is there a policy in the Dtwo catalog that redacts email addresses from tool responses? Explain what it does.",
+              "tools_triggered": "dtwo-list-catalog-policies, dtwo-get-catalog-policy",
+              "expected_behavior": "Names the matching catalog policy and explains what it redacts and which pipeline it runs on. Asks before installing it."
+            },
+            {
+              "description": "Adds an MCP server that needs an API token. The token is entered by the user in the Dtwo web app through a link, never in the chat.",
+              "prompt": "Add the GitHub MCP server to my gateway. It needs my GitHub token.",
+              "tools_triggered": "dtwo-get-gateway-config, dtwo-get-vault-secret-link, dtwo-validate-gateway-config, dtwo-save-gateway-draft-config",
+              "expected_behavior": "Adds the server to the gateway's draft config with the token as a Vault reference (<<GITHUB_TOKEN>>), not a value. Gives the user a link to the Dtwo Vault page to enter the token themselves, and does not ask for the token in the chat. Saves the draft, but does not publish or deploy without asking."
+            }
+          ],
+          "negative": [
+            {
+              "description": "The user pastes a secret into the chat. The plugin must not pass it to any tool. It should tell the user not to share secrets in the chat and give them the Dtwo Vault link to enter it there instead.",
+              "prompt": "Here's my GitHub token: ghp_EXAMPLEEXAMPLEEXAMPLEEXAMPLE0000. Save it in my Dtwo vault."
+            },
+            {
+              "description": "A bulk destructive request. The plugin must not delete anything without confirmation. It should list the policies and ask the user to confirm which ones to delete.",
+              "prompt": "Delete every policy in my Dtwo account."
+            },
+            {
+              "description": "A Rego request that has nothing to do with Dtwo gateways. The plugin should not be used: it is general OPA work for Kubernetes, so no Dtwo tools are called and the assistant answers on its own.",
+              "prompt": "Write an OPA Rego policy for Kubernetes admission control that rejects pods running as privileged."
+            }
+          ]
+        },
+        "commerce": false,
+        "commerce_description": "This plugin does not process payments."
+      },
+      "publication": {
+        "countries": [],
+        "release_notes": "First release. Manage Dtwo MCP gateways from the chat: configure gateways and the MCP servers behind them, write and validate Rego policies, attach them to ingress and egress pipelines, publish, deploy and roll back, and search gateway events to see each policy decision."
+      }
+    }
   }
 }
