@@ -23447,7 +23447,7 @@ var SessionControlSchema = external_exports.object({
       description: "Public client id of the dedicated session-control OAuth app (native, PKCE, no client secret). Optional on a gateway authenticating against Dtwo's Auth0: the platform provisions one per organization and renders it at deploy. An explicit value always wins.",
       target: "SESSION_CONTROL_CLIENT_ID",
       audience: "user",
-      rationale: "Leave unset on a gateway using Dtwo authentication. Set it only when the gateway trusts your own IdP: the ceremony app must live in the IdP that issues the gateway's inbound tokens, so register a dedicated public client there (authorization-code + PKCE, no refresh grant) and paste its client id here. Do not reuse the gateway API client."
+      rationale: "Leave unset on a gateway using Dtwo authentication. Set it only when the gateway trusts your own IdP: the ceremony app must live in the IdP that issues the gateway's inbound tokens, so register a dedicated public client there (authorization-code + PKCE, no refresh grant) and paste its client id here. Do not reuse the gateway API client. On Okta that is a Native app with an Okta-generated client ID, included in the custom authorization server's access policy. The gateway picks the identity claim it binds on from the issuer host (Entra, Okta or other); most gateways need nothing more. For an Okta org on a custom domain or a sovereign-cloud Entra issuer \u2014 and only then \u2014 add `SESSION_SUBJECT_PROVIDER=okta` (or `entra`) to `gateway.advanced`, or every clear fails `subject_mismatch`."
     })
   ),
   redirect_uri: external_exports.string().min(1).refine(isRenderableRedirectUri, {
@@ -23462,8 +23462,8 @@ var SessionControlSchema = external_exports.object({
   ),
   // There is deliberately NO `issuer` field. The ceremony's issuer is always
   // `gateway.authentication.jwks_info.jwt_issuer` — the callback binds the
-  // inbound and browser-login identities as raw `iss|<subject claim>` (`sub`, or `oid`
-  // on an Entra issuer), so any other value
+  // inbound and browser-login identities as raw `iss|<subject claim>` (`sub`, `oid`
+  // on an Entra issuer, `uid` against the ID token's `sub` on Okta), so any other value
   // makes every ceremony deterministically fail subject_mismatch. A field
   // whose only legal value is a copy of another field is pure misconfiguration
   // surface, so the deploy derives SESSION_CONTROL_ISSUER from jwt_issuer
