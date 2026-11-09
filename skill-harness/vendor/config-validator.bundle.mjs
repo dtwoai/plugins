@@ -23462,8 +23462,8 @@ var SessionControlSchema = external_exports.object({
   ),
   // There is deliberately NO `issuer` field. The ceremony's issuer is always
   // `gateway.authentication.jwks_info.jwt_issuer` — the callback binds the
-  // inbound and browser-login identities as raw `iss|<subject claim>` (`sub`, `oid`
-  // on an Entra issuer, `uid` against the ID token's `sub` on Okta), so any other value
+  // inbound and browser-login identities as raw `iss|<subject claim>` (`sub`; `oid`
+  // on an Entra issuer; `uid` on Okta, compared with the ID token's `sub`), so any other value
   // makes every ceremony deterministically fail subject_mismatch. A field
   // whose only legal value is a copy of another field is pure misconfiguration
   // surface, so the deploy derives SESSION_CONTROL_ISSUER from jwt_issuer
