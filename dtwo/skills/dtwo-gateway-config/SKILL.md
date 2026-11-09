@@ -180,7 +180,7 @@ All 4 fields are required when this object is present. These govern the **inboun
 |---|---|---|---|---|
 | `jwt_algorithm` | yes | enum: `HS256`/`HS384`/`HS512`/`RS256`/`RS384`/`RS512`/`ES256`/`ES384`/`ES512` | `JWT_ALGORITHM` | Set to the asymmetric algorithm your identity provider signs with — RS256 for most (Auth0, Entra), ES256 for elliptic-curve tenants. The HS256/HS384/HS512 values are symmetric and are rejected here: `jwks_info` always implies a JWKS endpoint, which publishes public keys only, and the gateway refuses to start on that combination. |
 | `jwt_jwks_uri` | yes | URL | `JWT_JWKS_URI` | Set to the JWKS URL your identity provider publishes; the gateway fetches public keys from here to validate incoming tokens. Must begin with a lowercase `https://` — the gateway rejects every other scheme, `file://` included, as an SSRF and key-substitution vector, and refuses to start. |
-| `jwt_issuer` | yes | string | `JWT_ISSUER` | Set to the `iss` claim your provider emits; the gateway rejects tokens whose `iss` does not match. Use the `https://` form — the gateway dereferences this URL for `/userinfo` token introspection and refuses to start on `http://`. Auth0 issuers carry a trailing slash and the comparison is exact, so `https://tenant.us.auth0.com/` and `https://tenant.us.auth0.com` are different values. |
+| `jwt_issuer` | yes | string | `JWT_ISSUER` | Set to the `iss` claim your provider emits; the gateway rejects tokens whose `iss` does not match. Use the `https://` form — the gateway dereferences this URL for `/userinfo` token introspection and refuses to start on `http://`. Auth0 issuers carry a trailing slash and the comparison is exact, so `https://tenant.us.auth0.com/` and `https://tenant.us.auth0.com` are different values. With authentication enabled, a value the gateway env file would read differently is rejected: surrounding spaces or quote marks, or a ` #` comment. |
 | `jwt_audience` | yes | string | `JWT_AUDIENCE` | Set to the `aud` claim the provider targets at this gateway; prevents tokens meant for other services from being accepted. |
 
 **Cross-field constraints** (verbatim from artifact):
@@ -189,6 +189,8 @@ All 4 fields are required when this object is present. These govern the **inboun
 > When authentication is enabled (the default), `jwt_algorithm` cannot be HS256, HS384 or HS512 — a JWKS endpoint publishes public keys, which only verify asymmetric signatures, so the gateway refuses to start. Use RS256 or ES256.
 >
 > When authentication is enabled (the default), `jwt_issuer` cannot begin with "http://" — the gateway dereferences it for /userinfo token introspection and refuses to start rather than send a bearer token in cleartext.
+>
+> When authentication is enabled (the default), `jwt_issuer` must be read by the gateway exactly as written: no spaces or quote marks around it, no " #" comment, and no control characters. The gateway env file would otherwise load a different value from the one Dtwo checks.
 
 #### `gateway.authentication.oauth_dcr` — DCR and discovery overrides
 
@@ -398,7 +400,7 @@ Every field marked `secret: true` in the artifact. Put a Vault reference there (
 - **`targetKind: platform`** — value is applied as a platform-side control at the named `platform.*` path rather than written to the gateway env file.
 - **`targetKind: sotwPath`** — value is written into the SOTW YAML at the named dotted path (e.g. `sotw.url`, `sotw.oauth_config.client_secret`). Read the `Target` column per field; do not infer a field's target from its section.
 
-<!-- schema-reference.json sha256:9133ce3ac2650844dc11ad453ed36ae929f11ab7b3df4d4842c1504292075313 -->
+<!-- schema-reference.json sha256:d7e5770c131413175a8efee14ef5b84fc59bccffab696ea55917fe86d206d119 -->
 
 <!-- END SCHEMA DIGEST -->
 

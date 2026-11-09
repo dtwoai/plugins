@@ -395,7 +395,7 @@
           "deployDefault": null,
           "target": "JWT_ISSUER",
           "description": "Expected iss claim value.",
-          "rationale": "Set to the `iss` claim your provider emits; the gateway rejects tokens whose `iss` does not match. Use the `https://` form — the gateway dereferences this URL for `/userinfo` token introspection and refuses to start on `http://`. Auth0 issuers carry a trailing slash and the comparison is exact, so `https://tenant.us.auth0.com/` and `https://tenant.us.auth0.com` are different values.",
+          "rationale": "Set to the `iss` claim your provider emits; the gateway rejects tokens whose `iss` does not match. Use the `https://` form — the gateway dereferences this URL for `/userinfo` token introspection and refuses to start on `http://`. Auth0 issuers carry a trailing slash and the comparison is exact, so `https://tenant.us.auth0.com/` and `https://tenant.us.auth0.com` are different values. With authentication enabled, a value the gateway env file would read differently is rejected: surrounding spaces or quote marks, or a ` #` comment.",
           "targetKind": "envVar"
         },
         {
@@ -422,6 +422,9 @@
         },
         {
           "message": "When authentication is enabled (the default), \"jwt_issuer\" cannot begin with \"http://\" — the gateway dereferences it for /userinfo token introspection and refuses to start rather than send a bearer token in cleartext."
+        },
+        {
+          "message": "When authentication is enabled (the default), \"jwt_issuer\" must be read by the gateway exactly as written: no spaces or quote marks around it, no \" #\" comment, and no control characters. The gateway env file would otherwise load a different value from the one Dtwo checks."
         }
       ]
     },
