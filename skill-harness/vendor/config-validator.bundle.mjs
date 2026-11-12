@@ -22790,6 +22790,35 @@ function date4(params) {
   return _coercedDate(ZodDate, params);
 }
 
+// src/dotenvValue.ts
+function dotenvLoadedValue(raw) {
+  const value = raw.replace(/^[^\S\r\n]+/, "");
+  if (value.startsWith("'")) {
+    const match = /^'((?:\\'|[^'])*)'/.exec(value);
+    if (!match || !AFTER_QUOTED_VALUE.test(value.slice(match[0].length))) return void 0;
+    return match[1].replace(/\\([\\'])/g, "$1");
+  }
+  if (value.startsWith('"')) {
+    const match = /^"((?:\\"|[^"])*)"/.exec(value);
+    if (!match || !AFTER_QUOTED_VALUE.test(value.slice(match[0].length))) return void 0;
+    return match[1].replace(/\\([\\'"abfnrtv])/g, (_, escaped) => DOUBLE_QUOTE_ESCAPES[escaped] ?? escaped);
+  }
+  return value.replace(/[\r\n].*$/s, "").replace(/\s+#.*$/, "").replace(/\s+$/, "");
+}
+var AFTER_QUOTED_VALUE = /^[^\S\r\n]*(?:#[^\r\n]*)?$/;
+var DOUBLE_QUOTE_ESCAPES = {
+  "\\": "\\",
+  "'": "'",
+  '"': '"',
+  a: "\x07",
+  b: "\b",
+  f: "\f",
+  n: "\n",
+  r: "\r",
+  t: "	",
+  v: "\v"
+};
+
 // src/gatewayTemplate.ts
 var ContextForgeConfigTemplate = `# =============================================================================
 # ContextForge Gateway \u2014 Environment Template
@@ -23061,6 +23090,10 @@ function validateAdvancedEntry(line) {
 }
 var SESSION_CONTROL_CLIENT_ID_RE = /^[\x21-\x7E]+$/;
 var CONTROL_OR_WHITESPACE_RE = /[\s\p{Cc}]/u;
+var CONTROL_CHARACTER_RE = new RegExp("\\p{Cc}", "u");
+function isReadVerbatimByGateway(issuer) {
+  return !CONTROL_CHARACTER_RE.test(issuer) && dotenvLoadedValue(issuer) === issuer;
+}
 function isNormalizedHttpsIssuer(value) {
   if (CONTROL_OR_WHITESPACE_RE.test(value)) return false;
   let url2;
@@ -23133,7 +23166,7 @@ var JwtAuthSchema = external_exports.preprocess(
         description: "Expected iss claim value.",
         target: "JWT_ISSUER",
         audience: "user",
-        rationale: "Set to the `iss` claim your provider emits; the gateway rejects tokens whose `iss` does not match. Use the `https://` form \u2014 the gateway dereferences this URL for `/userinfo` token introspection and refuses to start on `http://`. Auth0 issuers carry a trailing slash and the comparison is exact, so `https://tenant.us.auth0.com/` and `https://tenant.us.auth0.com` are different values."
+        rationale: "Set to the `iss` claim your provider emits; the gateway rejects tokens whose `iss` does not match. Use the `https://` form \u2014 the gateway dereferences this URL for `/userinfo` token introspection and refuses to start on `http://`. Auth0 issuers carry a trailing slash and the comparison is exact, so `https://tenant.us.auth0.com/` and `https://tenant.us.auth0.com` are different values. With authentication enabled, a value the gateway env file would read differently is rejected: surrounding spaces or quote marks, or a ` #` comment."
       })
     ),
     jwt_audience: external_exports.string().min(1).meta(
@@ -23150,7 +23183,8 @@ var JwtAuthSchema = external_exports.preprocess(
       crossFieldConstraints: [
         'When authentication is enabled (the default), "jwt_jwks_uri" must begin with a lowercase "https://" \u2014 the gateway rejects every other scheme, "file://" included, as an SSRF and key-substitution vector, and refuses to start.',
         'When authentication is enabled (the default), "jwt_algorithm" cannot be HS256, HS384 or HS512 \u2014 a JWKS endpoint publishes public keys, which only verify asymmetric signatures, so the gateway refuses to start. Use RS256 or ES256.',
-        'When authentication is enabled (the default), "jwt_issuer" cannot begin with "http://" \u2014 the gateway dereferences it for /userinfo token introspection and refuses to start rather than send a bearer token in cleartext.'
+        'When authentication is enabled (the default), "jwt_issuer" cannot begin with "http://" \u2014 the gateway dereferences it for /userinfo token introspection and refuses to start rather than send a bearer token in cleartext.',
+        'When authentication is enabled (the default), "jwt_issuer" must be read by the gateway exactly as written: no spaces or quote marks around it, no " #" comment, and no control characters. The gateway env file would otherwise load a different value from the one Dtwo checks.'
       ]
     })
   )
@@ -23289,6 +23323,12 @@ var GatewayAuthSchema = external_exports.object({
   (data) => !(data.enabled === true && data.jwks_info !== void 0 && data.jwks_info.jwt_issuer.startsWith("http://")),
   {
     message: '"jwt_issuer" cannot begin with "http://" while "jwt_jwks_uri" is set \u2014 the gateway refuses to start. It dereferences the issuer URL over the network for /userinfo token introspection and will not send a bearer token in cleartext. Use the https:// form of the same issuer. Only the "http://" prefix is rejected: non-URL issuers (for example "urn:" forms) are unaffected.',
+    path: ["jwks_info", "jwt_issuer"]
+  }
+).refine(
+  (data) => !(data.enabled === true && data.jwks_info !== void 0 && !isReadVerbatimByGateway(data.jwks_info.jwt_issuer)),
+  {
+    message: `"jwt_issuer" must be exactly the token's iss claim, with no spaces or quote marks around it, no " #" comment, and no control characters. For example: https://tenant.us.auth0.com/.`,
     path: ["jwks_info", "jwt_issuer"]
   }
 ).meta(
@@ -23447,7 +23487,7 @@ var SessionControlSchema = external_exports.object({
       description: "Public client id of the dedicated session-control OAuth app (native, PKCE, no client secret). Optional on a gateway authenticating against Dtwo's Auth0: the platform provisions one per organization and renders it at deploy. An explicit value always wins.",
       target: "SESSION_CONTROL_CLIENT_ID",
       audience: "user",
-      rationale: "Leave unset on a gateway using Dtwo authentication. Set it only when the gateway trusts your own IdP: the ceremony app must live in the IdP that issues the gateway's inbound tokens, so register a dedicated public client there (authorization-code + PKCE, no refresh grant) and paste its client id here. Do not reuse the gateway API client."
+      rationale: "Leave unset on a gateway using Dtwo authentication. Set it only when the gateway trusts your own IdP: the ceremony app must live in the IdP that issues the gateway's inbound tokens, so register a dedicated public client there (authorization-code + PKCE, no refresh grant) and paste its client id here. Do not reuse the gateway API client. On Okta that is a Native app with an Okta-generated client ID, included in the custom authorization server's access policy. The gateway picks the identity claim it binds on from the issuer host (Entra, Okta or other); most gateways need nothing more. For an Okta org on a custom domain or a sovereign-cloud Entra issuer \u2014 and only then \u2014 add `SESSION_SUBJECT_PROVIDER=okta` (or `entra`) to `gateway.advanced`, or every clear fails `subject_mismatch`."
     })
   ),
   redirect_uri: external_exports.string().min(1).refine(isRenderableRedirectUri, {
@@ -23462,8 +23502,8 @@ var SessionControlSchema = external_exports.object({
   ),
   // There is deliberately NO `issuer` field. The ceremony's issuer is always
   // `gateway.authentication.jwks_info.jwt_issuer` — the callback binds the
-  // inbound and browser-login identities as raw `iss|<subject claim>` (`sub`, or `oid`
-  // on an Entra issuer), so any other value
+  // inbound and browser-login identities as raw `iss|<subject claim>` (`sub`; `oid`
+  // on an Entra issuer; `uid` on Okta, compared with the ID token's `sub`), so any other value
   // makes every ceremony deterministically fail subject_mismatch. A field
   // whose only legal value is a copy of another field is pure misconfiguration
   // surface, so the deploy derives SESSION_CONTROL_ISSUER from jwt_issuer

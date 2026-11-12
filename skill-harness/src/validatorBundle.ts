@@ -39,7 +39,7 @@ export const EXPECTED_VALIDATOR_BUNDLE_VERSION = '4.0.0';
  * `__tests__/schemaDigest.test.ts`, not at module load. Bump this together
  * with `EXPECTED_VALIDATOR_BUNDLE_VERSION` when the bundle is re-vendored.
  */
-export const EXPECTED_VALIDATOR_BUNDLE_SHA256 = '9dba8b63ab3b7ef486aa3e448048ebe8eea04fac3e26598cc75f57e112d1474f';
+export const EXPECTED_VALIDATOR_BUNDLE_SHA256 = '54224d86bb46d1e711996311b231b7f73ab60e6a238062557720017159b51bdc';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 

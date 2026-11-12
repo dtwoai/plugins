@@ -180,7 +180,7 @@ All 4 fields are required when this object is present. These govern the **inboun
 |---|---|---|---|---|
 | `jwt_algorithm` | yes | enum: `HS256`/`HS384`/`HS512`/`RS256`/`RS384`/`RS512`/`ES256`/`ES384`/`ES512` | `JWT_ALGORITHM` | Set to the asymmetric algorithm your identity provider signs with — RS256 for most (Auth0, Entra), ES256 for elliptic-curve tenants. The HS256/HS384/HS512 values are symmetric and are rejected here: `jwks_info` always implies a JWKS endpoint, which publishes public keys only, and the gateway refuses to start on that combination. |
 | `jwt_jwks_uri` | yes | URL | `JWT_JWKS_URI` | Set to the JWKS URL your identity provider publishes; the gateway fetches public keys from here to validate incoming tokens. Must begin with a lowercase `https://` — the gateway rejects every other scheme, `file://` included, as an SSRF and key-substitution vector, and refuses to start. |
-| `jwt_issuer` | yes | string | `JWT_ISSUER` | Set to the `iss` claim your provider emits; the gateway rejects tokens whose `iss` does not match. Use the `https://` form — the gateway dereferences this URL for `/userinfo` token introspection and refuses to start on `http://`. Auth0 issuers carry a trailing slash and the comparison is exact, so `https://tenant.us.auth0.com/` and `https://tenant.us.auth0.com` are different values. |
+| `jwt_issuer` | yes | string | `JWT_ISSUER` | Set to the `iss` claim your provider emits; the gateway rejects tokens whose `iss` does not match. Use the `https://` form — the gateway dereferences this URL for `/userinfo` token introspection and refuses to start on `http://`. Auth0 issuers carry a trailing slash and the comparison is exact, so `https://tenant.us.auth0.com/` and `https://tenant.us.auth0.com` are different values. With authentication enabled, a value the gateway env file would read differently is rejected: surrounding spaces or quote marks, or a ` #` comment. |
 | `jwt_audience` | yes | string | `JWT_AUDIENCE` | Set to the `aud` claim the provider targets at this gateway; prevents tokens meant for other services from being accepted. |
 
 **Cross-field constraints** (verbatim from artifact):
@@ -189,6 +189,8 @@ All 4 fields are required when this object is present. These govern the **inboun
 > When authentication is enabled (the default), `jwt_algorithm` cannot be HS256, HS384 or HS512 — a JWKS endpoint publishes public keys, which only verify asymmetric signatures, so the gateway refuses to start. Use RS256 or ES256.
 >
 > When authentication is enabled (the default), `jwt_issuer` cannot begin with "http://" — the gateway dereferences it for /userinfo token introspection and refuses to start rather than send a bearer token in cleartext.
+>
+> When authentication is enabled (the default), `jwt_issuer` must be read by the gateway exactly as written: no spaces or quote marks around it, no " #" comment, and no control characters. The gateway env file would otherwise load a different value from the one Dtwo checks.
 
 #### `gateway.authentication.oauth_dcr` — DCR and discovery overrides
 
@@ -283,7 +285,7 @@ Human-gated session clearing (session-control) registration: the IdP app the bro
 
 | Field | Required | Type | Default | Target | Guidance (from artifact) |
 |---|---|---|---|---|---|
-| `client_id` | no | string | `not declared` | `SESSION_CONTROL_CLIENT_ID` | Leave unset on a gateway using Dtwo authentication. Set it only when the gateway trusts your own IdP: the ceremony app must live in the IdP that issues the gateway's inbound tokens, so register a dedicated public client there (authorization-code + PKCE, no refresh grant) and paste its client id here. Do not reuse the gateway API client. |
+| `client_id` | no | string | `not declared` | `SESSION_CONTROL_CLIENT_ID` | Leave unset on a gateway using Dtwo authentication. Set it only when the gateway trusts your own IdP: the ceremony app must live in the IdP that issues the gateway's inbound tokens, so register a dedicated public client there (authorization-code + PKCE, no refresh grant) and paste its client id here. Do not reuse the gateway API client. On Okta that is a Native app with an Okta-generated client ID, included in the custom authorization server's access policy. The gateway picks the identity claim it binds on from the issuer host (Entra, Okta or other); most gateways need nothing more. For an Okta org on a custom domain or a sovereign-cloud Entra issuer — and only then — add `SESSION_SUBJECT_PROVIDER=okta` (or `entra`) to `gateway.advanced`, or every clear fails `subject_mismatch`. |
 | `redirect_uri` | no | string | `not declared` | `SESSION_CONTROL_REDIRECT_URI` | Leave unset in almost all cases — the gateway derives `<origin of the first jwt_audience>/session-control/clear/callback` and the platform registers that. Set it when a reverse proxy or split-horizon DNS puts the browser on a different origin than the audience: give the URL the browser can actually reach, at the root path (`/mcp/*` routes to the streamable-HTTP handler, which rejects browser GETs). It is required when the first `jwt_audience` is not an absolute URL — e.g. an Entra ID v2.0 gateway, whose audience is the gateway app's client ID (a GUID) — since there is no origin to derive from, and the deploy rejects an armed gateway that leaves it unset. |
 
 **Cross-field constraints** (verbatim from artifact):
@@ -398,7 +400,7 @@ Every field marked `secret: true` in the artifact. Put a Vault reference there (
 - **`targetKind: platform`** — value is applied as a platform-side control at the named `platform.*` path rather than written to the gateway env file.
 - **`targetKind: sotwPath`** — value is written into the SOTW YAML at the named dotted path (e.g. `sotw.url`, `sotw.oauth_config.client_secret`). Read the `Target` column per field; do not infer a field's target from its section.
 
-<!-- schema-reference.json sha256:4dc79f71108e6c02642bd5fc8463e310924d0c3c453e634cd5afc60d9b46af16 -->
+<!-- schema-reference.json sha256:d7e5770c131413175a8efee14ef5b84fc59bccffab696ea55917fe86d206d119 -->
 
 <!-- END SCHEMA DIGEST -->
 
@@ -409,6 +411,17 @@ Controls authentication, SSRF protection, `log_level`, `advanced` flags, DCR / d
 - **Authentication** defaults to enabled when omitted. Every field in `gateway.authentication` — including the token-validation flags (`jwt_issuer_verification`, `jwt_audience_verification`, `require_jti`, `require_token_expiration`, `mcp_oauth_resource_metadata_enabled`) — is listed in the Schema Digest above with its target, its default, and the schema's own guidance on when to set it. Read the table there rather than guessing from this summary; most of those flags carry a gateway-applied default (their Default column reads `` `true` (gateway) ``), and where the artifact declares none (`mcp_oauth_resource_metadata_enabled` reads `not declared`) the Guidance column states the effective value.
 - **Gateway-side `jwks_info` is independent of any `mcp_servers[].authentication` block.** When the prompt supplies an IdP tenant and audience (e.g. Auth0), populate `gateway.authentication.jwks_info` (`jwt_algorithm`, `jwt_jwks_uri`, `jwt_issuer`, `jwt_audience`) — even when the upstream MCP server uses OAuth/DCR, and even when the prompt says the upstream server "only supports OAuth" or "does not accept bearer tokens." Those statements describe the outbound leg to the MCP server, not the inbound leg from clients to the gateway.
 - **SSRF** defaults to strict (block localhost, block private networks, fail-closed DNS) when omitted. Set `allow_private_networks: true` to permit access to `host.docker.internal` and other private addresses.
+- **Human-gated clearing on your own IdP** (a gateway whose `jwks_info` points at Okta, Entra ID or another IdP rather than Dtwo authentication) needs a `session_control.client_id` for a dedicated public client in that same IdP. The digest's `client_id` guidance covers the general rule. Things users get wrong:
+  - **Okta:** create a **Native** OIDC app (authorization code with PKCE, no client secret, no refresh token) and choose **Okta-generated client ID**, not a Client ID Metadata Document. Add it, and every app the MCP clients sign in with, to the custom authorization server's **access policy**, and make sure the policy's **rule** allows the Authorization Code grant and the `openid` and `email` scopes (the ceremony requests `openid email`). Otherwise Okta refuses the sign-in before the gateway sees it.
+  - **Sign-in redirect URI:** register `<gateway origin>/session-control/clear/callback` on the clearing app, or whatever `session_control.redirect_uri` names. It is required when the first `jwt_audience` is not a URL (Entra ID v2.0), and when the browser reaches the gateway at a different origin than its audience.
+  - **Intent clears need intent capture:** set `gateway.intent.enabled: true`, or `set_intent` succeeds but nothing is stored and a clear finds nothing to clear.
+  - **Identity claim — most gateways set nothing.** The gateway detects Entra ID (`login.microsoftonline.com`, `sts.windows.net`) and Okta (`*.okta.com`, `*.oktapreview.com`, `*.okta-emea.com`, `*.okta-gov.com`) from the `jwt_issuer` host, treats every other issuer (Auth0 included) as standard OIDC, and binds clears on the claim that identifies the same person in both tokens. Do not add `SESSION_SUBJECT_PROVIDER` unless the issuer is an **Okta org on a custom domain** or a **sovereign-cloud Entra ID** host; for those two only, add the provider to `gateway.advanced` as a list entry, or every clear fails `subject_mismatch`. The accepted values are `auto` (the default; an empty value means the same), `oidc`, `entra` and `okta`. Once the gateway runs a version that knows the setting, anything else fails the deploy; on an older version, or on the deploy that upgrades it, a bad value is ignored without an error, so check the gateway's `Session subject mapping` startup log line after upgrading.
+
+    ```yaml
+    gateway:
+      advanced:
+        - SESSION_SUBJECT_PROVIDER=okta
+    ```
 
 ### MCP Servers Section
 
