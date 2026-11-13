@@ -45,10 +45,11 @@ This skill is typically used alongside others. Invoke them via the `Skill` tool 
 ## Workflow
 
 1. Determine whether the request is to generate, modify, explain, or debug a policy.
-2. Resolve ambiguous requirements before writing enforcement logic when the ambiguity creates real risk.
-3. Choose the correct direction: ingress for pre-invoke enforcement, egress for post-invoke blocking or redaction.
-4. Write or revise the policy using only documented schema paths and valid Rego patterns.
-5. Return the policy in a fenced `rego` block with a short explanation of behavior and assumptions, unless the user is contributing to `dtwoai/policy-store`; in that case, create or update the catalog files described below.
+2. For a new policy that will be saved to a tenant, the policy catalog is checked before any Rego is written: a ready-made policy may already cover the request, and the user chooses between importing it and a new one. The companion `dtwo-gateway-policy` skill owns that step (Checking the Catalog First). If it hasn't run and the `dtwo-*` tools are connected, do it now with `dtwo-list-catalog-policies`. It doesn't apply to modifying, explaining or debugging a policy, or to Rego the user only wants to read.
+3. Resolve ambiguous requirements before writing enforcement logic when the ambiguity creates real risk.
+4. Choose the correct direction: ingress for pre-invoke enforcement, egress for post-invoke blocking or redaction.
+5. Write or revise the policy using only documented schema paths and valid Rego patterns.
+6. Return the policy in a fenced `rego` block with a short explanation of behavior and assumptions, unless the user is contributing to `dtwoai/policy-store`; in that case, create or update the catalog files described below.
 
 ## Core Rules
 
