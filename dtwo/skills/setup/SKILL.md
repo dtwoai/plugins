@@ -311,7 +311,7 @@ Offer to add more than one server, from either group. Load the **dtwo-gateway-co
 Policies are what make the gateway *enforce* something rather than just proxy. Ask which approach they want:
 
 - **Import recommended starter policies** — call `dtwo-list-catalog-policies` with `{ tags: ["onboarding"] }`. That tag is what marks a catalog policy as a starter, and it's the same set the Dtwo Hub's guided setup offers, so there's no need to go discover it with `dtwo-get-catalog-policy-filters` first (use that tool if the user wants to browse the catalog by app, industry, or bundle instead). Show the user a short list, then `dtwo-import-catalog-policy` the ones they pick, passing the `policySource` each one came back with. This is the fastest safe start.
-- **Author a custom policy** — hand off to **dtwo-gateway-policy** (which pulls in **dtwo-policy-rego** for the Rego) and create it with `dtwo-add-policy`.
+- **Author a custom policy** — hand off to **dtwo-gateway-policy** (which pulls in **dtwo-policy-rego** for the Rego) and create it with `dtwo-add-policy`. That skill searches the whole catalog for a ready-made match first, so the user may still end up importing one.
 - **Skip for now** — allowed, but warn plainly: with no policies attached, the gateway enforces nothing and every tool call passes through. They can add policies later with the companion skills.
 
 Capture the `uid` of every imported or created policy for the next phase.

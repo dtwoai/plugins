@@ -57,6 +57,7 @@ Match the user's goal to the **smallest** mechanism that solves it, then follow 
 
 Guidance:
 
+- **Check the catalog before writing a new policy.** The policy catalog may already hold a tested policy for what the user asked. Search it first and let the user choose between importing the match and writing a new policy (see Policy Workflow → Checking the Catalog First).
 - **Prefer one policy.** If a single call carries everything needed to decide, a single ingress or egress policy is the answer — don't reach for markers.
 - **Markers are for cross-call state**, not for anything decidable from the current call alone. They add a second policy and a registry entry, so use them only when the decision genuinely depends on earlier session activity. The moment you decide on a marker, two answers must come from the user before anything is registered: how long the restriction lasts, and whether the person can disable it early. Never choose either yourself (see Managing Markers → Registering a marker).
 - **Intent is for session-purpose gating** and is only available when the intent tools are present. If they are not, solve the request with policies and markers and do not mention intent.
@@ -67,12 +68,13 @@ Guidance:
 The common path, end to end. Each step links to its detailed section below; the fully worked version is the End-to-End Example.
 
 1. **Resolve the gateway** — `dtwo-list-gateways` (by name) → capture the UID.
-2. **Author the Rego** — hand off to the `dtwo-policy-rego` skill; pull identity claims first (`dtwo-list-claims`) only if the policy gates on identity.
-3. **Validate & create** — `dtwo-validate-policy-rego`, then `dtwo-add-policy` (name, description, policy, packageName, direction) → capture the policy UID.
-4. **Attach as a draft** — `dtwo-set-gateway-pipelines`, **omitting** `policyVersion`, preserving existing steps.
-5. **Deploy** — confirm with the user, then `dtwo-deploy-gateway`; poll `dtwo-get-deployment` to `completed`. (Policy-only deploys hot-reload — no gateway restart.)
-6. **Verify** — `dtwo-get-gateway-pipelines` to confirm attachment, then test allow and deny paths.
-7. **Publish & pin** — once verified and with user OK, `dtwo-publish-policy`, then re-attach with `policyVersion` pinned and redeploy.
+2. **Check the catalog** — `dtwo-list-catalog-policies`, filtered by the app and direction of the request. If an entry covers it, show it to the user and ask whether to import it (`dtwo-import-catalog-policy`) or write a new policy. An unchanged import replaces steps 3, 4, 5 and 8: it arrives already published as version 1, so attach it with `policyVersion: 1`, then deploy and verify. If the user wants the import adjusted first, edit its draft and follow steps 4 to 8 with `dtwo-update-policy` in place of `dtwo-add-policy`.
+3. **Author the Rego** — hand off to the `dtwo-policy-rego` skill; pull identity claims first (`dtwo-list-claims`) only if the policy gates on identity.
+4. **Validate & create** — `dtwo-validate-policy-rego`, then `dtwo-add-policy` (name, description, policy, packageName, direction) → capture the policy UID.
+5. **Attach as a draft** — `dtwo-set-gateway-pipelines`, **omitting** `policyVersion`, preserving existing steps.
+6. **Deploy** — confirm with the user, then `dtwo-deploy-gateway`; poll `dtwo-get-deployment` to `completed`. (Policy-only deploys hot-reload — no gateway restart.)
+7. **Verify** — `dtwo-get-gateway-pipelines` to confirm attachment, then test allow and deny paths.
+8. **Publish & pin** — once verified and with user OK, `dtwo-publish-policy`, then re-attach with `policyVersion` pinned and redeploy.
 
 For markers, session state, or (feature-gated) intent gating, see Managing Markers / Intent Capture. For removing a policy, see Deleting a Policy.
 
@@ -91,6 +93,7 @@ See **Quick start** above for the create→attach→deploy path and **Creating a
 ## Rules
 
 - Do not guess tool names or argument schemas when they can be discovered from gateway configuration and MCP tool metadata.
+- Before authoring a new policy, search the policy catalog for one that already does the job, and ask the user before choosing either path. Never import a catalog policy without their OK, and never skip the search because writing the Rego looks quick. See Policy Workflow → Checking the Catalog First.
 - Prefer testing draft policies before publishing and pinning versions.
 - Treat pipeline changes as non-live until a deploy completes successfully.
 - Do not treat `revert-policy` as deletion; detach first if the user wants removal from runtime behavior.
@@ -292,22 +295,39 @@ allows.
 
 ## Policy Workflow
 
+### Checking the Catalog First
+
+When the user asks for a new policy, look for a ready-made one before any Rego is written. A catalog policy has already been reviewed and tested, and an imported policy keeps its link to the catalog, so later improvements reach the tenant as updates.
+
+1. **Search.** `dtwo-list-catalog-policies` has no free-text search. It filters on `apps`, `tags`, `industries`, `bundles` and `direction`, and `name` is an exact match. Filter by what the request names: the app (a Slack rule → `apps`), the direction when it is clear, or a tag for the concern. Call `dtwo-get-catalog-policy-filters` for the valid values instead of guessing them. A filter that finds nothing proves little, since a generic policy such as PII redaction may carry no app. Drop the app filter and search again by tag or direction before deciding nothing matches. Read every page (`hasMore`, `nextOffset`).
+2. **Judge the candidates.** List results carry the name, tags, apps and a description cut to 1500 characters. For a likely match, call `dtwo-get-catalog-policy` with its `policySource` and read the full description and Rego. A match means the policy enforces what the user asked on the tool they named. A shared topic is not enough.
+3. **Check it isn't imported already.** In `dtwo-list-policies`, a tenant policy whose `publishedPolicySource` equals the candidate's `policySource` came from that catalog entry. It may have been edited since, so read it with `dtwo-get-policy` (and `dtwo-get-policy-versions` for what is published) and confirm it still does what the user asked. If it does, offer to attach the existing one and don't import it twice. If it was changed in a way that no longer fits, tell the user and let them choose between importing a fresh copy under another name (`overrideName`) and adjusting the existing one.
+4. **Ask the user.** Name the catalog policy, say in a sentence or two what it does, and point out any difference from the request (a broader pattern set, another tool, deny where they asked for redaction). Then ask: import it, or write a new one? When the fit is partial, importing it and adjusting the draft is a third option. Tell them an edited import will show its edits as differences the next time the catalog offers an update.
+5. **Act on the answer.**
+   - **Import unchanged:** `dtwo-import-catalog-policy` with `source` set to the `policySource`. The import creates the tenant policy and publishes version 1, so attach it with `policyVersion: 1` (see Pipeline Attachment), deploy after confirming, and verify. No draft round is needed.
+   - **Import and adjust:** import the same way, then treat the change as Modifying an Existing Policy: update the draft with `dtwo-update-policy`, validate, attach the **draft** (omit `policyVersion`), deploy and test, then publish and pin the new version. Version 1 is the unadjusted catalog Rego, so never pin it on this path.
+   - **New policy:** continue with Creating a New Policy.
+   - **No match:** say in one line that the catalog has nothing for this, then continue with Creating a New Policy.
+
+Skip the search when the user is changing a policy they already have, when they have already turned the catalog down for this request, or when they asked for the Rego only and nothing will be saved. A request to "write" or "create" a policy is not a refusal of the catalog, so the search still runs.
+
 ### Creating a New Policy
 
-1. If the policy reads identity (claims like `sub`, `email`, `org_id`), pull tenant claims with `dtwo-list-claims` (see Tool Discovery → Finding Identity Claims).
-2. If the target gateway fronts the Dtwo MCP server, plan a `dtwo-*` passthrough before authoring — see Deploying → Self-lock risk.
-3. Generate the Rego code using the guidance in the companion `dtwo-policy-rego` instructions
-4. Validate with `dtwo-validate-policy-rego`
-5. Create with `dtwo-add-policy` — provide:
+1. Check the policy catalog for a ready-made policy and let the user choose (see Checking the Catalog First). Continue here only when they want a new policy or nothing matched.
+2. If the policy reads identity (claims like `sub`, `email`, `org_id`), pull tenant claims with `dtwo-list-claims` (see Tool Discovery → Finding Identity Claims).
+3. If the target gateway fronts the Dtwo MCP server, plan a `dtwo-*` passthrough before authoring — see Deploying → Self-lock risk.
+4. Generate the Rego code using the guidance in the companion `dtwo-policy-rego` instructions
+5. Validate with `dtwo-validate-policy-rego`
+6. Create with `dtwo-add-policy` — provide:
    - `name` — human-readable policy name
    - `description` — structured markdown using the template in Policy Description Format (Intent required; Description and Implementation optional)
    - `policy` — the Rego code
    - `packageName` — the Rego package name (e.g., `jira.ingress.readonly`)
    - `direction` — `ingress` or `egress`
-6. Attach the **draft** (unpublished) policy to a gateway with `dtwo-set-gateway-pipelines` — **omit** `policyVersion` to reference the draft
-7. Deploy with `dtwo-deploy-gateway` and test the policy behavior
-8. Once the draft is working as desired, publish with `dtwo-publish-policy`
-9. Update the gateway pipeline to pin the published version with `dtwo-set-gateway-pipelines` and redeploy
+7. Attach the **draft** (unpublished) policy to a gateway with `dtwo-set-gateway-pipelines` — **omit** `policyVersion` to reference the draft
+8. Deploy with `dtwo-deploy-gateway` and test the policy behavior
+9. Once the draft is working as desired, publish with `dtwo-publish-policy`
+10. Update the gateway pipeline to pin the published version with `dtwo-set-gateway-pipelines` and redeploy
 
 ### Modifying an Existing Policy
 
@@ -404,6 +424,8 @@ Call `dtwo-get-gateway-config`. Read `mcp_servers[].name` — the server name pr
 For "DMs to John", you need John's Slack user ID (DMs use user IDs as `channel_id`). Use `slack-search-users` or equivalent. Capture the ID, and note the assumption that DM = user ID.
 
 ### 5. Hand off Rego authoring to `dtwo-policy-rego`
+Before the handoff, search the catalog (Policy Workflow → Checking the Catalog First): `dtwo-list-catalog-policies` with `apps` set to the Slack value from `dtwo-get-catalog-policy-filters`, then again by direction alone. Suppose it returns a general "block sensitive content in Slack messages" policy. Tell the user it exists and that it covers every recipient, not only John, and ask whether to import it or write the narrower rule. Here the user wants the narrower rule, so authoring goes ahead.
+
 Invoke `Skill("dtwo-policy-rego")` (or your host's equivalent) with the exact tool name, channel ID, and the sensitive-content patterns agreed with the user. It returns a fenced Rego block.
 
 ### 6. Validate before creating
