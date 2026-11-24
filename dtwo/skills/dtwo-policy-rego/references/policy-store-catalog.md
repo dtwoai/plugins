@@ -26,6 +26,10 @@ bundles/
   <bundle>/
     README.md
 
+groups/
+  <group>/
+    README.md
+
 manifest.json
 schema.json
 ```
@@ -36,6 +40,7 @@ schema.json
 - Use `<policy-slug>` as the lowercase, hyphenated purpose, such as `block-secrets`, `readonly`, or `pii-redaction`.
 - Do not add per-policy `README.md` or `metadata.json` files. Human documentation and all metadata live in `policy.md` frontmatter.
 - Treat `manifest.json` as generated from policy frontmatter. Do not hand-edit it except through the manifest generator.
+- Policy groups work like bundles: a policy lists its group slugs under `groups` in its frontmatter, and each group has a `groups/<group>/README.md` whose frontmatter holds the group's `name` and an optional `description`. The directory name is the group's id. A group needs at least two policies.
 
 ### `policy.md`
 
@@ -51,7 +56,7 @@ Frontmatter must include the required schema fields from `schema.json`:
 - `apps`
 - `schemaVersion`
 
-Include `industries`, `bundles`, and `minimumGatewayVersion` when they apply. Put the policy's human-facing documentation in `description`: what it does, when to use it, assumptions, limitations, examples, and relevant composition notes.
+Include `industries`, `bundles`, `groups`, and `minimumGatewayVersion` when they apply. Put the policy's human-facing documentation in `description`: what it does, when to use it, assumptions, limitations, examples, and relevant composition notes.
 
 Catalog policies are stricter than tenant-local examples:
 
@@ -93,7 +98,8 @@ Each test case uses this shape:
 2. Add a row or link to `apps/<app>/README.md`.
 3. If the policy belongs to an industry or bundle, list the slug in `policy.md` frontmatter and add a link from the matching `industries/<industry>/README.md` or `bundles/<bundle>/README.md`.
 4. For new apps, industries, or bundles, create the corresponding directory and `README.md`.
-5. Run `pnpm manifest`, commit the generated `manifest.json`, then run `pnpm manifest:check`.
-6. Run `pnpm test`; it requires the OPA CLI on `PATH` or `OPA_BIN` set.
+5. If the policy only works together with other policies (a marker writer and its reader, or a policy that blocks a passthrough tool and the per-tool policies it protects), list their group slug under `groups` in each policy's frontmatter. For a new group, also create `groups/<group>/README.md` with `name` and `description` frontmatter. Never rename a published group's directory, since accounts that imported the group stay linked by its id.
+6. Run `pnpm manifest`, commit the generated `manifest.json`, then run `pnpm manifest:check`. The check also fails when a policy lists a group with no directory, or a group has fewer than two policies.
+7. Run `pnpm test`; it requires the OPA CLI on `PATH` or `OPA_BIN` set.
 
 Do not invent new manifest fields. Match existing policy frontmatter and open an issue first if the schema lacks a needed field.

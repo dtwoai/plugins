@@ -7,7 +7,7 @@ description: |
   the intent registry.
   TRIGGER when: user says create/modify a policy, block/allow/redact something, attach/detach policy,
   set/update pipeline, publish/pin a policy version, or deploy gateway after a policy change; also manage a
-  marker/marker registry; or (only when intent tools are enabled) intent capture/registry/transitions or
+  marker/marker registry or a policy group; or (only when intent tools are enabled) intent capture/registry/transitions or
   intent/marker compatibility. Always pair with dtwo-policy-rego for the Rego authoring step.
   SKIP when: task is purely explaining existing Rego with no save/attach/deploy intent (use dtwo-policy-rego);
   or editing gateway YAML / MCP server entries (use dtwo-gateway-config).
@@ -51,6 +51,7 @@ Match the user's goal to the **smallest** mechanism that solves it, then follow 
 | Block or redact a response based on its content | One **egress policy** (deny or transform) | Creating a New Policy |
 | Rewrite a tool's arguments before it runs (e.g. force a filter) | One **ingress transform policy** | Creating a New Policy + `dtwo-policy-rego` |
 | Make a decision that depends on something earlier in the session (a prior tool, a prior response, another upstream server) | A **marker** — a writer policy stamps it, a reader policy gates on it | Managing Markers |
+| An outcome that only works with several policies together (a marker writer and its reader, or a bypass-closer and the policies it protects) | A **policy group** holding them | Policy Groups |
 | Gate tools on *what the agent is currently doing* | **Intent** *(only if the intent tools are enabled — otherwise not available; do not offer it)* | Intent Capture |
 | Turn a policy on/off, reorder it, or pin a version at runtime | **Pipeline attachment** + deploy | Pipeline Attachment |
 | Stop a policy's runtime effect, or remove it entirely | **Detach** + redeploy (then `dtwo-delete-policy` only if the record should also go) | Deleting a Policy |
@@ -68,9 +69,9 @@ Guidance:
 The common path, end to end. Each step links to its detailed section below; the fully worked version is the End-to-End Example.
 
 1. **Resolve the gateway** — `dtwo-list-gateways` (by name) → capture the UID.
-2. **Check the catalog** — `dtwo-list-catalog-policies`, filtered by the app and direction of the request. If an entry covers it, show it to the user and ask whether to import it (`dtwo-import-catalog-policy`) or write a new policy. An unchanged import replaces steps 3, 4, 5 and 8: it arrives already published as version 1, so attach it with `policyVersion: 1`, then deploy and verify. If the user wants the import adjusted first, edit its draft and follow steps 4 to 8 with `dtwo-update-policy` in place of `dtwo-add-policy`.
+2. **Check the catalog** — `dtwo-list-catalog-policies`, filtered by the app and direction of the request. If an entry covers it, show it to the user and ask whether to import it (`dtwo-import-catalog-policy`) or write a new policy. An unchanged import replaces steps 3, 4, 5 and 8: it arrives already published. If it reused a copy the account already had (`status: reused`), confirm that copy still does what the catalog entry says, since it may have been edited. Then attach it pinned to the `version` of its entry in the result's `policies` (if that is null, read the latest from `dtwo-get-policy-versions`), then deploy and verify. When the catalog entry lists `groups`, the policy works together with others; offer to import and attach the rest of each group too (`groupIds`), since importing one policy alone does not bring in its companions. Check the result's `failed` before attaching: don't deploy part of a group without telling the user what is missing. If the user wants the import adjusted first, follow "Import and adjust" in Checking the Catalog First.
 3. **Author the Rego** — hand off to the `dtwo-policy-rego` skill; pull identity claims first (`dtwo-list-claims`) only if the policy gates on identity.
-4. **Validate & create** — `dtwo-validate-policy-rego`, then `dtwo-add-policy` (name, description, policy, packageName, direction) → capture the policy UID.
+4. **Validate & create** — `dtwo-validate-policy-rego`, then `dtwo-add-policy` (name, description, policy, packageName, direction) → capture the policy UID. If the outcome needs more than one policy, put them in one policy group (see Policy Groups).
 5. **Attach as a draft** — `dtwo-set-gateway-pipelines`, **omitting** `policyVersion`, preserving existing steps.
 6. **Deploy** — confirm with the user, then `dtwo-deploy-gateway`; poll `dtwo-get-deployment` to `completed`. (Policy-only deploys hot-reload — no gateway restart.)
 7. **Verify** — `dtwo-get-gateway-pipelines` to confirm attachment, then test allow and deny paths.
@@ -109,11 +110,11 @@ See **Quick start** above for the create→attach→deploy path and **Creating a
 | `dtwo-get-policy` | Fetch a single policy by UID (includes draft Rego code) |
 | `dtwo-get-policy-versions` | List published versions for a policy |
 | `dtwo-validate-policy-rego` | Validate Rego code without saving — useful for dry-run checks before committing changes (note: `dtwo-add-policy` and `dtwo-update-policy` also validate automatically) |
-| `dtwo-add-policy` | Validate and create a new policy (requires name, description, policy, packageName, direction). Optionally pass `writableKeySchema` to declare the session-state keys the policy is authorized to write — required for any policy that emits a marker (see Managing Markers) |
-| `dtwo-update-policy` | Update an existing policy's draft — any field (policy, packageName, name, description, direction, tags, `writableKeySchema`). Validates Rego when both policy and packageName are provided. `writableKeySchema` is tri-state: **omit** → leave unchanged; **`null`** → clear the field (policy keeps no writable keys); **`[]`** → set an explicit empty list (also leaves no writable keys — practically the same effect as `null`; use `null` as the reset); **`[...]`** → replace with that list |
+| `dtwo-add-policy` | Validate and create a new policy (requires name, description, policy, packageName, direction). Optionally pass `writableKeySchema` to declare the session-state keys the policy is authorized to write — required for any policy that emits a marker (see Managing Markers). Pass `groupUids` to put it in existing policy groups |
+| `dtwo-update-policy` | Update an existing policy's draft — any field (policy, packageName, name, description, direction, tags, `writableKeySchema`, `groupUids`). `groupUids` replaces the groups the policy is in; `[]` takes it out of all of them. Validates Rego when both policy and packageName are provided. `writableKeySchema` is tri-state: **omit** → leave unchanged; **`null`** → clear the field (policy keeps no writable keys); **`[]`** → set an explicit empty list (also leaves no writable keys — practically the same effect as `null`; use `null` as the reset); **`[...]`** → replace with that list |
 | `dtwo-publish-policy` | Publish the current draft as a new version |
 | `dtwo-revert-policy` | Restore a published `version` back into the draft. Pass `publish: true` to publish it immediately as well |
-| `dtwo-delete-policy` | Permanently delete a policy by UID. Fails if the policy is still attached to one or more gateways — detach it from every gateway first (see Deleting a Policy). Distinct from `dtwo-revert-policy`, which only restores a prior version |
+| `dtwo-delete-policy` | Permanently delete a policy by UID. Fails if the policy is still attached to one or more gateways — detach it from every gateway first (see Deleting a Policy). Distinct from `dtwo-revert-policy`, which only restores a prior version. The result's `leftGroups` names the policy groups it was in |
 | `dtwo-list-claims` | Return the union of JWT claim names observed across the tenant, plus the issuers seen. Defaults to tenant-wide; pass `gatewayUid` to scope to a single gateway when the user asks. Call this when authoring or modifying identity-aware policies so rules can reference claims that actually exist; skip for policies that don't read `input.subject.claims`. |
 
 ### Catalog Policy Tools
@@ -122,8 +123,9 @@ The policy catalog holds ready-made policies a tenant can import. An imported po
 
 | Tool | Purpose |
 |------|---------|
-| `dtwo-list-catalog-policies` / `dtwo-get-catalog-policy-filters` / `dtwo-get-catalog-policy` | Browse the catalog, the filters it supports, and one entry |
-| `dtwo-import-catalog-policy` | Import a catalog policy as a tenant policy |
+| `dtwo-list-catalog-policies` / `dtwo-get-catalog-policy-filters` / `dtwo-get-catalog-policy` | Browse the catalog, the filters it supports, and one entry. Each entry lists the catalog `groups` it is in |
+| `dtwo-list-catalog-policy-groups` | List the catalog's groups: policies that work together for one outcome, with the `policySource` of each |
+| `dtwo-import-catalog-policy` | Import catalog policies into the account, each published. Pass `source` for one policy, `groupIds` for whole catalog groups, or `includeGroups: true` with `source` to also import every catalog group the policy is in. Without overrides, a published copy the account already has is reused (`status: reused`) instead of duplicated, and every imported or reused policy joins the account group linked to each of its catalog groups (created the first time). With `overrideName`, `packageName` or `tags`, it creates a separate copy that joins no group |
 | `dtwo-check-policy-updates` | Compare imported policies with the catalog. Each reports `upToDate`, `updateAvailable`, or `removedUpstream`, plus `skipped` when the tenant already dismissed that exact version |
 | `dtwo-apply-catalog-policy-update` | Pull the newer catalog version into the policy's **draft**. `applyPolicyCode` and `applyDescription` (both default `true`) choose which parts to replace; the result includes a diff of the Rego. No version is published unless `publish` is set. Call it only after the user has decided how to resolve the update |
 | `dtwo-skip-policy-update` | Dismiss an available update until a newer catalog version appears. Doesn't change the policy, and the update can still be applied later |
@@ -143,6 +145,17 @@ Markers are session-state flags that one policy writes and other policies read t
 | `dtwo-delete-marker` | Delete a customer-tier marker. Platform-managed entries cannot be deleted |
 
 What you register here is also visible to policy Rego as OPA data at `data.dtwo.intent_registry` — see The registry as policy data.
+
+### Policy Group Tools
+
+A policy group is a named set of the account's policies that work together (see Policy Groups). A policy can be in any number of groups.
+
+| Tool | Purpose |
+|------|---------|
+| `dtwo-list-policy-groups` / `dtwo-get-policy-group` | List the account's groups, or fetch one by UID, each with its members (uid, name, direction, latest published version). `publishedGroupSource` is the catalog group an import created it from, or null |
+| `dtwo-create-policy-group` | Create a group (`name`, unique in the account ignoring case; optional `description` and `policyUids`) |
+| `dtwo-update-policy-group` | Rename it, change its description, or change its members: `policyUids` sets them, or `addPolicyUids` / `removePolicyUids` change them. Gateways are not changed |
+| `dtwo-delete-policy-group` | Delete the group. Its policies and their gateway attachments stay |
 
 ### Intent Registry Tools (conditional — feature-gated)
 
@@ -167,7 +180,7 @@ When present, these tools manage the intent vocabulary and the rules that govern
 | `dtwo-list-gateways` | List gateways with optional filters (name, status, uid) |
 | `dtwo-get-gateway` | Fetch a single gateway by UID |
 | `dtwo-get-gateway-config` | Fetch the gateway's YAML configuration. Used here **read-only** to discover `mcp_servers[].name` and tool names when authoring policies (see Tool Discovery). Returns the **draft** config, which can diverge from what's deployed — confirm names against the deployed config before relying on them. Editing gateway YAML belongs to the companion `dtwo-gateway-config` skill |
-| `dtwo-set-gateway-pipelines` | Attach policies to ingress/egress pipelines |
+| `dtwo-set-gateway-pipelines` | Attach policies to ingress/egress pipelines. `groupWarnings` names any policy group the change left only partly on the gateway |
 | `dtwo-get-gateway-pipelines` | Fetch ingress and egress pipeline steps for a gateway, including policy details |
 | `dtwo-deploy-gateway` | Queue a deployment for the gateway |
 | `dtwo-get-gateway-deployments` | List deployment tasks for a gateway |
@@ -181,6 +194,8 @@ The delete **fails if the policy is still attached to any gateway**, so detach i
 
 1. **Detach first** — remove the policy from all pipelines with `dtwo-set-gateway-pipelines` (pass `[]` to clear the relevant direction, or re-send the direction's steps without this policy), then redeploy each affected gateway. A detached policy remains in the policy list but has no runtime effect.
 2. **Delete** — call `dtwo-delete-policy` with the `uid`. If the policy is still attached, the call fails with an error naming the gateways still referencing it. Use those names (or `dtwo-get-gateway-pipelines`) to find the remaining attachments, detach them, redeploy, and retry.
+
+A policy in a policy group is still deleted. Before confirming, tell the user which groups it is in (`groups` on `dtwo-get-policy`), since the rest of a group may stop working as intended without it.
 
 Deletion is irreversible and confirmation-worthy — confirm with the user before calling `dtwo-delete-policy`. If they only want to stop the policy's runtime effect (not remove the record), detaching and redeploying is sufficient; leave the policy in place.
 
@@ -300,12 +315,12 @@ allows.
 When the user asks for a new policy, look for a ready-made one before any Rego is written. A catalog policy has already been reviewed and tested, and an imported policy keeps its link to the catalog, so later improvements reach the tenant as updates.
 
 1. **Search.** `dtwo-list-catalog-policies` has no free-text search. It filters on `apps`, `tags`, `industries`, `bundles` and `direction`, and `name` is an exact match. Filter by what the request names: the app (a Slack rule → `apps`), the direction when it is clear, or a tag for the concern. Call `dtwo-get-catalog-policy-filters` for the valid values instead of guessing them. A filter that finds nothing proves little, since a generic policy such as PII redaction may carry no app. Drop the app filter and search again by tag or direction before deciding nothing matches. Read every page (`hasMore`, `nextOffset`).
-2. **Judge the candidates.** List results carry the name, tags, apps and a description cut to 1500 characters. For a likely match, call `dtwo-get-catalog-policy` with its `policySource` and read the full description and Rego. A match means the policy enforces what the user asked on the tool they named. A shared topic is not enough.
-3. **Check it isn't imported already.** In `dtwo-list-policies`, a tenant policy whose `publishedPolicySource` equals the candidate's `policySource` came from that catalog entry. It may have been edited since, so read it with `dtwo-get-policy` (and `dtwo-get-policy-versions` for what is published) and confirm it still does what the user asked. If it does, offer to attach the existing one and don't import it twice. If it was changed in a way that no longer fits, tell the user and let them choose between importing a fresh copy under another name (`overrideName`) and adjusting the existing one.
-4. **Ask the user.** Name the catalog policy, say in a sentence or two what it does, and point out any difference from the request (a broader pattern set, another tool, deny where they asked for redaction). Then ask: import it, or write a new one? When the fit is partial, importing it and adjusting the draft is a third option. Tell them an edited import will show its edits as differences the next time the catalog offers an update.
+2. **Judge the candidates.** List results carry the name, tags, apps and a description cut to 1500 characters. For a likely match, call `dtwo-get-catalog-policy` with `source` set to its `policySource` and read the full description and Rego. A match means the policy enforces what the user asked on the tool they named. A shared topic is not enough. If the candidate lists catalog `groups`, it works together with other catalog policies; `dtwo-list-catalog-policy-groups` shows which.
+3. **Check it isn't imported already.** In `dtwo-list-policies`, a tenant policy whose `publishedPolicySource` equals the candidate's `policySource` came from that catalog entry. It may have been edited since, so read it with `dtwo-get-policy` (and `dtwo-get-policy-versions` for what is published) and confirm it still does what the user asked. If it does, offer to attach the existing one instead of importing it again. If it was changed in a way that no longer fits, tell the user and let them choose between importing a separate copy under another name (`overrideName`, which joins no policy group) and adjusting the existing one. If other gateways run the existing one from its draft or at its latest version, adjusting it changes them on their next deploy, as in "Import and adjust" below, so offer the separate copy instead.
+4. **Ask the user.** Name the catalog policy, say in a sentence or two what it does, and point out any difference from the request (a broader pattern set, another tool, deny where they asked for redaction). If it is in a catalog group, name the other policies in the group and say it is meant to run with them. Then ask: import it (alone or with its group), or write a new one? When the fit is partial, importing it and adjusting the draft is a third option. Tell them an edited import will show its edits as differences the next time the catalog offers an update.
 5. **Act on the answer.**
-   - **Import unchanged:** `dtwo-import-catalog-policy` with `source` set to the `policySource`. The import creates the tenant policy and publishes version 1, so attach it with `policyVersion: 1` (see Pipeline Attachment), deploy after confirming, and verify. No draft round is needed.
-   - **Import and adjust:** import the same way, then treat the change as Modifying an Existing Policy: update the draft with `dtwo-update-policy`, validate, attach the **draft** (omit `policyVersion`), deploy and test, then publish and pin the new version. Version 1 is the unadjusted catalog Rego, so never pin it on this path.
+   - **Import unchanged:** `dtwo-import-catalog-policy` with `source` set to the `policySource`. If the user wants its group too, pass the `groupIds` of the groups they chose instead; `includeGroups: true` brings in every group the policy is in, which may be more than they asked for. Each policy in the result (`policies`) comes back published, either newly imported or reused from the account (`status`). Check `failed` first: if part of a group did not import, tell the user what is missing and don't deploy the rest of the group without their OK. Confirm each reused companion policy still does what its catalog entry says, as in step 3, since the account may have edited it. Then attach each one pinned to the `version` of its entry in `policies` (see Pipeline Attachment). If that `version` is null, read the latest published version with `dtwo-get-policy-versions`, since a step without a pin runs the draft. Skip any that the gateway already runs, and keep their existing pin unless the user asks to change it, since two steps for one policy fail the deploy. If that pin is older than the version the import returned, tell the user, since the newer version may cover more. Then deploy after confirming, and verify. No draft round is needed. Don't assume version 1: a reused copy may be on a later version.
+   - **Import and adjust:** import the same way, then treat the change as Modifying an Existing Policy: update the draft with `dtwo-update-policy`, validate, attach the **draft** (omit `policyVersion`), deploy and test, then publish and pin the new version. The version the import returned is the unadjusted Rego, so never pin it on this path. Find the policy to adjust in the result's `policies` by its `source` and check its `status`. If other gateways already run that policy from its draft or at its latest version (likely when `status: reused`, but check either way), editing and publishing it changes them on their next deploy; import a separate copy with `overrideName` instead. If this gateway already runs the original, replace that step with the copy, since two steps with one Rego package fail the deploy.
    - **New policy:** continue with Creating a New Policy.
    - **No match:** say in one line that the catalog has nothing for this, then continue with Creating a New Policy.
 
@@ -324,6 +339,7 @@ Skip the search when the user is changing a policy they already have, when they 
    - `policy` — the Rego code
    - `packageName` — the Rego package name (e.g., `jira.ingress.readonly`)
    - `direction` — `ingress` or `egress`
+   - `groupUids` (optional) — the policy groups to put it in, when it works together with other policies (see Policy Groups)
 7. Attach the **draft** (unpublished) policy to a gateway with `dtwo-set-gateway-pipelines` — **omit** `policyVersion` to reference the draft
 8. Deploy with `dtwo-deploy-gateway` and test the policy behavior
 9. Once the draft is working as desired, publish with `dtwo-publish-policy`
@@ -349,6 +365,15 @@ Skip the search when the user is changing a policy they already have, when they 
 1. List versions with `dtwo-get-policy-versions`
 2. Restore a previous version with `dtwo-revert-policy` (optionally publish immediately with `publish: true`)
 
+### Policy Groups
+
+Some outcomes need several policies, and removing any one of them breaks the outcome: a marker writer and its reader, or a bypass-closer (a policy that blocks a raw passthrough tool) and the per-tool policies it protects. A policy group records that they belong together, so the user can see it and so a later attach, detach or delete can warn about the rest of the group.
+
+- **Create one whenever an outcome takes more than one policy.** After creating the policies, call `dtwo-create-policy-group` with a `name` that says what they achieve together, a `description`, and their `policyUids`. To add an existing policy to a group, use `addPolicyUids` on `dtwo-update-policy-group`. `groupUids` on `dtwo-update-policy` replaces every group the policy is in, so pass its current groups plus the new one, or it leaves the others. A new policy can join groups through `groupUids` on `dtwo-add-policy`. Ask the user to confirm the group name like any other name you choose for them.
+- **Groups are advisory.** Nothing is refused because of a group: a policy can be attached, detached or deleted on its own. The tools say when that leaves a group incomplete, and you pass that on to the user.
+- **Groups track policies, not versions.** A group lists its policies by UID only. Which version runs is still chosen per pipeline step on each gateway, so publishing a new version of one member changes only the steps that follow the latest version, on their next deploy, and nothing checks that the versions pinned for a group's members still work together.
+- **Imports keep catalog groups.** A plain catalog import puts each policy in the account group linked to its catalog group, so imported groups need no extra step. A copy imported with overrides is a separate policy and joins no group; add it to one with `groupUids` if it belongs there.
+
 ## Pipeline Attachment
 
 Use `dtwo-set-gateway-pipelines` to attach policies to a gateway's ingress and/or egress pipelines. Each pipeline step requires:
@@ -365,6 +390,8 @@ Once a draft is working as desired, publish the policy and update the pipeline s
 Steps are evaluated in array order — place broader policies (e.g., access control) before narrower ones (e.g., argument transforms). If an earlier step denies, later steps are not evaluated.
 
 Ingress and egress steps are independent arrays. Omitting a direction leaves it unchanged; pass `[]` to clear it.
+
+**Policy groups.** Before attaching or detaching a policy, check its `groups` (`dtwo-get-policy`). If it is in a group, name the group's other policies and ask whether to attach or detach them too, in whichever direction each one runs. Respect the answer, since a group never blocks the change. After the call, read `groupWarnings` in the result: it names each group the change left only partly on the gateway and the policies missing. Tell the user, and offer to attach the rest or remove the remainder.
 
 ## Deploying
 
@@ -561,8 +588,9 @@ A trigger that restricts several things lists one entry per marker — same `jso
 ### Attaching, deploying, and reading
 
 1. Author the reader policy (walks `input.context.session.policies` for the marker key — see `dtwo-policy-rego`). The reader needs no `writableKeySchema`; it only reads.
-2. Attach both with `dtwo-set-gateway-pipelines` — the writer on the direction that observes the signal (often egress), the reader on the direction that gates (often ingress). Preserve existing steps.
-3. Deploy with `dtwo-deploy-gateway`. This is a **policy-only deploy** — hot-reloaded, no gateway restart, no MCP client disconnect (see Deploying).
+2. Put the writer and the reader in one policy group (`dtwo-create-policy-group` with both UIDs), since neither does anything useful alone (see Policy Groups).
+3. Attach both with `dtwo-set-gateway-pipelines` — the writer on the direction that observes the signal (often egress), the reader on the direction that gates (often ingress). Preserve existing steps.
+4. Deploy with `dtwo-deploy-gateway`. This is a **policy-only deploy** — hot-reloaded, no gateway restart, no MCP client disconnect (see Deploying).
 
 **Deploy-time validator.** The deploy hard-rejects if any attached policy declares a `writableKeySchema` marker key that isn't in the registry, reporting which key is unregistered. This is separate from the key's structural validation (allowed characters, reserved prefixes), which the backend applies when the policy is saved — the registry-existence check runs at deploy time. Register the marker *before* attaching a policy that writes it.
 
